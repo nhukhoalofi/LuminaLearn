@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@luminalearn/scene-schema": ["../scene-schema/src/index.ts"],
+      "@luminalearn/validator": ["../validator/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"]
+}
+

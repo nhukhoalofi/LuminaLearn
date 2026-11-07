@@ -1,0 +1,25 @@
+{
+  "name": "luminalearn-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LuminaLearn Monorepo - Nền tảng học tập trực quan và tạo video khoa học thông minh",
+  "scripts": {
+    "dev:web": "pnpm --filter @luminalearn/web dev",
+    "dev:worker": "pnpm --filter @luminalearn/worker dev",
+    "render:worker": "pnpm --filter @luminalearn/worker render",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test:math-engine": "services\\math-engine\\.venv\\Scripts\\python.exe -m pytest services\\math-engine",
+    "phase3:mock": "pnpm --filter @luminalearn/agent generate",
+    "phase3:render": "pnpm --filter @luminalearn/agent generate -- --render",
+    "hybrid:render": "pnpm --filter @luminalearn/hybrid-renderer render"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "verifyDepsBeforeRun": false
+  }
+}

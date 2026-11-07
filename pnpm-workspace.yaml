@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+minimumReleaseAgeExclude:
+  - '@google/genai@3.0.0'
+
+verifyDepsBeforeRun: false

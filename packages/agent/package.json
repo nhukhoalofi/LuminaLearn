@@ -1,0 +1,26 @@
+{
+  "name": "@luminalearn/agent",
+  "version": "0.1.0",
+  "description": "Gemini AI Lesson Planner and Scene Compiler for LuminaLearn",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx test/*.test.ts",
+    "generate": "tsx src/cli.ts",
+    "smoke:live": "tsx src/cli.ts --live"
+  },
+  "dependencies": {
+    "@google/genai": "^3.0.0",
+    "@luminalearn/scene-schema": "workspace:*",
+    "@luminalearn/validator": "workspace:*",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

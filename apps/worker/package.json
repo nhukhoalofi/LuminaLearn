@@ -1,0 +1,28 @@
+{
+  "name": "@luminalearn/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LuminaLearn Remotion Video Rendering Engine",
+  "scripts": {
+    "dev": "remotion preview src/index.ts --port 3001 --browser-executable=\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\"",
+    "build": "remotion bundle src/index.ts",
+    "render": "remotion render src/index.ts LuminaSimpson out/simpson-demo.mp4 --browser-executable=\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\"",
+    "test": "node --experimental-strip-types --test test/math.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@luminalearn/scene-schema": "workspace:*",
+    "@remotion/media": "4.0.541",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.541",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.541",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^5.7.3"
+  }
+}

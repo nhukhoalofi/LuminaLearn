@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0.0",
+  "projectId": "simpson-paradox-demo",
+  "title": "Nghịch lý Simpson: Khi các con số đánh lừa trực giác",
+  "video": {
+    "width": 720,
+    "height": 1280,
+    "fps": 24,
+    "durationFrames": 960
+  },
+  "facts": [
+    {
+      "id": "fact_easy_a",
+      "label": "Phương pháp A (Nhóm Dễ)",
+      "group": "easy",
+      "success": 9,
+      "total": 10,
+      "unit": "ca hồi phục",
+      "note": "9/10 ca thành công (90%)",
+      "isHypothetical": true
+    },
+    {
+      "id": "fact_easy_b",
+      "label": "Phương pháp B (Nhóm Dễ)",
+      "group": "easy",
+      "success": 80,
+      "total": 100,
+      "unit": "ca hồi phục",
+      "note": "80/100 ca thành công (80%)",
+      "isHypothetical": true
+    },
+    {
+      "id": "fact_hard_a",
+      "label": "Phương pháp A (Nhóm Khó)",
+      "group": "hard",
+      "success": 20,
+      "total": 100,
+      "unit": "ca hồi phục",
+      "note": "20/100 ca thành công (20%)",
+      "isHypothetical": true
+    },
+    {
+      "id": "fact_hard_b",
+      "label": "Phương pháp B (Nhóm Khó)",
+      "group": "hard",
+      "success": 1,
+      "total": 10,
+      "unit": "ca hồi phục",
+      "note": "1/10 ca thành công (10%)",
+      "isHypothetical": true
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene_01_hook",
+      "template": "question_reveal",
+      "durationFrames": 120,
+      "content": {
+        "question": "Tại sao A thắng ở từng nhóm nhưng lại thua khi gộp?",
+        "subtitle": "Nghịch lý Simpson trong phân tích dữ liệu STEM",
+        "hookNote": "Dữ liệu thống kê có thể đảo chiều hoàn toàn nếu bỏ qua biến ẩn!"
+      }
+    },
+    {
+      "id": "scene_02_easy_group",
+      "template": "dual_comparison",
+      "durationFrames": 240,
+      "content": {
+        "groupLabel": "Nhóm Ca Bệnh Nhẹ (Dễ)",
+        "factAId": "fact_easy_a",
+        "factBId": "fact_easy_b",
+        "highlightWinner": "A",
+        "takeaway": "Phương pháp A vượt trội ở nhóm dễ: 9/10 (90%) > 80/100 (80%)"
+      }
+    },
+    {
+      "id": "scene_03_hard_group",
+      "template": "dual_comparison",
+      "durationFrames": 240,
+      "content": {
+        "groupLabel": "Nhóm Ca Bệnh Nặng (Khó)",
+        "factAId": "fact_hard_a",
+        "factBId": "fact_hard_b",
+        "highlightWinner": "A",
+        "takeaway": "Phương pháp A tiếp tục dẫn đầu ở nhóm khó: 20/100 (20%) > 1/10 (10%)"
+      }
+    },
+    {
+      "id": "scene_04_merge_paradox",
+      "template": "data_merge",
+      "durationFrames": 240,
+      "content": {
+        "title": "Gộp Dữ Liệu: Nghịch Lý Xuất Hiện!",
+        "factAId1": "fact_easy_a",
+        "factAId2": "fact_hard_a",
+        "factBId1": "fact_easy_b",
+        "factBId2": "fact_hard_b",
+        "paradoxNote": "Khi tổng hợp, B bất ngờ vượt lên: 81/110 (~73.6%) áp đảo hoàn toàn A: 29/110 (~26.4%)!"
+      }
+    },
+    {
+      "id": "scene_05_summary",
+      "template": "concept_summary",
+      "durationFrames": 120,
+      "content": {
+        "principle": "Nghịch Lý Simpson (Simpson's Paradox)",
+        "explanation": "Tỷ trọng mẫu phân bổ không đồng đều giữa các nhóm có thể làm đảo chiều kết quả tổng hợp.",
+        "disclaimer": "Lưu ý: Bộ số liệu trên là dữ liệu giả định phục vụ mục đích sư phạm và trực quan hóa khoa học."
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": ["../agent/node_modules/@types"],
+    "paths": {
+      "@luminalearn/agent": ["../agent/src/index.ts"],
+      "@luminalearn/scene-schema": ["../scene-schema/src/index.ts"],
+      "zod": ["../scene-schema/node_modules/zod"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"]
+}
+
