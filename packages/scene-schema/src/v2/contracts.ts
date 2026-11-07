@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { GroundingEvidenceSchema, NoExecutableString, SafeIdString, SourceReferenceSchema } from './document';
+import { MathVisualizationSpecV2Schema } from './math-spec';
 
 export const LESSON_SCHEMA_VERSION_V2 = 'lesson-v2' as const;
 export const MANIFEST_SCHEMA_VERSION_V2 = 'manifest-v2' as const;
@@ -86,6 +87,7 @@ export const LessonPlanV2Schema = z.object({
   prerequisites: z.array(NoExecutableString).max(6).default([]),
   keyConcepts: z.array(NoExecutableString).min(1).max(8),
   mathematicalClaims: z.array(VerifiedClaimSchema).min(1).max(12),
+  mathSpec: MathVisualizationSpecV2Schema.optional(),
   sourceEvidence: z.array(GroundingEvidenceSchema).default([]),
   pedagogicalSequence: z.array(PedagogicalStepSchema).min(1).max(10),
   summary: NoExecutableString

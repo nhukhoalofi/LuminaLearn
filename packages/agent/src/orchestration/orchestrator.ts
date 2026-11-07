@@ -8,7 +8,7 @@ import {
 import { CurriculumPlanner } from './curriculum-planner';
 import { DocumentAnalyst, DocumentGroundingService, DocumentStore } from './document-grounding';
 import { MathVerificationService } from './math-verifier';
-import { type AIProvider, MockAIProvider } from './ai-provider';
+import { type AIProvider, MockAIProvider, LiveGeminiAIProvider } from './ai-provider';
 import { NarrationPlannerV2 } from './narration-planner';
 import { QualityReviewer } from './quality-reviewer';
 import { TopicRouter } from './router';
@@ -115,19 +115,41 @@ export class LessonOrchestrator {
         context.error = { code: 'source_evidence_missing', message: 'Tài liệu nguồn rỗng hoặc chưa được trích xuất' };
         return context;
       }
+      const unverifiedEv = docAnalysis.evidence.filter((ev) => !ev.evidenceFound);
+      if (unverifiedEv.length > 0) {
+        log('document_analysis', 'needs_review', 'warning', `Có ${unverifiedEv.length} trích dẫn nguồn không được xác thực nguyên văn trong tài liệu`);
+        context.stage = 'needs_review';
+        context.error = {
+          code: 'source_evidence_unverified',
+          message: `Found ${unverifiedEv.length} source references that could not be verified verbatim in the uploaded documents`
+        };
+        return context;
+      }
       log('document_analysis', 'analyzed', 'success', `Đã phân tích ${docAnalysis.totalChunks} đoạn tài liệu, trích xuất ${docAnalysis.extractedConcepts.length} khái niệm`);
     }
 
     // Stage 4: Lập kế hoạch sư phạm (Curriculum Planning)
+    let effectiveAiProvider = this.aiProvider;
+    if (request.renderMode === 'live' && effectiveAiProvider.isMock) {
+      if (!process.env.GEMINI_API_KEY) {
+        log('curriculum_planning', 'failed', 'error', 'live_mode_unavailable: GEMINI_API_KEY is not configured');
+        context.stage = 'failed';
+        context.error = { code: 'live_mode_unavailable', message: 'GEMINI_API_KEY is required for live renderMode' };
+        return context;
+      }
+      effectiveAiProvider = new LiveGeminiAIProvider();
+    }
+
     try {
-      const plan = this.curriculumPlanner.plan({
+      const plan = await this.curriculumPlanner.plan({
         lessonId: `lesson_${request.requestId}`,
         topicInfo,
         audience: request.audience,
         targetDurationSeconds: request.targetDurationSeconds,
-        documentAnalysis: context.documentAnalysis
+        documentAnalysis: context.documentAnalysis,
+        aiProvider: effectiveAiProvider
       });
-      const aiMode = this.aiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
+      const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.lessonPlan = plan;
       log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode });
     } catch (err) {
@@ -143,7 +165,7 @@ export class LessonOrchestrator {
       const verifyReport = await this.verifier.verifyClaims(
         topicInfo.topicId,
         context.lessonPlan.mathematicalClaims,
-        { timeoutMs: 20_000 }
+        { timeoutMs: 20_000, mathSpec: context.lessonPlan.mathSpec }
       );
       context.lessonPlan.mathematicalClaims = verifyReport.claims;
       context.mathVerification = {
@@ -195,13 +217,14 @@ export class LessonOrchestrator {
 
     // Stage 7: Sinh lời dẫn và phụ đề (Narration Planning)
     try {
-      const narrationPlan = this.narrationPlanner.plan({
+      const narrationPlan = await this.narrationPlanner.plan({
         planId: `narr_${request.requestId}`,
         lessonPlan: context.lessonPlan,
         storyboard: context.storyboard,
-        language: request.language
+        language: request.language,
+        aiProvider: effectiveAiProvider
       });
-      const aiMode = this.aiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
+      const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.narrationPlan = narrationPlan;
       log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode });
     } catch (err) {

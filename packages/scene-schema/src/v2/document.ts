@@ -51,6 +51,8 @@ export const GroundingEvidenceSchema = z.object({
   sourceReference: SourceReferenceSchema,
   evidenceFound: z.boolean(),
   evidenceMatchConfidence: z.number().min(0).max(1),
+  matchType: z.enum(['exact', 'semantic', 'none']).default('exact'),
+  isExactQuote: z.boolean().default(true),
   notes: z.string().max(500).optional()
 }).strict();
 

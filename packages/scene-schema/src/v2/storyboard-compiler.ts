@@ -112,10 +112,17 @@ export function compileStoryboardV2(
     // Gắn narration tương ứng và xác thực biên phụ đề (Subtitle boundary validation)
     const narration = narrationMap.get(sceneSpec.sceneId);
     if (narration) {
+      const audioAsset = options.audioAssets?.find(
+        (a) => a.id === `audio_${narration.segmentId}` || a.path.includes(narration.segmentId)
+      );
+      const cueEndFrame = audioAsset
+        ? Math.min(endFrame, startFrame + Math.max(1, Math.round(audioAsset.durationSeconds * fps)))
+        : endFrame;
+
       subtitleCues.push({
         id: `cue_${sceneSpec.sceneId}`,
         startFrame,
-        endFrame,
+        endFrame: cueEndFrame,
         text: narration.subtitleText
       });
     }

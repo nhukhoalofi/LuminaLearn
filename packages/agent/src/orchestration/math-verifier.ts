@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { VerifiedClaim } from '@luminalearn/scene-schema';
+import type { MathVisualizationSpecV2, VerifiedClaim } from '@luminalearn/scene-schema';
 
 export interface VerificationCheckDetail {
   passed: boolean;
@@ -26,7 +26,7 @@ export interface MathVerifier {
   verify(
     topicId: string,
     claims: VerifiedClaim[],
-    options?: { timeoutMs?: number; context?: Record<string, unknown> }
+    options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
   ): Promise<VerificationResult>;
 }
 
@@ -70,12 +70,16 @@ abstract class BaseSymPyVerifier implements MathVerifier {
   public readonly isMock = false;
   abstract readonly name: string;
   abstract supportsTopic(topicId: string): boolean;
-  protected abstract buildSceneJson(topicId: string, claims: VerifiedClaim[]): Record<string, unknown>;
+  protected abstract buildSceneJson(
+    topicId: string,
+    claims: VerifiedClaim[],
+    mathSpec?: MathVisualizationSpecV2
+  ): Record<string, unknown>;
 
   public async verify(
     topicId: string,
     claims: VerifiedClaim[],
-    options?: { timeoutMs?: number; context?: Record<string, unknown> }
+    options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
   ): Promise<VerificationResult> {
     const timeoutMs = options?.timeoutMs ?? 15_000;
     const python = getPythonExecutable();
@@ -85,7 +89,7 @@ abstract class BaseSymPyVerifier implements MathVerifier {
     const claimsPath = join(tempDir, 'claims.json');
 
     try {
-      const sceneData = this.buildSceneJson(topicId, claims);
+      const sceneData = this.buildSceneJson(topicId, claims, options?.mathSpec);
       const claimsMap: Record<string, string> = {};
       for (const claim of claims) {
         claimsMap[claim.validatorKey] = claim.expectedExpression;
@@ -160,7 +164,36 @@ export class DerivativeSymPyVerifier extends BaseSymPyVerifier {
     return topicId === 'calculus.derivative.intuition';
   }
 
-  protected buildSceneJson(topicId: string, claims: VerifiedClaim[]): Record<string, unknown> {
+  protected buildSceneJson(
+    topicId: string,
+    claims: VerifiedClaim[],
+    mathSpec?: MathVisualizationSpecV2
+  ): Record<string, unknown> {
+    if (mathSpec) {
+      if (mathSpec.visualization !== 'secant_to_tangent' && mathSpec.visualization !== 'function_graph') {
+        throw new Error(`unsupported_visualization: Derivative verifier cannot process '${mathSpec.visualization}'`);
+      }
+      if (mathSpec.function.type !== 'polynomial') {
+        throw new Error(`unsupported_function: Derivative verifier only supports polynomial functions`);
+      }
+      return {
+        schemaVersion: 'math-v1',
+        topicId,
+        visualization: 'secant_to_tangent',
+        function: {
+          type: 'polynomial',
+          coefficients: mathSpec.function.coefficients
+        },
+        pointX: mathSpec.parameters.pointX ?? 1.0,
+        hStart: mathSpec.parameters.hStart ?? 2.0,
+        hEnd: mathSpec.parameters.hEnd ?? 0.05,
+        durationSeconds: mathSpec.parameters.durationSeconds ?? 10.83,
+        fps: mathSpec.parameters.fps ?? 24,
+        width: 720,
+        height: 1280
+      };
+    }
+
     return {
       schemaVersion: 'math-v1',
       topicId,
@@ -190,7 +223,35 @@ export class RiemannSymPyVerifier extends BaseSymPyVerifier {
     return topicId === 'calculus.integral.riemann_sum';
   }
 
-  protected buildSceneJson(topicId: string, claims: VerifiedClaim[]): Record<string, unknown> {
+  protected buildSceneJson(
+    topicId: string,
+    claims: VerifiedClaim[],
+    mathSpec?: MathVisualizationSpecV2
+  ): Record<string, unknown> {
+    if (mathSpec) {
+      if (mathSpec.visualization !== 'riemann_sum') {
+        throw new Error(`unsupported_visualization: Riemann verifier cannot process '${mathSpec.visualization}'`);
+      }
+      if (mathSpec.function.type !== 'polynomial') {
+        throw new Error(`unsupported_function: Riemann verifier only supports polynomial functions`);
+      }
+      return {
+        schemaVersion: 'math-v1',
+        topicId,
+        visualization: 'riemann_sum',
+        function: {
+          type: 'polynomial',
+          coefficients: mathSpec.function.coefficients
+        },
+        interval: mathSpec.parameters.interval ?? [0, 1],
+        partitions: mathSpec.parameters.partitions ?? [4, 8, 16],
+        durationSeconds: mathSpec.parameters.durationSeconds ?? 10.83,
+        fps: mathSpec.parameters.fps ?? 24,
+        width: 720,
+        height: 1280
+      };
+    }
+
     return {
       schemaVersion: 'math-v1',
       topicId,
@@ -233,7 +294,7 @@ export class MockMathVerifier implements MathVerifier {
   public async verify(
     topicId: string,
     claims: VerifiedClaim[],
-    options?: { timeoutMs?: number }
+    options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
   ): Promise<VerificationResult> {
     if (this.config.simulateTimeout) {
       throw new Error(`SymPy verification timed out after ${options?.timeoutMs ?? 15000}ms`);
@@ -303,7 +364,7 @@ export class MathVerificationService {
   public async verifyClaims(
     topicId: string,
     claims: VerifiedClaim[],
-    options?: { timeoutMs?: number; context?: Record<string, unknown> }
+    options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
   ): Promise<{
     allVerified: boolean;
     claims: VerifiedClaim[];

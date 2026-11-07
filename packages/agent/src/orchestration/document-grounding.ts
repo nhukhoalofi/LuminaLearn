@@ -71,15 +71,20 @@ export class DocumentGroundingService {
 
   /**
    * Kiểm tra xem một trích dẫn cụ thể có tồn tại trong tài liệu tại đúng trang đã chỉ định không
+   * Phân biệt rõ rệt giữa:
+   * - 'exact': Trích dẫn nguyên văn 100% trong trang tài liệu.
+   * - 'semantic': Khớp từ vựng / ngữ nghĩa xấp xỉ (> 85%), KHÔNG PHẢI trích dẫn nguyên văn.
+   * - 'none': Không tìm thấy văn bản phù hợp.
    */
   public verifyQuoteInDocument(documentId: string, pageNumber: number, quote: string): {
     found: boolean;
     confidence: number;
+    matchType: 'exact' | 'semantic' | 'none';
     matchedChunkId?: string;
   } {
     const chunks = this.store.getChunksByDocument(documentId).filter((c) => c.pageNumber === pageNumber);
     if (chunks.length === 0) {
-      return { found: false, confidence: 0 };
+      return { found: false, confidence: 0, matchType: 'none' };
     }
 
     const normalizedQuote = quote.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -90,25 +95,28 @@ export class DocumentGroundingService {
         return {
           found: true,
           confidence: 1.0,
+          matchType: 'exact',
           matchedChunkId: chunk.chunkId
         };
       }
 
       // Kiểm tra độ tương đồng từ vựng nếu không khớp nguyên văn 100%
       const quoteWords = normalizedQuote.split(' ');
-      const matchCount = quoteWords.filter((w) => w.length > 2 && normalizedChunkText.includes(w)).length;
+      const matchCount = quoteWords.filter((w) => w.length >= 2 && normalizedChunkText.includes(w)).length;
       const ratio = matchCount / Math.max(1, quoteWords.length);
 
       if (ratio > 0.85) {
+        // Approximate semantic match: KHÔNG BAO GIỜ tự phong là exact quote!
         return {
-          found: true,
+          found: false,
           confidence: Number(ratio.toFixed(2)),
+          matchType: 'semantic',
           matchedChunkId: chunk.chunkId
         };
       }
     }
 
-    return { found: false, confidence: 0 };
+    return { found: false, confidence: 0, matchType: 'none' };
   }
 
   /**
@@ -125,6 +133,15 @@ export class DocumentGroundingService {
     const cleanDoc = documentId.replace(/^doc_/, '').slice(0, 16);
     const cleanClaim = claimId.replace(/^claim_/, '').slice(0, 24);
 
+    const isExact = verification.matchType === 'exact';
+    const notesResolved = notes || (
+      isExact
+        ? 'Trích dẫn xác thực nguyên văn trong tài liệu'
+        : verification.matchType === 'semantic'
+        ? `Cảnh báo: Chỉ tìm thấy văn bản tương tự ngữ nghĩa (độ tin cậy ${verification.confidence}), không phải trích dẫn nguyên văn`
+        : 'Cảnh báo: Không tìm thấy trích dẫn trong tài liệu'
+    );
+
     return {
       evidenceId: `ev_${cleanClaim}_p${pageNumber}`,
       claimId,
@@ -133,11 +150,13 @@ export class DocumentGroundingService {
         documentId,
         pageNumber,
         exactQuote: quote,
-        relevanceScore: 1.0
+        relevanceScore: verification.confidence
       },
-      evidenceFound: verification.found,
+      evidenceFound: isExact,
       evidenceMatchConfidence: verification.confidence,
-      notes: notes || (verification.found ? 'Trích dẫn xác thực trong tài liệu' : 'Cảnh báo: Không tìm thấy trích dẫn trong tài liệu')
+      matchType: verification.matchType,
+      isExactQuote: isExact,
+      notes: notesResolved
     };
   }
 }

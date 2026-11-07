@@ -10,9 +10,12 @@ import {
   LocalJobRepository
 } from '@luminalearn/hybrid-renderer';
 import {
+  ApprovedRenderArtifactV2Schema,
   LessonRequestV2Schema,
+  type ApprovedRenderArtifactV2,
   type LessonRequestV2
 } from '@luminalearn/scene-schema';
+import { verifyArtifactIntegrity } from '@luminalearn/agent';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { documentStore } from './v2-services';
@@ -50,6 +53,7 @@ interface QueuedJob {
   jobId: string;
   request?: HybridRenderRequest;
   v2Request?: LessonRequestV2;
+  v2Artifact?: ApprovedRenderArtifactV2;
 }
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
@@ -89,7 +93,15 @@ async function runEntry(entry: QueuedJob): Promise<void> {
   try {
     let result: { outputPath: string };
 
-    if (entry.v2Request) {
+    if (entry.v2Artifact) {
+      result = await runHybridPipelineV2(entry.v2Artifact, {
+        jobId: entry.jobId,
+        documentStore,
+        onStage: (stage) => {
+          if (stage !== 'completed') transition(entry.jobId, stage);
+        }
+      });
+    } else if (entry.v2Request) {
       result = await runHybridPipelineV2(entry.v2Request, {
         jobId: entry.jobId,
         documentStore,
@@ -189,6 +201,34 @@ export function createV2Job(input: unknown): Omit<JobRecord, 'outputPath'> {
   store.jobs.set(jobId, job);
   repository.save(job);
   store.queue.push({ jobId, v2Request });
+  pump();
+  return publicJob(job);
+}
+
+export function createV2JobFromArtifact(input: unknown): Omit<JobRecord, 'outputPath'> {
+  const artifact = ApprovedRenderArtifactV2Schema.parse(input);
+  if (!verifyArtifactIntegrity(artifact)) {
+    throw new Error('artifact_tampered: Approved render artifact content hash does not match canonical payload');
+  }
+  if (artifact.renderConfig.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
+    throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
+  }
+  const jobId = createHybridJobId();
+  const now = new Date().toISOString();
+  const job: JobRecord = {
+    jobId,
+    status: 'queued',
+    progress: 0,
+    message: messageByState.queued,
+    renderMode: artifact.renderConfig.renderMode,
+    voiceoverMode: artifact.renderConfig.narrationMode,
+    subtitlesEnabled: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.jobs.set(jobId, job);
+  repository.save(job);
+  store.queue.push({ jobId, v2Artifact: artifact });
   pump();
   return publicJob(job);
 }

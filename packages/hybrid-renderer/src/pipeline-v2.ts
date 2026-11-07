@@ -5,15 +5,23 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnvironment } from 'dotenv';
 import {
   LessonOrchestrator,
-  DocumentStore
+  DocumentStore,
+  verifyArtifactIntegrity
 } from '@luminalearn/agent';
 import {
+  ApprovedRenderArtifactV2Schema,
   compileStoryboardV2,
   LessonRequestV2Schema,
   RenderManifestV2Schema,
+  type ApprovedRenderArtifactV2,
+  type LessonPlanV2,
   type LessonRequestV2,
+  type MathVisualizationSpecV2,
+  type NarrationPlanV2,
   type RenderManifestV2,
-  type SubtitleCueV2
+  type StoryboardV2,
+  type SubtitleCueV2,
+  type VerifiedClaim
 } from '@luminalearn/scene-schema';
 import { loadEnvironmentConfig } from './config';
 import { probeAndVerifyVideoAsset, probeFinalVideo, type VerifiedVideoMetadata } from './ffprobe';
@@ -77,14 +85,55 @@ function exportSrtFromV2Cues(cues: SubtitleCueV2[], fps: number): string {
 }
 
 export async function runHybridPipelineV2(
-  input: LessonRequestV2 | Record<string, unknown>,
+  input: LessonRequestV2 | ApprovedRenderArtifactV2 | Record<string, unknown>,
   options: HybridPipelineV2Options = {}
 ): Promise<HybridPipelineV2Result> {
-  const request = LessonRequestV2Schema.parse(input);
-  if (request.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
+  // Check if input is an ApprovedRenderArtifactV2 or a LessonRequestV2
+  const isArtifact =
+    typeof input === 'object' &&
+    input !== null &&
+    ('artifactId' in input || ('schemaVersion' in input && (input as { schemaVersion: string }).schemaVersion === 'artifact-v2'));
+
+  let artifact: ApprovedRenderArtifactV2 | undefined;
+  let request: LessonRequestV2 | undefined;
+  let lessonPlan!: LessonPlanV2;
+  let storyboard!: StoryboardV2;
+  let narrationPlan!: NarrationPlanV2;
+  let verifiedClaims!: VerifiedClaim[];
+  let mathSpec!: MathVisualizationSpecV2;
+  let topicId!: string;
+  let renderMode: 'mock' | 'live';
+  let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts';
+  let aspectRatio: '9:16' | '16:9' | '1:1';
+  let providedAudioPath: string | undefined;
+
+  if (isArtifact) {
+    artifact = ApprovedRenderArtifactV2Schema.parse(input);
+    if (!verifyArtifactIntegrity(artifact)) {
+      throw new Error('artifact_tampered: Approved render artifact content hash mismatch');
+    }
+    lessonPlan = artifact.lessonPlan;
+    storyboard = artifact.storyboard;
+    narrationPlan = artifact.narrationPlan;
+    verifiedClaims = artifact.verifiedClaims;
+    mathSpec = artifact.mathSpec;
+    topicId = artifact.lessonPlan.topicId;
+    renderMode = artifact.renderConfig.renderMode;
+    narrationMode = artifact.renderConfig.narrationMode;
+    aspectRatio = artifact.renderConfig.aspectRatio;
+    providedAudioPath = artifact.renderConfig.providedAudioPath;
+  } else {
+    request = LessonRequestV2Schema.parse(input);
+    renderMode = request.renderMode;
+    narrationMode = request.narrationMode;
+    aspectRatio = request.aspectRatio;
+    providedAudioPath = request.providedAudioPath;
+  }
+
+  if (renderMode === 'live' && !process.env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is required for live mode');
   }
-  if (request.narrationMode === 'google_cloud_tts' && !isGoogleTtsConfigured()) {
+  if (narrationMode === 'google_cloud_tts' && !isGoogleTtsConfigured()) {
     throw new Error('tts_unavailable: Google Cloud authentication is not configured');
   }
 
@@ -106,7 +155,11 @@ export async function runHybridPipelineV2(
   };
 
   try {
-    await writeJson(resolve(jobDirectory, 'request.json'), request);
+    if (isArtifact && artifact) {
+      await writeJson(resolve(jobDirectory, 'approved-artifact.json'), artifact);
+    } else if (request) {
+      await writeJson(resolve(jobDirectory, 'request.json'), request);
+    }
 
     const envConfig = loadEnvironmentConfig(repositoryRoot);
     const python = envConfig.pythonExecutable;
@@ -123,74 +176,106 @@ export async function runHybridPipelineV2(
 
     // Stage 1: Planning
     await stage('planning');
-    const orchestrator = new LessonOrchestrator({
-      documentStore: options.documentStore
-    });
-    const context = await orchestrator.orchestrate(request);
 
-    if (context.stage === 'failed' || context.stage === 'needs_review' || !context.manifest) {
-      const errCode = context.error?.code || 'orchestration_failed';
-      const errMsg = context.error?.message || 'Lesson orchestration could not produce a valid render manifest';
-      throw new Error(`${errCode}: ${errMsg}`);
+    if (isArtifact && artifact) {
+      // DRAFT INTEGRITY: Directly use approved plan, storyboard and narration without re-orchestration!
+      logs.push(`${new Date().toISOString()} Using approved render artifact '${artifact.artifactId}' v${artifact.version}`);
+      await writeJson(resolve(jobDirectory, 'lesson-plan.json'), lessonPlan);
+      await writeJson(resolve(jobDirectory, 'storyboard.json'), storyboard);
+      await writeJson(resolve(jobDirectory, 'narration-plan.json'), narrationPlan);
+      await writeJson(resolve(jobDirectory, 'orchestration-context.json'), {
+        mode: 'approved_artifact',
+        artifactId: artifact.artifactId,
+        contentHash: artifact.contentHash,
+        version: artifact.version
+      });
+    } else if (request) {
+      const orchestrator = new LessonOrchestrator({
+        documentStore: options.documentStore
+      });
+      const context = await orchestrator.orchestrate(request);
+
+      if (context.stage === 'failed' || context.stage === 'needs_review' || !context.manifest) {
+        const errCode = context.error?.code || 'orchestration_failed';
+        const errMsg = context.error?.message || 'Lesson orchestration could not produce a valid render manifest';
+        throw new Error(`${errCode}: ${errMsg}`);
+      }
+
+      lessonPlan = context.lessonPlan!;
+      storyboard = context.storyboard!;
+      narrationPlan = context.narrationPlan!;
+      verifiedClaims = context.lessonPlan!.mathematicalClaims;
+      topicId = context.topicInfo?.topicId ?? 'calculus.derivative.intuition';
+      mathSpec = context.lessonPlan!.mathSpec ?? {
+        topicId,
+        visualization: topicId === 'calculus.integral.riemann_sum' ? 'riemann_sum' : 'secant_to_tangent',
+        function: { type: 'polynomial', coefficients: [0, 0, 1] },
+        parameters: topicId === 'calculus.integral.riemann_sum'
+          ? { interval: [0, 1], partitions: [4, 8, 16] }
+          : { pointX: 1.0, hStart: 2.0, hEnd: 0.05 },
+        boundClaimIds: verifiedClaims.map((c) => c.id)
+      };
+
+      await writeJson(resolve(jobDirectory, 'lesson-plan.json'), context.lessonPlan);
+      await writeJson(resolve(jobDirectory, 'storyboard.json'), context.storyboard);
+      await writeJson(resolve(jobDirectory, 'narration-plan.json'), context.narrationPlan);
+      await writeJson(resolve(jobDirectory, 'orchestration-context.json'), {
+        topicInfo: context.topicInfo,
+        stage: context.stage,
+        logs: context.logs
+      });
+    } else {
+      throw new Error('invalid_pipeline_input: neither artifact nor request provided');
     }
 
-    await writeJson(resolve(jobDirectory, 'lesson-plan.json'), context.lessonPlan);
-    await writeJson(resolve(jobDirectory, 'storyboard.json'), context.storyboard);
-    await writeJson(resolve(jobDirectory, 'narration-plan.json'), context.narrationPlan);
-    await writeJson(resolve(jobDirectory, 'orchestration-context.json'), {
-      topicInfo: context.topicInfo,
-      stage: context.stage,
-      logs: context.logs
-    });
+    // Stage 2: Validation & Manim Rendering
+    // Prepare Math Scene dynamically from MathVisualizationSpecV2
+    if (mathSpec.function.type !== 'polynomial') {
+      throw new Error(`unsupported_function: Only polynomial functions are supported, received '${mathSpec.function.type}'`);
+    }
 
-    // Prepare Math Scene based on topic
-    const topicId = context.topicInfo?.topicId ?? 'calculus.derivative.intuition';
     let mathScene: Record<string, unknown>;
-    let mathClaims: Record<string, string>;
+    const mathClaims: Record<string, string> = {};
+
+    for (const claim of verifiedClaims) {
+      mathClaims[claim.validatorKey] = claim.expectedExpression;
+    }
 
     if (topicId === 'calculus.integral.riemann_sum') {
+      if (mathSpec.visualization !== 'riemann_sum') {
+        throw new Error(`math_spec_mismatch: Topic '${topicId}' requires 'riemann_sum' visualization, got '${mathSpec.visualization}'`);
+      }
       mathScene = {
         schemaVersion: 'math-v1',
         topicId: 'calculus.integral.riemann_sum',
         visualization: 'riemann_sum',
-        function: {
-          type: 'polynomial',
-          coefficients: [0, 0, 1]
-        },
-        interval: [0, 1],
-        partitions: [4, 8, 16],
-        durationSeconds: 10.83,
+        function: mathSpec.function,
+        interval: mathSpec.parameters.interval ?? [0, 1],
+        partitions: mathSpec.parameters.partitions ?? [4, 8, 16],
+        durationSeconds: mathSpec.parameters.durationSeconds ?? 10.83,
         fps: 24,
         width: 720,
         height: 1280
       };
-      mathClaims = {
-        riemann_sum_limit: '1/3',
-        definite_integral: '1/3'
-      };
-    } else {
+    } else if (topicId === 'calculus.derivative.intuition') {
+      if (mathSpec.visualization !== 'secant_to_tangent' && mathSpec.visualization !== 'function_graph') {
+        throw new Error(`math_spec_mismatch: Topic '${topicId}' requires 'secant_to_tangent' visualization, got '${mathSpec.visualization}'`);
+      }
       mathScene = {
         schemaVersion: 'math-v1',
         topicId: 'calculus.derivative.intuition',
         visualization: 'secant_to_tangent',
-        function: {
-          type: 'polynomial',
-          coefficients: [0, 0, 1]
-        },
-        pointX: 1.0,
-        hStart: 2.0,
-        hEnd: 0.05,
-        durationSeconds: 10.83,
+        function: mathSpec.function,
+        pointX: mathSpec.parameters.pointX ?? 1.0,
+        hStart: mathSpec.parameters.hStart ?? 2.0,
+        hEnd: mathSpec.parameters.hEnd ?? 0.05,
+        durationSeconds: mathSpec.parameters.durationSeconds ?? 10.83,
         fps: 24,
         width: 720,
         height: 1280
       };
-      mathClaims = {
-        polynomial_derivative: '2*x',
-        secant_slope: '2 + h',
-        limit_at_zero: '2',
-        value_at_point: '2'
-      };
+    } else {
+      throw new Error(`unsupported_topic: LuminaLearn math engine does not support topic '${topicId}'`);
     }
 
     const mathScenePath = resolve(jobDirectory, 'math-scene.json');
@@ -198,7 +283,6 @@ export async function runHybridPipelineV2(
     await writeJson(mathScenePath, mathScene);
     await writeJson(mathClaimsPath, mathClaims);
 
-    // Stage 2: Validation & Manim Rendering
     await stage('validating');
     await stage('rendering_manim');
 
@@ -236,22 +320,23 @@ export async function runHybridPipelineV2(
     await stage('narrating');
     let audioAssets: Array<{ id: string; path: string; durationSeconds: number; codec: 'mp3'; startFrame?: number }> = [];
 
-    if (request.narrationMode === 'google_cloud_tts') {
+    if (narrationMode === 'google_cloud_tts') {
       await stage('synthesizing_audio');
       const provider = options.ttsProvider ?? new GoogleCloudTtsProvider();
       audioAssets = await synthesizeNarrationV2({
         provider,
-        narrationPlan: context.narrationPlan!,
-        storyboard: context.storyboard!,
+        narrationPlan,
+        storyboard,
         jobId,
         jobDirectory,
         stagedDirectory,
-        fps: 24
+        fps: 24,
+        alignmentPolicy: 'adjust_timeline'
       });
-    } else if (request.narrationMode === 'provided_audio' && request.providedAudioPath) {
+    } else if (narrationMode === 'provided_audio' && providedAudioPath) {
       await stage('synthesizing_audio');
       const prepared = await prepareProvidedAudio({
-        sourcePath: request.providedAudioPath,
+        sourcePath: providedAudioPath,
         jobId,
         jobDirectory,
         stagedDirectory
@@ -265,15 +350,15 @@ export async function runHybridPipelineV2(
       }));
     }
 
-    // Compile final RenderManifestV2 with the verified video asset and audio assets
+    // Compile final RenderManifestV2 with verified video asset and audio assets
     const publicAssetPath = `generated/${jobId}/${stagedClipName}`;
-    const compiledManifest = compileStoryboardV2(context.storyboard!, context.narrationPlan!, {
+    const compiledManifest = compileStoryboardV2(storyboard, narrationPlan, {
       jobId,
-      lessonTitle: context.lessonPlan!.title,
-      topicId: context.lessonPlan!.topicId,
+      lessonTitle: lessonPlan.title,
+      topicId: lessonPlan.topicId,
       fps: 24,
-      aspectRatio: request.aspectRatio,
-      verifiedClaims: context.lessonPlan!.mathematicalClaims,
+      aspectRatio,
+      verifiedClaims: lessonPlan.mathematicalClaims,
       assets: [
         {
           id: 'asset_manim',
@@ -287,7 +372,8 @@ export async function runHybridPipelineV2(
           pixelFormat: 'yuv420p'
         }
       ],
-      audioAssets
+      audioAssets,
+      assetAlignmentPolicy: 'adjust_timeline'
     });
 
     // Subtitle export
@@ -354,4 +440,3 @@ export async function runHybridPipelineV2(
     throw error;
   }
 }
-

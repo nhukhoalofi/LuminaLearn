@@ -98,6 +98,9 @@ export class DocumentExtractor {
   }
 
   public static extractDocx(buffer: Buffer, filename: string): ExtractedDocument {
+    if (!buffer || buffer.length < 30) {
+      throw new Error('invalid_docx: Buffer file Word rỗng hoặc quá ngắn');
+    }
     const title = basename(filename).replace(/\.[^/.]+$/, '').trim() || 'Tài liệu Word';
 
     // Parse DOCX by extracting word/document.xml from PKZIP structure
@@ -168,8 +171,14 @@ export class DocumentExtractor {
   }
 
   public static extractPdf(buffer: Buffer, filename: string): ExtractedDocument {
+    if (!buffer || buffer.length < 10) {
+      throw new Error('invalid_pdf: Buffer file PDF rỗng hoặc quá ngắn');
+    }
     const title = basename(filename).replace(/\.[^/.]+$/, '').trim() || 'Tài liệu PDF';
     const pdfString = buffer.toString('binary');
+    if (!pdfString.includes('%PDF-')) {
+      throw new Error('invalid_pdf: File không chứa header PDF hợp lệ (%PDF-)');
+    }
 
     // Find all stream objects in PDF
     const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
@@ -256,9 +265,13 @@ export class DocumentExtractor {
 
         if (name === entryName) {
           const compData = buffer.subarray(dataStart, dataStart + compSize);
-          return compMethod === 8
-            ? inflateRawSync(compData).toString('utf8')
-            : compData.toString('utf8');
+          try {
+            return compMethod === 8
+              ? inflateRawSync(compData).toString('utf8')
+              : compData.toString('utf8');
+          } catch (err) {
+            throw new Error(`invalid_docx_zip: Lỗi giải nén entry ${entryName}: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
         offset = dataStart + compSize;
       } else {

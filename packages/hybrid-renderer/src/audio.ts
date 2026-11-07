@@ -187,8 +187,10 @@ export async function synthesizeNarrationV2(options: {
   jobDirectory: string;
   stagedDirectory: string;
   fps?: number;
+  alignmentPolicy?: 'adjust_timeline' | 'hold_last_frame' | 'strict';
 }): Promise<V2AudioOutputAsset[]> {
   const fps = options.fps ?? 24;
+  const alignmentPolicy = options.alignmentPolicy ?? 'strict';
   await mkdir(options.jobDirectory, { recursive: true });
   await mkdir(options.stagedDirectory, { recursive: true });
 
@@ -219,10 +221,16 @@ export async function synthesizeNarrationV2(options: {
     }
 
     const sceneDurationSeconds = scene.durationFrames / fps;
-    if (metadata.durationSeconds > sceneDurationSeconds + 0.5) {
-      throw new Error(
-        `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s)`
-      );
+    if (metadata.durationSeconds > sceneDurationSeconds) {
+      if (alignmentPolicy === 'strict') {
+        throw new Error(
+          `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s)`
+        );
+      } else if (alignmentPolicy === 'adjust_timeline') {
+        // Expand scene frames to accommodate narration with small breathing room
+        const neededFrames = Math.ceil((metadata.durationSeconds + 0.25) * fps);
+        scene.durationFrames = Math.max(scene.durationFrames, neededFrames);
+      }
     }
 
     await copyFile(jobPath, resolve(options.stagedDirectory, fileName));
@@ -242,6 +250,12 @@ export async function synthesizeNarrationV2(options: {
 
     currentStartFrame += scene.durationFrames;
   }
+
+  // Keep storyboard estimatedDurationFrames synchronized
+  options.storyboard.estimatedDurationFrames = options.storyboard.scenes.reduce(
+    (sum, s) => sum + s.durationFrames,
+    0
+  );
 
   return assets;
 }

@@ -1,22 +1,36 @@
 import {
   LessonPlanV2Schema,
   type LessonPlanV2,
+  type MathVisualizationSpecV2,
   type VerifiedClaim
 } from '@luminalearn/scene-schema';
+import type { AIProvider } from './ai-provider';
 import type { DocumentAnalysisResult, TopicClassification } from './types';
 
 export class CurriculumPlanner {
-  public plan(options: {
+  public async plan(options: {
     lessonId: string;
     topicInfo: TopicClassification;
     audience: string;
     targetDurationSeconds: number;
     documentAnalysis?: DocumentAnalysisResult;
-  }): LessonPlanV2 {
-    const { lessonId, topicInfo, audience, targetDurationSeconds, documentAnalysis } = options;
+    mathSpec?: MathVisualizationSpecV2;
+    aiProvider?: AIProvider;
+  }): Promise<LessonPlanV2> {
+    const { lessonId, topicInfo, audience, targetDurationSeconds, documentAnalysis, mathSpec: customMathSpec, aiProvider } = options;
 
     if (!topicInfo.isSupported) {
       throw new Error(`Cannot plan unsupported topic: ${topicInfo.topicId}`);
+    }
+
+    if (aiProvider && !aiProvider.isMock) {
+      const result = await aiProvider.generateStructured<LessonPlanV2>({
+        purpose: 'curriculum_planning',
+        systemPrompt: `You are an expert mathematical curriculum planner for LuminaLearn. Plan a rigorous LessonPlanV2 for topic '${topicInfo.topicId}' (${topicInfo.displayName}) in Vietnamese for ${audience}.`,
+        userPrompt: `Generate a structured LessonPlanV2 for lessonId '${lessonId}'. Target duration: ${targetDurationSeconds}s.`,
+        validator: (data) => LessonPlanV2Schema.parse(data)
+      });
+      return result.data;
     }
 
     let title = topicInfo.displayName;
@@ -189,6 +203,45 @@ export class CurriculumPlanner {
       }
     }
 
+    let mathSpec: MathVisualizationSpecV2 | undefined = customMathSpec;
+    if (!mathSpec) {
+      if (topicInfo.topicId === 'calculus.derivative.intuition') {
+        mathSpec = {
+          topicId: topicInfo.topicId,
+          visualization: 'secant_to_tangent',
+          function: {
+            type: 'polynomial',
+            coefficients: [0, 0, 1]
+          },
+          parameters: {
+            pointX: 1.0,
+            hStart: 2.0,
+            hEnd: 0.05,
+            durationSeconds: 10.83,
+            fps: 24
+          },
+          boundClaimIds: mathematicalClaims.map((c) => c.id)
+        };
+      } else if (topicInfo.topicId === 'calculus.integral.riemann_sum') {
+        mathSpec = {
+          topicId: topicInfo.topicId,
+          visualization: 'riemann_sum',
+          function: {
+            type: 'polynomial',
+            coefficients: [0, 0, 1]
+          },
+          parameters: {
+            interval: [0, 1],
+            partitions: [4, 8, 16],
+            method: 'left',
+            durationSeconds: 10.83,
+            fps: 24
+          },
+          boundClaimIds: mathematicalClaims.map((c) => c.id)
+        };
+      }
+    }
+
     const plan: LessonPlanV2 = {
       schemaVersion: 'lesson-v2',
       lessonId,
@@ -198,6 +251,7 @@ export class CurriculumPlanner {
       prerequisites: ['Đại số cơ bản', 'Đồ thị hàm số'],
       keyConcepts,
       mathematicalClaims,
+      mathSpec,
       sourceEvidence: documentAnalysis?.evidence || [],
       pedagogicalSequence,
       summary

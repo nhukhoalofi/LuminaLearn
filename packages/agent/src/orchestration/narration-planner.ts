@@ -6,18 +6,30 @@ import {
   type PronunciationHintV2,
   type StoryboardV2
 } from '@luminalearn/scene-schema';
+import type { AIProvider } from './ai-provider';
 
 export class NarrationPlannerV2 {
-  public plan(options: {
+  public async plan(options: {
     planId: string;
     lessonPlan: LessonPlanV2;
     storyboard: StoryboardV2;
     language?: 'vi' | 'en';
     fps?: number;
-  }): NarrationPlanV2 {
-    const { planId, lessonPlan, storyboard } = options;
+    aiProvider?: AIProvider;
+  }): Promise<NarrationPlanV2> {
+    const { planId, lessonPlan, storyboard, aiProvider } = options;
     const language = options.language ?? 'vi';
     const fps = options.fps ?? 24;
+
+    if (aiProvider && !aiProvider.isMock) {
+      const result = await aiProvider.generateStructured<NarrationPlanV2>({
+        purpose: 'narration_planning',
+        systemPrompt: `You are an expert voiceover and narration writer for LuminaLearn STEM video lessons. Language: ${language}.`,
+        userPrompt: `Generate a NarrationPlanV2 for lesson '${lessonPlan.title}' with ${storyboard.scenes.length} scenes.`,
+        validator: (data) => NarrationPlanV2Schema.parse(data)
+      });
+      return result.data;
+    }
 
     const segments: NarrationSegmentV2[] = [];
     let totalWords = 0;

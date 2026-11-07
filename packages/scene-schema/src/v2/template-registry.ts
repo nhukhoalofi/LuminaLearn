@@ -167,10 +167,12 @@ export class MathTemplateRegistry {
         body: z.string().max(1000).optional(),
         eyebrow: z.string().max(100).optional(),
         functionExpression: z.string().min(1).max(100),
+        coefficients: z.array(z.number().finite()).min(2).max(6).optional(),
         interval: z.tuple([z.number(), z.number()]),
         partitionsStart: z.number().int().min(2).max(20).default(4),
         partitionsEnd: z.number().int().min(4).max(200).default(64),
-        method: z.enum(['left', 'right', 'midpoint', 'trapezoid']).default('midpoint')
+        partitions: z.array(z.number().int().min(1).max(1000)).optional(),
+        method: z.enum(['left', 'right', 'midpoint', 'trapezoid']).default('left')
       }).strict()
     });
 

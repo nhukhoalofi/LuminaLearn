@@ -24,6 +24,14 @@ export class VisualStoryboardDirectorV2 {
     const scenes: VisualSceneSpecV2[] = [];
     const usedTemplateIds = new Set<string>();
 
+    const mathSpec = lessonPlan.mathSpec;
+    const coefficients = mathSpec?.function.coefficients ?? [0, 0, 1];
+    const pointX = mathSpec?.parameters.pointX ?? 1.0;
+    const interval = mathSpec?.parameters.interval ?? [0, 1];
+    const partitions = mathSpec?.parameters.partitions ?? [4, 8, 16];
+    const hStart = mathSpec?.parameters.hStart ?? 2.0;
+    const hEnd = mathSpec?.parameters.hEnd ?? 0.05;
+
     for (let index = 0; index < lessonPlan.pedagogicalSequence.length; index++) {
       const step = lessonPlan.pedagogicalSequence[index];
       const durationFrames = Math.round(step.targetDurationSeconds * fps);
@@ -41,8 +49,8 @@ export class VisualStoryboardDirectorV2 {
           title: step.pedagogicalGoal,
           body: step.intuitiveConcept,
           eyebrow: lessonPlan.topicId === 'calculus.integral.riemann_sum' ? 'TRỰC GIÁC TÍCH PHÂN' : 'ĐẠO HÀM TRỰC QUAN',
-          coefficients: [0, 0, 1],
-          pointX: 1
+          coefficients,
+          pointX
         };
       } else if (index === lessonPlan.pedagogicalSequence.length - 1) {
         templateId = 'function_graph';
@@ -51,8 +59,8 @@ export class VisualStoryboardDirectorV2 {
           title: step.pedagogicalGoal,
           body: step.intuitiveConcept,
           eyebrow: 'TỔNG KẾT BÀI HỌC',
-          coefficients: [0, 0, 1],
-          pointX: 1
+          coefficients,
+          pointX
         };
       } else if (
         lessonPlan.topicId === 'calculus.integral.riemann_sum' &&
@@ -64,11 +72,13 @@ export class VisualStoryboardDirectorV2 {
           title: step.pedagogicalGoal,
           body: step.intuitiveConcept,
           eyebrow: 'MÔ PHỎNG HÌNH CHỮ NHẬT',
-          functionExpression: 'x**2',
-          interval: [0, 1],
-          partitionsStart: 4,
-          partitionsEnd: 16,
-          method: 'left'
+          functionExpression: mathSpec?.function.expression || 'x**2',
+          coefficients,
+          interval,
+          partitionsStart: partitions[0] ?? 4,
+          partitionsEnd: partitions[partitions.length - 1] ?? 16,
+          partitions,
+          method: mathSpec?.parameters.method ?? 'left'
         };
         const riemannClaim = lessonPlan.mathematicalClaims.find(
           (c) => c.validatorKey === 'riemann_sum_limit' || c.validatorKey === 'definite_integral'
@@ -81,10 +91,10 @@ export class VisualStoryboardDirectorV2 {
           title: step.pedagogicalGoal,
           body: step.intuitiveConcept,
           eyebrow: 'CÁT TUYẾN BIẾN THÀNH TIẾP TUYẾN',
-          coefficients: [0, 0, 1],
-          pointX: 1,
-          hStart: 2.0,
-          hEnd: 0.05
+          coefficients,
+          pointX,
+          hStart,
+          hEnd
         };
         const secantClaim = lessonPlan.mathematicalClaims.find((c) => c.validatorKey === 'secant_slope');
         if (secantClaim) boundClaimIds.push(secantClaim.id);
@@ -94,8 +104,8 @@ export class VisualStoryboardDirectorV2 {
         parameters = {
           title: step.pedagogicalGoal,
           body: step.intuitiveConcept,
-          coefficients: [0, 0, 1],
-          pointX: 1
+          coefficients,
+          pointX
         };
       }
 
