@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  LessonPlanV2Schema,
+  NarrationPlanV2Schema,
+  StoryboardV2Schema,
+  type LessonPlanV2,
+  type NarrationPlanV2
+} from '@luminalearn/scene-schema';
+import { CurriculumPlanner } from '../src/orchestration/curriculum-planner';
+import { NarrationPlannerV2 } from '../src/orchestration/narration-planner';
+import { DocumentStore } from '../src/orchestration/document-grounding';
+import { LessonOrchestrator } from '../src/orchestration/orchestrator';
+import type { AIProvider, AIStructuredRequest, AIProviderResult } from '../src/orchestration/ai-provider';
+import type { SourceContextBundle, TopicClassification } from '../src/orchestration/types';
+
+class CapturingProvider implements AIProvider {
+  readonly isMock = false;
+  readonly requests: AIStructuredRequest<unknown>[] = [];
+  constructor(private readonly responses: Record<string, unknown>) {}
+  async generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>> {
+    this.requests.push(request as AIStructuredRequest<unknown>);
+    return {
+      data: request.validator(this.responses[request.purpose]),
+      mode: 'ai_generated_live', model: 'fake-gemini', usage: { promptTokens: 123, candidatesTokens: 45 }
+    };
+  }
+}
+
+const topicInfo: TopicClassification = {
+  topicId: 'calculus.derivative.intuition', displayName: 'Đạo hàm', domain: 'calculus', confidence: 1,
+  supportedTemplates: ['function_graph', 'secant_to_tangent'],
+  requiredValidators: ['polynomial_derivative'], isSupported: true
+};
+
+function plan(options: { expression?: string; verified?: boolean; quote?: string; documentId?: string } = {}): LessonPlanV2 {
+  const claimId = 'claim_source';
+  return LessonPlanV2Schema.parse({
+    schemaVersion: 'lesson-v2', lessonId: 'lesson_source', topicId: topicInfo.topicId, title: 'Đạo hàm từ tài liệu',
+    learningObjectives: ['Hiểu đạo hàm'], prerequisites: [], keyConcepts: ['Đạo hàm'],
+    mathematicalClaims: [{ id: claimId, statement: 'Đạo hàm của x^2 là 2x', validatorKey: 'polynomial_derivative', expectedExpression: options.expression ?? '2*x', verificationStatus: options.verified ? 'verified' : 'unverified' }],
+    mathSpec: { topicId: topicInfo.topicId, visualization: 'secant_to_tangent', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { pointX: 1, hStart: 2, hEnd: 0.05 }, boundClaimIds: [claimId] },
+    sourceEvidence: [{ evidenceId: 'ev_source', claimId, sourceReference: { id: 'ref_source', documentId: options.documentId ?? 'doc_source', pageNumber: 2, exactQuote: options.quote ?? 'Đạo hàm của x^2 là 2x.', relevanceScore: 1 }, evidenceFound: true, evidenceMatchConfidence: 1, matchType: 'exact', isExactQuote: true }],
+    pedagogicalSequence: [{ stepNumber: 1, pedagogicalGoal: 'Giải thích', intuitiveConcept: 'Quan sát cát tuyến', targetDurationSeconds: 20 }, { stepNumber: 2, pedagogicalGoal: 'Kết luận', intuitiveConcept: 'Tiếp tuyến', targetDurationSeconds: 20 }], summary: 'Đạo hàm là độ dốc.'
+  });
+}
+
+const sourceContext: SourceContextBundle = {
+  trust: 'untrusted_document_content', documentIds: ['doc_source'],
+  excerpts: [{ documentId: 'doc_source', chunkId: 'chunk_source', pageNumber: 2, text: 'Đạo hàm của x^2 là 2x.' }],
+  candidateClaims: [{ claimStatement: 'Đạo hàm của x^2 là 2x', validatorKey: 'polynomial_derivative', expectedExpression: '2*x', quote: 'Đạo hàm của x^2 là 2x.', pageNumber: 2, documentId: 'doc_source' }],
+  exactMatchEvidence: plan().sourceEvidence
+};
+
+test('live curriculum request contains bounded untrusted excerpts, routing constraints, and provider metadata', async () => {
+  const provider = new CapturingProvider({ curriculum_planning: plan() });
+  const traces: unknown[] = [];
+  await new CurriculumPlanner().plan({ lessonId: 'lesson_source', topicInfo, audience: 'Học sinh', targetDurationSeconds: 40, documentAnalysis: { documentIds: ['doc_source'], totalChunks: 1, extractedConcepts: ['Đạo hàm'], candidateClaims: sourceContext.candidateClaims, evidence: sourceContext.exactMatchEvidence }, sourceContext, aiProvider: provider, onProviderCall: (trace) => traces.push(trace) });
+  const request = provider.requests[0];
+  assert.match(request.userPrompt, /UNTRUSTED SOURCE CONTEXT/);
+  assert.match(request.userPrompt, /chunk_source/);
+  assert.match(request.userPrompt, /secant_to_tangent/);
+  assert.match(request.systemPrompt ?? '', /Never set mathematicalClaims\.verificationStatus to verified/);
+  assert.deepEqual(traces, [{ purpose: 'curriculum_planning', mode: 'ai_generated_live', model: 'fake-gemini', promptTokens: 123, candidatesTokens: 45 }]);
+});
+
+test('Gemini cannot self-verify mathematical claims', async () => {
+  const provider = new CapturingProvider({ curriculum_planning: plan({ verified: true }) });
+  await assert.rejects(() => new CurriculumPlanner().plan({ lessonId: 'lesson_source', topicInfo, audience: 'Học sinh', targetDurationSeconds: 40, sourceContext, documentAnalysis: { documentIds: ['doc_source'], totalChunks: 1, extractedConcepts: [], candidateClaims: [], evidence: [] }, aiProvider: provider }), /provider_self_verification_rejected/);
+});
+
+test('live narration request receives verified claims, exact references, scene IDs, and goals', async () => {
+  const verifiedPlan = plan({ verified: true });
+  const storyboard = StoryboardV2Schema.parse({ storyboardId: 'sb_source', lessonId: verifiedPlan.lessonId, topicId: verifiedPlan.topicId, scenes: [
+    { sceneId: 'scene_intro', templateId: 'function_graph', sceneType: 'intro', durationFrames: 240, parameters: { title: 'Mở bài' }, layout: { aspectRatio: '9:16', safeAreaPadding: 48 }, mathematicalBinding: { boundClaimIds: [], latexFormulas: [] }, sourceReferenceIds: [] },
+    { sceneId: 'scene_summary', templateId: 'function_graph', sceneType: 'summary', durationFrames: 240, parameters: { title: 'Kết luận' }, layout: { aspectRatio: '9:16', safeAreaPadding: 48 }, mathematicalBinding: { boundClaimIds: ['claim_source'], latexFormulas: ['2x'] }, sourceReferenceIds: ['ref_source'] }
+  ], visualTemplateIds: ['function_graph'], mathematicalData: {}, narrationObjectives: [], estimatedDurationFrames: 480, sourceReferences: ['ref_source'] });
+  const narration: NarrationPlanV2 = NarrationPlanV2Schema.parse({ planId: 'narr_source', storyboardId: storyboard.storyboardId, language: 'vi', segments: [
+    { segmentId: 'seg_intro', sceneId: 'scene_intro', text: 'Mở bài.', subtitleText: 'Mở bài.', targetDurationSeconds: 10, pronunciationHints: [] },
+    { segmentId: 'seg_summary', sceneId: 'scene_summary', text: 'Đạo hàm là hai x.', subtitleText: 'f phẩy bằng 2x.', targetDurationSeconds: 10, pronunciationHints: [] }
+  ], totalWords: 8, estimatedDurationSeconds: 20, mathematicalReview: { status: 'verified', verifiedClaimIds: ['claim_source'] } });
+  const provider = new CapturingProvider({ narration_planning: narration });
+  await new NarrationPlannerV2().plan({ planId: narration.planId, lessonPlan: verifiedPlan, storyboard, aiProvider: provider });
+  assert.match(provider.requests[0].userPrompt, /claim_source/);
+  assert.match(provider.requests[0].userPrompt, /ref_source/);
+  assert.match(provider.requests[0].userPrompt, /scene_summary/);
+  assert.match(provider.requests[0].userPrompt, /Kết luận/);
+});
+
+test('orchestration rejects fabricated citations, invalid math, and unsupported topics before narration', async () => {
+  const store = new DocumentStore();
+  store.addChunk({ chunkId: 'chunk_source', documentId: 'doc_source', documentTitle: 'Nguồn', pageNumber: 2, text: 'Đạo hàm của x^2 là 2x.', contentType: 'text/plain', tokenEstimate: 8, metadata: {} });
+  const baseRequest = { requestId: 'req_grounded', inputMode: 'source_document' as const, sourceDocumentIds: ['doc_source'], topic: 'Đạo hàm của x^2', audience: 'Học sinh', language: 'vi' as const, targetDurationSeconds: 40, renderMode: 'live' as const, narrationMode: 'none' as const, aspectRatio: '9:16' as const };
+
+  const fabricated = await new LessonOrchestrator({ documentStore: store, aiProvider: new CapturingProvider({ curriculum_planning: plan({ quote: 'Trích dẫn không tồn tại.' }) }) }).orchestrate(baseRequest);
+  assert.equal(fabricated.stage, 'failed');
+  assert.match(fabricated.error?.message ?? '', /fabricated_source_reference/);
+
+  const invalidMath = await new LessonOrchestrator({ documentStore: store, aiProvider: new CapturingProvider({ curriculum_planning: plan({ expression: '3*x' }) }) }).orchestrate({ ...baseRequest, requestId: 'req_bad_math' });
+  assert.equal(invalidMath.error?.code, 'mathematical_verification_failed');
+
+  const provider = new CapturingProvider({});
+  const unsupported = await new LessonOrchestrator({ documentStore: store, aiProvider: provider }).orchestrate({ ...baseRequest, requestId: 'req_unsupported', inputMode: 'topic_prompt', sourceDocumentIds: [], topic: 'topology algebraic spectral sequence' });
+  assert.equal(unsupported.stage, 'needs_review');
+  assert.equal(provider.requests.length, 0);
+});

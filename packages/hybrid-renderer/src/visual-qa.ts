@@ -1,18 +1,41 @@
 import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import type { RenderManifestV2 } from '@luminalearn/scene-schema';
+import { LUMINA_VERTICAL_LAYOUT, type RenderManifestV2 } from '@luminalearn/scene-schema';
 import type { VerifiedVideoMetadata } from './ffprobe';
 
-export type VisualQaStatus = 'pass' | 'fail';
+export type VisualQaStatus = 'pass' | 'fail' | 'requires_manual_review';
 export interface VisualQaCheck { id: string; status: VisualQaStatus; evidence: string; }
 export interface VisualQaReport {
   schemaVersion: 'visual-qa-v1';
-  frameInspectionCompleted: true;
+  frameInspectionCompleted: boolean;
   inspectedMedia: string;
+  contactSheet: string;
+  sampledFrames: number[];
   checks: VisualQaCheck[];
   passed: boolean;
+  requiresManualReview: boolean;
 }
+
+export interface VisualLayoutContract {
+  height: number;
+  minimumReadableFontPx: number;
+  titleFontPx: number;
+  bodyFontPx: number;
+  formulaFontPx: number;
+  subtitleFontPx: number;
+  subtitleLineHeight: number;
+  subtitleHorizontalPaddingPx: number;
+  subtitleVerticalPaddingPx: number;
+  subtitleMaxWidthPx: number;
+  subtitleNormalBottomPx: number;
+  subtitleMathClipBottomPx: number;
+  textFormulaRegionBottomPx: number;
+  mathClipLowerFormulaRegionTopPx: number;
+  minimumSafeMarginPx: number;
+}
+
+const DEFAULT_LAYOUT: VisualLayoutContract = LUMINA_VERTICAL_LAYOUT;
 
 function runFfmpeg(args: string[]): Promise<string> {
   return new Promise((resolvePromise, reject) => {
@@ -23,35 +46,128 @@ function runFfmpeg(args: string[]): Promise<string> {
   });
 }
 
+function estimateSubtitleBox(text: string, mathClip: boolean, layout: VisualLayoutContract): { top: number; bottom: number; lines: number } {
+  const usableWidth = layout.subtitleMaxWidthPx - 2 * layout.subtitleHorizontalPaddingPx;
+  const approximateCharacterWidth = layout.subtitleFontPx * 0.56;
+  const charactersPerLine = Math.max(1, Math.floor(usableWidth / approximateCharacterWidth));
+  const explicitLines = text.split('\n');
+  const lines = explicitLines.reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / charactersPerLine)), 0);
+  const height = lines * layout.subtitleFontPx * layout.subtitleLineHeight + 2 * layout.subtitleVerticalPaddingPx + 2;
+  const bottom = layout.height - (mathClip ? layout.subtitleMathClipBottomPx : layout.subtitleNormalBottomPx);
+  return { top: bottom - height, bottom, lines };
+}
+
+export function evaluateDeterministicVisualLayout(
+  manifest: RenderManifestV2,
+  overrides: Partial<VisualLayoutContract> = {}
+): VisualQaCheck[] {
+  const layout = { ...DEFAULT_LAYOUT, ...overrides };
+  const safeMarginsValid = manifest.timeline.every(
+    (scene) => Number(scene.parameters.safeAreaPadding ?? 48) >= layout.minimumSafeMarginPx
+  );
+  const configuredFonts = [layout.titleFontPx, layout.bodyFontPx, layout.formulaFontPx, layout.subtitleFontPx];
+  const fontStatus = configuredFonts.every((size) => size >= layout.minimumReadableFontPx) ? 'pass' : 'fail';
+
+  let collisionStatus: VisualQaStatus = 'pass';
+  const collisionEvidence: string[] = [];
+  for (const cue of manifest.subtitleTrack?.cues ?? []) {
+    const scene = manifest.timeline.find((candidate) => cue.startFrame >= candidate.startFrame && cue.startFrame < candidate.startFrame + candidate.durationFrames);
+    if (!scene) {
+      collisionStatus = 'requires_manual_review';
+      collisionEvidence.push(`${cue.id}: no owning scene`);
+      continue;
+    }
+    const box = estimateSubtitleBox(cue.text, Boolean(scene.assetId), layout);
+    const collides = scene.assetId
+      ? box.bottom > layout.mathClipLowerFormulaRegionTopPx
+      : scene.content.formulas.length > 0 && box.top < layout.textFormulaRegionBottomPx;
+    collisionEvidence.push(`${cue.id}: y=${box.top.toFixed(1)}-${box.bottom.toFixed(1)}, lines=${box.lines}, scene=${scene.id}`);
+    if (collides) collisionStatus = 'fail';
+  }
+
+  return [
+    {
+      id: 'subtitle_formula_overlap', status: collisionStatus,
+      evidence: collisionEvidence.length > 0
+        ? `Deterministic subtitle boxes checked against formula regions. ${collisionEvidence.join('; ')}`
+        : 'No subtitle cues overlap a formula scene; check is not applicable.'
+    },
+    {
+      id: 'safe_text_margins', status: safeMarginsValid ? 'pass' : 'fail',
+      evidence: `Every scene safeAreaPadding must be >= ${layout.minimumSafeMarginPx}px.`
+    },
+    {
+      id: 'readable_font_size', status: fontStatus,
+      evidence: `Configured title/body/formula/subtitle sizes=${configuredFonts.join('/')}; minimum=${layout.minimumReadableFontPx}px.`
+    }
+  ];
+}
+
+function representativeFrames(manifest: RenderManifestV2): number[] {
+  const candidates = [
+    manifest.timeline.find((scene) => scene.sceneType === 'intro'),
+    manifest.timeline.find((scene) => Boolean(scene.assetId)),
+    manifest.timeline.find((scene) => scene.sceneType === 'formula' || scene.content.formulas.length > 0),
+    manifest.timeline.find((scene) => scene.sceneType === 'summary')
+  ].filter((scene): scene is RenderManifestV2['timeline'][number] => Boolean(scene));
+  const frames = candidates.map((scene) => scene.startFrame + Math.floor(scene.durationFrames / 2));
+  const subtitleFrame = manifest.subtitleTrack?.cues[0]
+    ? Math.floor((manifest.subtitleTrack.cues[0].startFrame + manifest.subtitleTrack.cues[0].endFrame) / 2)
+    : undefined;
+  if (subtitleFrame !== undefined) frames.push(subtitleFrame);
+  return [...new Set(frames)].slice(0, 4).sort((a, b) => a - b);
+}
+
+async function createContactSheet(videoPath: string, jobDirectory: string, manifest: RenderManifestV2): Promise<{ path: string; frames: number[] }> {
+  const frames = representativeFrames(manifest);
+  if (frames.length === 0) throw new Error('visual_qa_failed: no representative frames available');
+  const outputPath = resolve(jobDirectory, 'contact-sheet.png');
+  const select = frames.map((frame) => `eq(n\\,${frame})`).join('+');
+  await runFfmpeg([
+    '-hide_banner', '-y', '-i', videoPath,
+    '-vf', `select='${select}',scale=240:426,tile=2x2:padding=4:margin=4`,
+    '-frames:v', '1', '-update', '1', outputPath
+  ]);
+  return { path: outputPath, frames };
+}
+
 export async function createVisualQaReport(options: {
   videoPath: string;
   jobDirectory: string;
   manifest: RenderManifestV2;
   metadata: VerifiedVideoMetadata;
   ttsSelected: boolean;
+  frameInspectionConfirmed?: boolean;
 }): Promise<VisualQaReport> {
-  const { videoPath, jobDirectory, manifest, metadata, ttsSelected } = options;
+  const { videoPath, jobDirectory, manifest, metadata, ttsSelected, frameInspectionConfirmed = false } = options;
   const scan = await runFfmpeg(['-hide_banner', '-i', videoPath, '-vf', 'blackdetect=d=0.35:pix_th=0.02', '-an', '-f', 'null', '-']);
   const blackSegments = [...scan.matchAll(/black_start:([\d.]+) black_end:([\d.]+)/g)]
     .map((match) => ({ start: Number(match[1]), end: Number(match[2]) }))
     .filter((segment) => segment.start > 0.15 && segment.end < metadata.durationSeconds - 0.15);
   const durationDelta = Math.abs(metadata.durationSeconds - manifest.totalFrames / manifest.fps);
-  const hasCriticalFormula = manifest.timeline.some((scene) => scene.content.formulas.length > 0 || Boolean(scene.assetId));
-
+  const contactSheet = await createContactSheet(videoPath, jobDirectory, manifest);
   const checks: VisualQaCheck[] = [
-    { id: 'black_frames', status: blackSegments.length === 0 ? 'pass' : 'fail', evidence: blackSegments.length === 0 ? 'FFmpeg blackdetect scanned the rendered video and found no unintended interior black segment >= 0.35s.' : `Interior black segments: ${JSON.stringify(blackSegments)}` },
-    { id: 'subtitle_formula_overlap', status: 'pass', evidence: hasCriticalFormula ? 'Text formulas remain above y=940. During verified Manim clips, subtitles move to a dedicated band ending above y=1090, clear of the lower formula band.' : 'No formula scene requires collision checking.' },
-    { id: 'safe_text_margins', status: manifest.timeline.every((scene) => Number(scene.parameters.safeAreaPadding ?? 48) >= 32) ? 'pass' : 'fail', evidence: 'Scene parameters and the production composition were checked against a minimum 32px vertical-video safe margin.' },
-    { id: 'readable_font_size', status: 'pass', evidence: 'Production composition body/subtitle/formula text uses 25px or larger at 720x1280.' },
+    {
+      id: 'sampled_frames',
+      status: frameInspectionConfirmed ? 'pass' : 'requires_manual_review',
+      evidence: frameInspectionConfirmed
+        ? `Rendered contact sheet from frames ${contactSheet.frames.join(', ')} and an external reviewer confirmed visual inspection.`
+        : `Rendered contact sheet from frames ${contactSheet.frames.join(', ')}; semantic visual inspection has not been confirmed.`
+    },
+    { id: 'black_frames', status: blackSegments.length === 0 ? 'pass' : 'fail', evidence: blackSegments.length === 0 ? 'FFmpeg blackdetect scanned all rendered frames; no unintended interior black segment >= 0.35s.' : `Interior black segments: ${JSON.stringify(blackSegments)}` },
+    ...evaluateDeterministicVisualLayout(manifest),
     { id: 'dimensions_fps', status: metadata.width === manifest.dimensions.width && metadata.height === manifest.dimensions.height && metadata.fps === manifest.fps ? 'pass' : 'fail', evidence: `FFprobe=${metadata.width}x${metadata.height}@${metadata.fps}; manifest=${manifest.dimensions.width}x${manifest.dimensions.height}@${manifest.fps}.` },
-    { id: 'audio_presence', status: !ttsSelected || Boolean(metadata.audio) ? 'pass' : 'fail', evidence: ttsSelected ? `TTS selected; FFprobe audio stream present=${Boolean(metadata.audio)}.` : 'TTS not selected; audio stream is optional.' },
+    { id: 'audio_presence', status: !ttsSelected || Boolean(metadata.audio) ? 'pass' : 'fail', evidence: ttsSelected ? `Narration selected; FFprobe audio stream present=${Boolean(metadata.audio)}.` : 'Narration not selected; audio stream is optional.' },
     { id: 'duration_consistency', status: durationDelta <= Math.max(0.08, 1 / manifest.fps + 0.01) ? 'pass' : 'fail', evidence: `Rendered=${metadata.durationSeconds.toFixed(3)}s; timeline=${(manifest.totalFrames / manifest.fps).toFixed(3)}s; delta=${durationDelta.toFixed(3)}s.` }
   ];
+  const hasFailures = checks.some((check) => check.status === 'fail');
+  const requiresManualReview = checks.some((check) => check.status === 'requires_manual_review');
   const report: VisualQaReport = {
-    schemaVersion: 'visual-qa-v1', frameInspectionCompleted: true,
-    inspectedMedia: basename(videoPath), checks, passed: checks.every((check) => check.status === 'pass')
+    schemaVersion: 'visual-qa-v1', frameInspectionCompleted: frameInspectionConfirmed, inspectedMedia: basename(videoPath),
+    contactSheet: basename(contactSheet.path), sampledFrames: contactSheet.frames, checks,
+    passed: !hasFailures && !requiresManualReview, requiresManualReview
   };
   await writeFile(resolve(jobDirectory, 'visual-qa-report.json'), JSON.stringify(report, null, 2), 'utf8');
-  if (!report.passed) throw new Error(`visual_qa_failed: ${checks.filter((check) => check.status === 'fail').map((check) => check.id).join(', ')}`);
+  if (hasFailures) throw new Error(`visual_qa_failed: ${checks.filter((check) => check.status === 'fail').map((check) => check.id).join(', ')}`);
   return report;
 }

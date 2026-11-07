@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,7 @@ export interface LessonDraftUpdateInput {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const defaultArtifactsDir = resolve(packageRoot, 'outputs/.artifacts');
+const defaultDraftsDir = resolve(packageRoot, 'outputs/.drafts');
 
 /**
  * Tuần tự hóa JSON chuẩn tắc (Canonical JSON Stringifier)
@@ -209,19 +211,58 @@ export class LessonDraftManager {
   private readonly orchestrator: LessonOrchestrator;
   private readonly verifier: MathVerificationService;
   private readonly artifactsDir: string;
+  private readonly draftsDir: string;
 
   constructor(options: {
     orchestrator?: LessonOrchestrator;
     verifier?: MathVerificationService;
     artifactsDir?: string;
+    draftsDir?: string;
   } = {}) {
     this.verifier = options.verifier ?? new MathVerificationService();
     this.orchestrator = options.orchestrator ?? new LessonOrchestrator({ verifier: this.verifier });
     this.artifactsDir = options.artifactsDir ?? defaultArtifactsDir;
+    this.draftsDir = options.draftsDir ?? (options.artifactsDir ? join(options.artifactsDir, '.drafts') : defaultDraftsDir);
+    this.restoreDrafts();
   }
 
   public getArtifactsDir(): string {
     return this.artifactsDir;
+  }
+
+  public getDraftsDir(): string {
+    return this.draftsDir;
+  }
+
+  private restoreDrafts(): void {
+    mkdirSync(this.draftsDir, { recursive: true });
+    for (const name of readdirSync(this.draftsDir)) {
+      if (!/^draft_[a-zA-Z0-9_-]+\.json$/.test(name)) continue;
+      try {
+        const candidate = JSON.parse(readFileSync(join(this.draftsDir, name), 'utf8')) as LessonDraft;
+        if (!candidate || typeof candidate !== 'object' || typeof candidate.draftId !== 'string' ||
+            !Number.isInteger(candidate.version) || candidate.version < 1 || !candidate.context ||
+            !Array.isArray(candidate.approvalHistory)) continue;
+        if (candidate.approvedArtifact) {
+          const artifact = ApprovedRenderArtifactV2Schema.parse(candidate.approvedArtifact);
+          if (!verifyArtifactIntegrity(artifact) || artifact.draftId !== candidate.draftId ||
+              artifact.version !== candidate.version || candidate.status !== 'approved') continue;
+          candidate.approvedArtifact = deepFreeze(artifact);
+        } else if (candidate.status === 'approved') continue;
+        this.drafts.set(candidate.draftId, candidate);
+      } catch {
+        // A corrupt record is isolated; other drafts remain available.
+      }
+    }
+  }
+
+  private persistDraft(draft: LessonDraft): void {
+    mkdirSync(this.draftsDir, { recursive: true });
+    const safeId = draft.draftId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const target = join(this.draftsDir, `${safeId}.json`);
+    const temporary = join(this.draftsDir, `.${safeId}.${randomUUID()}.tmp`);
+    writeFileSync(temporary, JSON.stringify(draft, null, 2), { encoding: 'utf8', flag: 'wx' });
+    renameSync(temporary, target);
   }
 
   public async createDraft(rawRequest: unknown): Promise<LessonDraft> {
@@ -251,6 +292,7 @@ export class LessonDraftManager {
     };
 
     this.drafts.set(draftId, draft);
+    this.persistDraft(draft);
     return draft;
   }
 
@@ -371,6 +413,7 @@ export class LessonDraftManager {
           code: 'math_spec_verification_failed',
           message: 'Mathematical claims are inconsistent with the candidate MathSpec'
         };
+        this.persistDraft(draft);
         return draft;
       }
       draft.context.lessonPlan.mathSpec = candidateMathSpec;
@@ -401,6 +444,7 @@ export class LessonDraftManager {
       note: note ?? 'Draft updated with user revisions'
     });
 
+    this.persistDraft(draft);
     return draft;
   }
 
@@ -573,6 +617,7 @@ export class LessonDraftManager {
       }
     });
 
+    this.persistDraft(draft);
     return draft;
   }
 
@@ -593,6 +638,7 @@ export class LessonDraftManager {
       note: reason
     });
 
+    this.persistDraft(draft);
     return draft;
   }
 }

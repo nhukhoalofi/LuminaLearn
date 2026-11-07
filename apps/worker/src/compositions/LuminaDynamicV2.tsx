@@ -12,6 +12,7 @@ import {
 import { Audio } from '@remotion/media';
 import { ConceptTitleReveal, StepFormulaReveal } from '@luminalearn/animation';
 import {
+  LUMINA_VERTICAL_LAYOUT,
   RenderManifestV2Schema,
   type RenderManifestV2,
   type TimelineSceneV2
@@ -130,7 +131,7 @@ const DynamicTextScene: React.FC<{ scene: TimelineSceneV2 }> = ({ scene }) => {
           {scene.content.title}
         </div>
         {scene.content.body ? (
-          <div style={{ marginTop: 26, color: colors.muted, fontSize: 27, lineHeight: 1.45 }}>
+          <div style={{ marginTop: 26, color: colors.muted, fontSize: LUMINA_VERTICAL_LAYOUT.bodyFontPx, lineHeight: 1.45 }}>
             {scene.content.body}
           </div>
         ) : null}
@@ -180,7 +181,7 @@ const DynamicSubtitleOverlay: React.FC<{ manifest: RenderManifestV2 }> = ({ mani
         zIndex: 40,
         left: 48,
         right: 48,
-        bottom: overlaysVerifiedMath ? 190 : 58,
+        bottom: overlaysVerifiedMath ? LUMINA_VERTICAL_LAYOUT.subtitleMathClipBottomPx : LUMINA_VERTICAL_LAYOUT.subtitleNormalBottomPx,
         display: 'flex',
         justifyContent: 'center',
         pointerEvents: 'none'
@@ -188,15 +189,15 @@ const DynamicSubtitleOverlay: React.FC<{ manifest: RenderManifestV2 }> = ({ mani
     >
       <div
         style={{
-          maxWidth: 620,
-          padding: '13px 20px',
+          maxWidth: LUMINA_VERTICAL_LAYOUT.subtitleMaxWidthPx,
+          padding: `${LUMINA_VERTICAL_LAYOUT.subtitleVerticalPaddingPx}px ${LUMINA_VERTICAL_LAYOUT.subtitleHorizontalPaddingPx}px`,
           borderRadius: 14,
           background: 'rgba(3, 8, 18, .9)',
           border: '1px solid rgba(148, 163, 184, .28)',
           color: colors.text,
-          fontSize: 25,
+          fontSize: LUMINA_VERTICAL_LAYOUT.subtitleFontPx,
           fontWeight: 700,
-          lineHeight: 1.35,
+          lineHeight: LUMINA_VERTICAL_LAYOUT.subtitleLineHeight,
           textAlign: 'center',
           whiteSpace: 'pre-line',
           boxShadow: '0 8px 30px rgba(0,0,0,.4)'

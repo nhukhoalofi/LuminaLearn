@@ -338,6 +338,7 @@ describe('Draft-to-Render Integrity & Hardening (Phase 0)', () => {
     const draft = await manager.createDraft(request);
     await manager.approveDraft(draft.draftId);
     const artifactId = draft.approvedArtifact!.artifactId;
+    const approvedArtifact = draft.approvedArtifact!;
 
     // Simulate process restart: read from disk using a fresh manager instance
     const newManager = new LessonDraftManager({ artifactsDir: tempDir });
@@ -347,5 +348,14 @@ describe('Draft-to-Render Integrity & Hardening (Phase 0)', () => {
     assert.equal(loaded?.artifactId, artifactId);
     assert.equal(loaded?.draftId, draft.draftId);
     assert.equal(loaded?.contentHash, draft.approvedArtifact!.contentHash);
+    assert.equal(newManager.getDraft(draft.draftId)?.status, 'approved');
+    assert.equal(newManager.isArtifactCurrentlyApproved(approvedArtifact), true);
+
+    await newManager.updateDraft(draft.draftId, { title: 'Bản sửa đổi sau phê duyệt' });
+    assert.equal(newManager.isArtifactCurrentlyApproved(approvedArtifact), false);
+
+    const afterSecondRestart = new LessonDraftManager({ artifactsDir: tempDir });
+    assert.equal(afterSecondRestart.getDraft(draft.draftId)?.status, 'reviewing');
+    assert.equal(afterSecondRestart.isArtifactCurrentlyApproved(approvedArtifact), false);
   });
 });

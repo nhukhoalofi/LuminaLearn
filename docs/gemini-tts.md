@@ -29,6 +29,8 @@ Mỗi phiên provider kiểm tra model qua API trước lần tổng hợp đầ
 
 ## Smoke test có tính phí/quota
 
+Smoke launcher chủ động nạp duy nhất file `.env` ở repository root, không phụ thuộc current working directory, không ghi secret ra log và không ghi đè biến môi trường đã được process cấu hình.
+
 Lệnh sau cố ý yêu cầu cờ ủy quyền và chỉ tạo một câu ngắn:
 
 ```powershell

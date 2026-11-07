@@ -35,4 +35,4 @@ Run the real protocol discovery/invocation test with:
 pnpm --filter @luminalearn/mcp-server test
 ```
 
-The test uses the official MCP v2 client and linked in-memory transport to list tools and invoke style/spec tools.
+The test uses the official MCP v2 client twice: a linked in-memory transport invokes all five tools against a controlled repository fixture, then `StdioClientTransport` launches the documented `pnpm` command and performs discovery plus a real tool call. This proves the local protocol/launcher, not an actual Codex or Claude Code connection.

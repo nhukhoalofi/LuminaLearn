@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DocumentChunk, GroundingEvidence } from '@luminalearn/scene-schema';
-import type { DocumentAnalysisResult } from './types';
+import type { DocumentAnalysisResult, SourceContextBundle } from './types';
 
 /**
  * Kho lưu trữ tài liệu với bộ đệm bộ nhớ và khả năng lưu trữ đĩa (Persistent Document Store)
@@ -272,6 +272,32 @@ export class DocumentAnalyst {
       extractedConcepts: Array.from(extractedConcepts),
       candidateClaims,
       evidence: evidenceList
+    };
+  }
+
+  public buildSourceContextBundle(
+    documentIds: string[],
+    analysis: DocumentAnalysisResult,
+    limits: { maxExcerpts?: number; maxExcerptCharacters?: number } = {}
+  ): SourceContextBundle {
+    const maxExcerpts = limits.maxExcerpts ?? 12;
+    const maxExcerptCharacters = limits.maxExcerptCharacters ?? 1_200;
+    const excerpts = documentIds
+      .flatMap((documentId) => this.store.getChunksByDocument(documentId))
+      .sort((a, b) => a.documentId.localeCompare(b.documentId) || a.pageNumber - b.pageNumber || a.chunkId.localeCompare(b.chunkId))
+      .slice(0, maxExcerpts)
+      .map((chunk) => ({
+        documentId: chunk.documentId,
+        chunkId: chunk.chunkId,
+        pageNumber: chunk.pageNumber,
+        text: chunk.text.slice(0, maxExcerptCharacters)
+      }));
+    return {
+      trust: 'untrusted_document_content',
+      documentIds: [...documentIds],
+      excerpts,
+      candidateClaims: analysis.candidateClaims.slice(0, 12),
+      exactMatchEvidence: analysis.evidence.filter((item) => item.evidenceFound && item.matchType === 'exact').slice(0, 12)
     };
   }
 }

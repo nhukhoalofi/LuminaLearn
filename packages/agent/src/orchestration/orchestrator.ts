@@ -93,7 +93,8 @@ export class LessonOrchestrator {
       stage: 'normalized',
       logs,
       retryCount: 0,
-      maxRetries: this.maxRetries
+      maxRetries: this.maxRetries,
+      providerCalls: []
     };
 
     // Stage 2: Phân loại chủ đề (Topic Classification & Routing)
@@ -128,6 +129,7 @@ export class LessonOrchestrator {
         };
         return context;
       }
+      context.sourceContext = this.documentAnalyst.buildSourceContextBundle(request.sourceDocumentIds, docAnalysis);
       log('document_analysis', 'analyzed', 'success', `Đã phân tích ${docAnalysis.totalChunks} đoạn tài liệu, trích xuất ${docAnalysis.extractedConcepts.length} khái niệm`);
     }
 
@@ -150,11 +152,22 @@ export class LessonOrchestrator {
         audience: request.audience,
         targetDurationSeconds: request.targetDurationSeconds,
         documentAnalysis: context.documentAnalysis,
-        aiProvider: effectiveAiProvider
+        sourceContext: context.sourceContext,
+        aiProvider: effectiveAiProvider,
+        onProviderCall: (trace) => context.providerCalls?.push(trace)
       });
+      if (request.inputMode === 'source_document') {
+        if (plan.sourceEvidence.length === 0) throw new Error('source_evidence_missing: live source-document plan returned no citations');
+        for (const evidence of plan.sourceEvidence) {
+          const reference = evidence.sourceReference;
+          if (!request.sourceDocumentIds.includes(reference.documentId)) throw new Error(`fabricated_source_reference: ${reference.documentId}`);
+          const match = this.groundingService.verifyQuoteInDocument(reference.documentId, reference.pageNumber, reference.exactQuote);
+          if (!match.found || match.matchType !== 'exact') throw new Error(`fabricated_source_reference: ${reference.id}`);
+        }
+      }
       const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.lessonPlan = plan;
-      log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode });
+      log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode, providerCall: context.providerCalls?.at(-1) });
     } catch (err) {
       log('curriculum_planning', 'failed', 'error', `Lập kế hoạch bài học thất bại: ${err instanceof Error ? err.message : String(err)}`);
       context.stage = 'failed';
@@ -231,11 +244,12 @@ export class LessonOrchestrator {
         lessonPlan: context.lessonPlan,
         storyboard: context.storyboard,
         language: request.language,
-        aiProvider: effectiveAiProvider
+        aiProvider: effectiveAiProvider,
+        onProviderCall: (trace) => context.providerCalls?.push(trace)
       });
       const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.narrationPlan = narrationPlan;
-      log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode });
+      log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode, providerCall: context.providerCalls?.at(-1) });
     } catch (err) {
       log('narration_planning', 'failed', 'error', `Sinh lời dẫn thất bại: ${err instanceof Error ? err.message : String(err)}`);
       context.stage = 'failed';

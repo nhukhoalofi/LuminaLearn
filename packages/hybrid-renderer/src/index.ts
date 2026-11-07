@@ -12,4 +12,5 @@ export * from './config';
 export * from './error-taxonomy';
 export * from './pipeline-v2';
 export * from './visual-qa';
+export * from './environment';
 

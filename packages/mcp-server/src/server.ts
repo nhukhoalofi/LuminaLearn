@@ -13,9 +13,7 @@ const {
   listVisualStyles
 } = sceneSchema;
 
-const packageDirectory = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
-const repositoryRoot = resolve(packageDirectory, '../../..');
-const outputsRoot = resolve(repositoryRoot, 'outputs');
+export const DEFAULT_REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 const SafeId = z.string().regex(/^[a-zA-Z0-9_-]{3,120}$/);
 const ToolOutput = z.object({ result: z.unknown() }).strict();
 
@@ -24,12 +22,14 @@ const result = (value: unknown) => ({
   structuredContent: { result: value }
 });
 
-async function readJobJson(jobId: string, fileName: 'storyboard.json' | 'final.mp4.metadata.json' | 'visual-qa-report.json'): Promise<unknown> {
+async function readJobJson(outputsRoot: string, jobId: string, fileName: 'storyboard.json' | 'final.mp4.metadata.json' | 'visual-qa-report.json'): Promise<unknown> {
   // jobId and fileName are closed schemas, so this never accepts a caller-controlled path.
   return JSON.parse(await readFile(resolve(outputsRoot, jobId, fileName), 'utf8'));
 }
 
-export function createLuminaMcpServer(): McpServer {
+export function createLuminaMcpServer(options: { repositoryRoot?: string } = {}): McpServer {
+  const repositoryRoot = resolve(options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT);
+  const outputsRoot = resolve(repositoryRoot, 'outputs');
   const server = new McpServer({ name: 'luminalearn-readonly', version: '0.1.0' });
 
   server.registerTool('list_math_templates', {
@@ -51,7 +51,7 @@ export function createLuminaMcpServer(): McpServer {
   server.registerTool('inspect_storyboard', {
     description: 'Inspect and schema-validate storyboard.json for one safe LuminaLearn job ID.',
     inputSchema: z.object({ jobId: SafeId }).strict(), outputSchema: ToolOutput, annotations: { readOnlyHint: true }
-  }, async ({ jobId }) => result(StoryboardV2Schema.parse(await readJobJson(jobId, 'storyboard.json'))));
+  }, async ({ jobId }) => result(StoryboardV2Schema.parse(await readJobJson(outputsRoot, jobId, 'storyboard.json'))));
 
   server.registerTool('validate_math_spec', {
     description: 'Structurally validate a MathVisualizationSpecV2 without inference or paid API calls.',
@@ -65,14 +65,14 @@ export function createLuminaMcpServer(): McpServer {
     description: 'Inspect final FFprobe metadata and visual QA for one safe LuminaLearn job ID.',
     inputSchema: z.object({ jobId: SafeId }).strict(), outputSchema: ToolOutput, annotations: { readOnlyHint: true }
   }, async ({ jobId }) => result({
-    metadata: await readJobJson(jobId, 'final.mp4.metadata.json'),
-    visualQa: await readJobJson(jobId, 'visual-qa-report.json')
+    metadata: await readJobJson(outputsRoot, jobId, 'final.mp4.metadata.json'),
+    visualQa: await readJobJson(outputsRoot, jobId, 'visual-qa-report.json')
   }));
 
   return server;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void serveStdio(createLuminaMcpServer);
+  void serveStdio(() => createLuminaMcpServer());
   console.error('LuminaLearn read-only MCP server running on stdio');
 }

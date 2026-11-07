@@ -57,6 +57,27 @@ export interface DocumentAnalysisResult {
   evidence: GroundingEvidence[];
 }
 
+export interface SourceContextBundle {
+  trust: 'untrusted_document_content';
+  documentIds: string[];
+  excerpts: Array<{
+    documentId: string;
+    chunkId: string;
+    pageNumber: number;
+    text: string;
+  }>;
+  candidateClaims: DocumentAnalysisResult['candidateClaims'];
+  exactMatchEvidence: GroundingEvidence[];
+}
+
+export interface ProviderCallTrace {
+  purpose: 'curriculum_planning' | 'narration_planning';
+  mode: 'ai_generated_live' | 'deterministic_mock';
+  model: string;
+  promptTokens?: number;
+  candidatesTokens?: number;
+}
+
 export interface MathVerificationReportV2 {
   status: 'verified' | 'failed' | 'needs_review';
   checkedClaims: VerifiedClaim[];
@@ -72,6 +93,8 @@ export interface OrchestrationContext {
   stage: OrchestrationStage;
   topicInfo?: TopicClassification;
   documentAnalysis?: DocumentAnalysisResult;
+  sourceContext?: SourceContextBundle;
+  providerCalls?: ProviderCallTrace[];
   lessonPlan?: LessonPlanV2;
   mathVerification?: MathVerificationReportV2;
   storyboard?: StoryboardV2;

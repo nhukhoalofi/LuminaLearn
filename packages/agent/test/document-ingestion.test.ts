@@ -221,8 +221,10 @@ Khi hai điểm P và Q trên đồ thị x^2 tiến lại gần nhau, cát tuy�
 });
 
 describe('LessonDraftManager & Verification Gate', () => {
-  it('manages draft lifecycle and blocks approval when claims are unverified or failed', async () => {
-    const draftManager = new LessonDraftManager();
+  it('manages draft lifecycle and blocks approval when claims are unverified or failed', async (t) => {
+    const storageRoot = mkdtempSync(join(tmpdir(), 'lumina-draft-lifecycle-'));
+    t.after(() => rmSync(storageRoot, { recursive: true, force: true }));
+    const draftManager = new LessonDraftManager({ artifactsDir: storageRoot });
 
     const request: LessonRequestV2 = {
       requestId: 'draft_test_01',

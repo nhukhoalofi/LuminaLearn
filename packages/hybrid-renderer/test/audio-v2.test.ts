@@ -121,6 +121,44 @@ test('Milestone 6: V2 Audio / TTS Pipeline', async (t) => {
     );
   });
 
+  await t.test('fails closed when narration exceeds a locked measured Manim clip', async () => {
+    const lockedStoryboard = structuredClone(storyboard);
+    const original = structuredClone(lockedStoryboard);
+    await assert.rejects(
+      synthesizeNarrationV2({
+        provider: new MockTtsProvider(12), narrationPlan, storyboard: lockedStoryboard,
+        jobId: 'job_test_locked', jobDirectory: join(root, 'job_locked'),
+        stagedDirectory: join(root, 'staged_locked'), fps: 24,
+        alignmentPolicy: 'adjust_timeline', lockedSceneIds: new Set(['sc_intro'])
+      }),
+      /audio_duration_exceeds_scene/
+    );
+    assert.deepEqual(lockedStoryboard, original, 'locked scene timing must not be stretched');
+  });
+
+  await t.test('aligns two narration segments around one measured Manim clip on one timeline', async () => {
+    const measuredStoryboard = structuredClone(storyboard);
+    measuredStoryboard.scenes = [
+      { ...measuredStoryboard.scenes[0], sceneId: 'sc_before', durationFrames: 48 },
+      { ...measuredStoryboard.scenes[1], sceneId: 'sc_manim', durationFrames: 72 },
+      { ...measuredStoryboard.scenes[0], sceneId: 'sc_after', durationFrames: 48 }
+    ];
+    measuredStoryboard.estimatedDurationFrames = 168;
+    const surroundingPlan = structuredClone(narrationPlan);
+    surroundingPlan.segments = [
+      { ...surroundingPlan.segments[0], segmentId: 'seg_before', sceneId: 'sc_before' },
+      { ...surroundingPlan.segments[1], segmentId: 'seg_manim', sceneId: 'sc_manim' },
+      { ...surroundingPlan.segments[0], segmentId: 'seg_after', sceneId: 'sc_after' }
+    ];
+    const assets = await synthesizeNarrationV2({
+      provider: new MockTtsProvider(1), narrationPlan: surroundingPlan, storyboard: measuredStoryboard,
+      jobId: 'job_test_surrounding', jobDirectory: join(root, 'job_surrounding'),
+      stagedDirectory: join(root, 'staged_surrounding'), fps: 24,
+      alignmentPolicy: 'adjust_timeline', lockedSceneIds: new Set(['sc_manim'])
+    });
+    assert.deepEqual(assets.map((asset) => asset.startFrame), [0, 48, 120]);
+  });
+
   // Cleanup
   rmSync(root, { recursive: true, force: true });
 });

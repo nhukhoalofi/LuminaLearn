@@ -48,7 +48,7 @@ class RiemannSumScene(Scene):
             stroke_width=5,
         )
         curve_label = Text("f(x) = x²", font="Arial", font_size=20, color=CYAN).next_to(
-            axes.c2p(1.0, 1.0), direction=[1, 0.5, 0], buff=0.15
+            axes.c2p(1.0, 1.0), direction=[-1, 0.75, 0], buff=0.12
         )
 
         def make_rectangles(n: int) -> tuple[VGroup, float]:

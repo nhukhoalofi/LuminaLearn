@@ -255,6 +255,10 @@ export async function synthesizeNarrationV2(options: {
         // Expand scene frames to accommodate narration with small breathing room
         const neededFrames = Math.ceil((metadata.durationSeconds + 0.25) * fps);
         scene.durationFrames = Math.max(scene.durationFrames, neededFrames);
+      } else {
+        throw new Error(
+          `audio_hold_policy_unavailable: Phân đoạn ${segment.segmentId} cần giữ khung hình cuối, nhưng chưa có xác nhận cảnh ${scene.sceneId} an toàn để hold; hãy rút ngắn lời dẫn hoặc dùng adjust_timeline cho cảnh không khóa`
+        );
       }
     }
 

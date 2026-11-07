@@ -122,6 +122,38 @@ describe('Gemini TTS provider (offline fake client)', () => {
     );
   });
 
+  it('retries bounded transient failures and classifies request timeout', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'lumina-gemini-retry-'));
+    try {
+      let attempts = 0;
+      const retryingClient: GeminiAudioClient = {
+        async assertModelAvailable() {},
+        async generateSpeech() {
+          attempts += 1;
+          if (attempts < 3) throw Object.assign(new Error('temporary unavailable'), { status: 503 });
+          return { data: wavFixture(0.5), mimeType: 'audio/wav' };
+        }
+      };
+      const retrying = new GeminiTtsProvider({ client: retryingClient, maxAttempts: 3, retryBaseDelayMs: 1 });
+      await retrying.synthesize('Nội dung thử lại', join(directory, 'retry.mp3'));
+      assert.equal(attempts, 3);
+
+      const timeoutClient: GeminiAudioClient = {
+        async assertModelAvailable() {},
+        async generateSpeech(request) {
+          await new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+          });
+          throw new Error('unreachable');
+        }
+      };
+      const timingOut = new GeminiTtsProvider({ client: timeoutClient, timeoutMs: 10, maxAttempts: 1 });
+      await assert.rejects(() => timingOut.synthesize('Nội dung timeout', join(directory, 'timeout.mp3')), /tts_timeout/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('uses one finalized timeline for Gemini audio positions and subtitles', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'lumina-gemini-timeline-'));
     try {

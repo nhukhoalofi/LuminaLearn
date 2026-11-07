@@ -2,6 +2,9 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { GeminiTtsProvider } from './gemini-tts';
 import { probeAudio } from './audio';
+import { loadRepositoryEnvironment } from './environment';
+
+loadRepositoryEnvironment();
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
