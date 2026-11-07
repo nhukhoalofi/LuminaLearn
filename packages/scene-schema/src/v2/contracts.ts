@@ -258,7 +258,8 @@ export const RenderManifestV2Schema = z.object({
     id: SafeIdString,
     path: z.string().min(1).max(500),
     durationSeconds: z.number().positive(),
-    codec: z.enum(['aac', 'wav', 'mp3'])
+    codec: z.enum(['aac', 'wav', 'mp3']),
+    startFrame: z.number().int().nonnegative().default(0)
   }).strict()).default([]),
   subtitleTrack: z.object({
     trackId: SafeIdString,

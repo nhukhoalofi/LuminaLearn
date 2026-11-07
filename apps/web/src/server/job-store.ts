@@ -9,8 +9,13 @@ import {
   type JobState,
   LocalJobRepository
 } from '@luminalearn/hybrid-renderer';
+import {
+  LessonRequestV2Schema,
+  type LessonRequestV2
+} from '@luminalearn/scene-schema';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { documentStore } from './v2-services';
 
 export interface JobRecord {
   jobId: string;
@@ -41,7 +46,11 @@ const messageByState: Record<JobState, string> = {
   completed: 'Video đã hoàn tất', failed: 'Tạo video thất bại', interrupted: 'Job bị gián đoạn khi server dừng'
 };
 
-interface QueuedJob { jobId: string; request: HybridRenderRequest; }
+interface QueuedJob {
+  jobId: string;
+  request?: HybridRenderRequest;
+  v2Request?: LessonRequestV2;
+}
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -78,37 +87,52 @@ function failureType(error: unknown): JobRecord['failureType'] {
 
 async function runEntry(entry: QueuedJob): Promise<void> {
   try {
-    const isRiemann = /tích phân|tich phan|riemann|integral/i.test(entry.request.topic);
     let result: { outputPath: string };
-    if (isRiemann) {
-      result = await runHybridPipelineV2(
-        {
-          requestId: `req_${entry.jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
-          inputMode: 'topic_prompt',
-          topic: entry.request.topic,
-          audience: 'Học sinh phổ thông',
-          language: 'vi',
-          targetDurationSeconds: 40,
-          renderMode: entry.request.renderMode,
-          narrationMode: entry.request.voiceoverMode,
-          aspectRatio: '9:16',
-          sourceDocumentIds: []
-        },
-        {
-          jobId: entry.jobId,
-          onStage: (stage) => {
-            if (stage !== 'completed') transition(entry.jobId, stage);
-          }
-        }
-      );
-    } else {
-      result = await runHybridPipeline(entry.request, {
+
+    if (entry.v2Request) {
+      result = await runHybridPipelineV2(entry.v2Request, {
         jobId: entry.jobId,
+        documentStore,
         onStage: (stage) => {
           if (stage !== 'completed') transition(entry.jobId, stage);
         }
       });
+    } else if (entry.request) {
+      const isRiemann = /tích phân|tich phan|riemann|integral/i.test(entry.request.topic);
+      if (isRiemann) {
+        result = await runHybridPipelineV2(
+          {
+            requestId: `req_${entry.jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+            inputMode: 'topic_prompt',
+            topic: entry.request.topic,
+            audience: 'Học sinh phổ thông',
+            language: 'vi',
+            targetDurationSeconds: 40,
+            renderMode: entry.request.renderMode,
+            narrationMode: entry.request.voiceoverMode,
+            aspectRatio: '9:16',
+            sourceDocumentIds: []
+          },
+          {
+            jobId: entry.jobId,
+            documentStore,
+            onStage: (stage) => {
+              if (stage !== 'completed') transition(entry.jobId, stage);
+            }
+          }
+        );
+      } else {
+        result = await runHybridPipeline(entry.request, {
+          jobId: entry.jobId,
+          onStage: (stage) => {
+            if (stage !== 'completed') transition(entry.jobId, stage);
+          }
+        });
+      }
+    } else {
+      throw new Error('invalid_queue_entry: neither request nor v2Request provided');
     }
+
     transition(entry.jobId, 'completed', { outputPath: result.outputPath, videoUrl: `/api/jobs/${entry.jobId}/video` });
   } catch (error) {
     const current = store.jobs.get(entry.jobId);
@@ -140,6 +164,31 @@ export function createJob(input: unknown): Omit<JobRecord, 'outputPath'> {
   store.jobs.set(jobId, job);
   repository.save(job);
   store.queue.push({ jobId, request });
+  pump();
+  return publicJob(job);
+}
+
+export function createV2Job(input: unknown): Omit<JobRecord, 'outputPath'> {
+  const v2Request = LessonRequestV2Schema.parse(input);
+  if (v2Request.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
+    throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
+  }
+  const jobId = createHybridJobId();
+  const now = new Date().toISOString();
+  const job: JobRecord = {
+    jobId,
+    status: 'queued',
+    progress: 0,
+    message: messageByState.queued,
+    renderMode: v2Request.renderMode,
+    voiceoverMode: v2Request.narrationMode,
+    subtitlesEnabled: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.jobs.set(jobId, job);
+  repository.save(job);
+  store.queue.push({ jobId, v2Request });
   pump();
   return publicJob(job);
 }

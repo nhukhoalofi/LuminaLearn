@@ -168,6 +168,27 @@ export class CurriculumPlanner {
       summary = `Tổng kết các điểm cốt lõi của bài học ${topicInfo.displayName}.`;
     }
 
+    // Đối chiếu và tích hợp candidate claims từ tài liệu nguồn (Document-Grounded Claims)
+    // Nếu tài liệu chứa mệnh đề toán học (kể cả sai), đưa vào danh sách để SymPy Formal Gate kiểm tra
+    if (documentAnalysis?.candidateClaims && documentAnalysis.candidateClaims.length > 0) {
+      const docClaims: VerifiedClaim[] = documentAnalysis.candidateClaims.map((c, idx) => ({
+        id: `claim_doc_${idx + 1}`,
+        statement: c.claimStatement,
+        validatorKey: c.validatorKey,
+        expectedExpression: c.expectedExpression,
+        verificationStatus: 'unverified'
+      }));
+
+      for (const dc of docClaims) {
+        const existingIdx = mathematicalClaims.findIndex((mc) => mc.validatorKey === dc.validatorKey);
+        if (existingIdx >= 0) {
+          mathematicalClaims[existingIdx] = dc;
+        } else {
+          mathematicalClaims.push(dc);
+        }
+      }
+    }
+
     const plan: LessonPlanV2 = {
       schemaVersion: 'lesson-v2',
       lessonId,

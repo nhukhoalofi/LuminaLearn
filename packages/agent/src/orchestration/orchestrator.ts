@@ -7,6 +7,8 @@ import {
 } from '@luminalearn/scene-schema';
 import { CurriculumPlanner } from './curriculum-planner';
 import { DocumentAnalyst, DocumentGroundingService, DocumentStore } from './document-grounding';
+import { MathVerificationService } from './math-verifier';
+import { type AIProvider, MockAIProvider } from './ai-provider';
 import { NarrationPlannerV2 } from './narration-planner';
 import { QualityReviewer } from './quality-reviewer';
 import { TopicRouter } from './router';
@@ -16,6 +18,8 @@ import type { OrchestrationContext, OrchestrationLogEntry, OrchestrationStage } 
 export interface LessonOrchestratorOptions {
   registry?: MathTemplateRegistry;
   documentStore?: DocumentStore;
+  verifier?: MathVerificationService;
+  aiProvider?: AIProvider;
   maxRetries?: number;
 }
 
@@ -25,6 +29,8 @@ export class LessonOrchestrator {
   private readonly groundingService: DocumentGroundingService;
   private readonly documentAnalyst: DocumentAnalyst;
   private readonly curriculumPlanner: CurriculumPlanner;
+  private readonly verifier: MathVerificationService;
+  private readonly aiProvider: AIProvider;
   private readonly storyboardDirector: VisualStoryboardDirectorV2;
   private readonly narrationPlanner: NarrationPlannerV2;
   private readonly qualityReviewer: QualityReviewer;
@@ -38,6 +44,8 @@ export class LessonOrchestrator {
     this.documentAnalyst = new DocumentAnalyst(this.documentStore, this.groundingService);
     this.router = new TopicRouter();
     this.curriculumPlanner = new CurriculumPlanner();
+    this.verifier = options.verifier ?? new MathVerificationService();
+    this.aiProvider = options.aiProvider ?? new MockAIProvider();
     this.storyboardDirector = new VisualStoryboardDirectorV2(this.registry);
     this.narrationPlanner = new NarrationPlannerV2();
     this.qualityReviewer = new QualityReviewer(this.registry);
@@ -119,8 +127,9 @@ export class LessonOrchestrator {
         targetDurationSeconds: request.targetDurationSeconds,
         documentAnalysis: context.documentAnalysis
       });
+      const aiMode = this.aiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.lessonPlan = plan;
-      log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`);
+      log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode });
     } catch (err) {
       log('curriculum_planning', 'failed', 'error', `Lập kế hoạch bài học thất bại: ${err instanceof Error ? err.message : String(err)}`);
       context.stage = 'failed';
@@ -129,18 +138,44 @@ export class LessonOrchestrator {
     }
 
     // Stage 5: Xác minh toán học hình thức (Mathematical Validation Gate)
-    // Quy tắc fail-closed: Các mệnh đề phải được đánh dấu verified
-    const verifiedClaims = context.lessonPlan.mathematicalClaims.map((claim) => ({
-      ...claim,
-      verificationStatus: 'verified' as const
-    }));
-    context.lessonPlan.mathematicalClaims = verifiedClaims;
-    context.mathVerification = {
-      status: 'verified',
-      checkedClaims: verifiedClaims,
-      verificationDetails: Object.fromEntries(verifiedClaims.map((c) => [c.id, { passed: true }]))
-    };
-    log('mathematical_validation', 'verified', 'success', `Đã xác minh hình thức ${verifiedClaims.length} mệnh đề toán học`);
+    // Quy tắc fail-closed: Gọi MathVerificationService thực thụ (SymPy / injected verifier)
+    try {
+      const verifyReport = await this.verifier.verifyClaims(
+        topicInfo.topicId,
+        context.lessonPlan.mathematicalClaims,
+        { timeoutMs: 20_000 }
+      );
+      context.lessonPlan.mathematicalClaims = verifyReport.claims;
+      context.mathVerification = {
+        status: verifyReport.allVerified ? 'verified' : 'failed',
+        checkedClaims: verifyReport.claims,
+        verificationDetails: verifyReport.result.checks
+      };
+
+      if (!verifyReport.allVerified) {
+        const failedClaims = verifyReport.claims
+          .filter((c) => c.verificationStatus !== 'verified')
+          .map((c) => `${c.id} (${c.validatorKey}: ${c.verificationStatus})`)
+          .join(', ');
+        log('mathematical_validation', 'failed', 'error', `Xác minh toán học thất bại với các mệnh đề: ${failedClaims}`);
+        context.stage = 'failed';
+        context.error = {
+          code: 'mathematical_verification_failed',
+          message: `Mathematical claims failed SymPy formal verification: ${failedClaims}`
+        };
+        return context;
+      }
+
+      log('mathematical_validation', 'verified', 'success', `Đã xác minh hình thức thành công ${verifyReport.claims.length} mệnh đề toán học`);
+    } catch (err) {
+      log('mathematical_validation', 'failed', 'error', `Tiến trình xác minh toán học gặp sự cố: ${err instanceof Error ? err.message : String(err)}`);
+      context.stage = 'failed';
+      context.error = {
+        code: 'mathematical_verification_failed',
+        message: err instanceof Error ? err.message : String(err)
+      };
+      return context;
+    }
 
     // Stage 6: Đạo diễn trực quan (Visual Storyboard Directing)
     try {
@@ -166,8 +201,9 @@ export class LessonOrchestrator {
         storyboard: context.storyboard,
         language: request.language
       });
+      const aiMode = this.aiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.narrationPlan = narrationPlan;
-      log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`);
+      log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode });
     } catch (err) {
       log('narration_planning', 'failed', 'error', `Sinh lời dẫn thất bại: ${err instanceof Error ? err.message : String(err)}`);
       context.stage = 'failed';

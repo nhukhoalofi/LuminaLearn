@@ -1,8 +1,10 @@
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { DocumentChunk, GroundingEvidence } from '@luminalearn/scene-schema';
 import type { DocumentAnalysisResult } from './types';
 
 /**
- * Kho lưu trữ tài liệu trong bộ nhớ (In-memory Document Store)
+ * Kho lưu trữ tài liệu với bộ đệm bộ nhớ và khả năng lưu trữ đĩa (Persistent Document Store)
  */
 export class DocumentStore {
   private readonly chunks = new Map<string, DocumentChunk>();
@@ -15,6 +17,10 @@ export class DocumentStore {
     for (const chunk of chunks) {
       this.addChunk(chunk);
     }
+  }
+
+  public saveDocument(doc: { documentId: string; title: string; chunks: DocumentChunk[] }): void {
+    this.addChunks(doc.chunks);
   }
 
   public getChunk(chunkId: string): DocumentChunk | undefined {
@@ -31,6 +37,25 @@ export class DocumentStore {
 
   public clear(): void {
     this.chunks.clear();
+  }
+
+  public async loadFromDisk(storageDir: string, documentId: string): Promise<boolean> {
+    try {
+      const chunksPath = join(storageDir, documentId, 'chunks.json');
+      const data = JSON.parse(await readFile(chunksPath, 'utf8')) as DocumentChunk[];
+      this.addChunks(data);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async persistToDisk(storageDir: string, documentId: string): Promise<void> {
+    const chunks = this.getChunksByDocument(documentId);
+    if (chunks.length === 0) return;
+    const docFolder = join(storageDir, documentId);
+    await mkdir(docFolder, { recursive: true });
+    await writeFile(join(docFolder, 'chunks.json'), JSON.stringify(chunks, null, 2), 'utf8');
   }
 }
 
@@ -97,12 +122,14 @@ export class DocumentGroundingService {
     notes?: string
   ): GroundingEvidence {
     const verification = this.verifyQuoteInDocument(documentId, pageNumber, quote);
+    const cleanDoc = documentId.replace(/^doc_/, '').slice(0, 16);
+    const cleanClaim = claimId.replace(/^claim_/, '').slice(0, 24);
 
     return {
-      evidenceId: `ev_${claimId}_${documentId}_p${pageNumber}`,
+      evidenceId: `ev_${cleanClaim}_p${pageNumber}`,
       claimId,
       sourceReference: {
-        id: `ref_${documentId}_p${pageNumber}`,
+        id: `ref_${cleanDoc}_p${pageNumber}`,
         documentId,
         pageNumber,
         exactQuote: quote,
@@ -147,27 +174,73 @@ export class DocumentAnalyst {
     const evidenceList: GroundingEvidence[] = [];
 
     for (const chunk of chunks) {
+      // 1. Phân tích chủ đề Đạo hàm
       if (/đạo hàm|tiếp tuyến|cát tuyến|tốc độ thay đổi/i.test(chunk.text)) {
         extractedConcepts.add('Đạo hàm');
         extractedConcepts.add('Tiếp tuyến');
         extractedConcepts.add('Cát tuyến');
 
-        if (/x\^2|x bình phương/i.test(chunk.text) && /2x|hai x/i.test(chunk.text)) {
+        // Kiểm tra mệnh đề đạo hàm: ghi nhận trung thực biểu thức tài liệu nêu
+        // (Nếu tài liệu in sai f'(x)=3x, trích xuất 3*x để SymPy Gate bắt lỗi, không tự sửa thành đúng)
+        if (/x\^2|x bình phương/i.test(chunk.text)) {
+          let expr = '2*x';
+          let stmt = 'Đạo hàm của hàm số f(x) = x^2 là 2x';
+
+          if (/3x|ba x/i.test(chunk.text)) {
+            expr = '3*x';
+            stmt = 'Đạo hàm của hàm số f(x) = x^2 là 3x (Mệnh đề trích xuất nguyên văn từ tài liệu nguồn)';
+          }
+
           const claim = {
-            claimStatement: 'Đạo hàm của hàm số f(x) = x^2 là 2x',
+            claimStatement: stmt,
             validatorKey: 'polynomial_derivative',
-            expectedExpression: '2*x',
-            quote: 'đạo hàm của x^2 là 2x',
+            expectedExpression: expr,
+            quote: chunk.text.slice(0, 100),
             pageNumber: chunk.pageNumber,
             documentId: chunk.documentId
           };
           candidateClaims.push(claim);
 
           const evidence = this.groundingService.buildEvidence(
-            'claim_deriv',
+            `claim_deriv_${chunk.chunkId}`,
             chunk.documentId,
             chunk.pageNumber,
-            chunk.text.slice(0, 80)
+            chunk.text.slice(0, 100)
+          );
+          evidenceList.push(evidence);
+        }
+      }
+
+      // 2. Phân tích chủ đề Tích phân & Tổng Riemann
+      if (/tích phân|tich phan|riemann|hình chữ nhật|diện tích cong|phân hoạch/i.test(chunk.text)) {
+        extractedConcepts.add('Tích phân xác định');
+        extractedConcepts.add('Tổng Riemann');
+        extractedConcepts.add('Xấp xỉ diện tích');
+
+        if (/x\^2|x bình phương/i.test(chunk.text) || /\[0,\s*1\]/i.test(chunk.text)) {
+          let expr = '1/3';
+          let stmt = 'Tích phân xác định của x^2 trên [0, 1] bằng 1/3';
+
+          if (/1\/2|một phần hai/i.test(chunk.text)) {
+            expr = '1/2';
+            stmt = 'Tích phân xác định của x^2 trên [0, 1] là 1/2 (Mệnh đề trích xuất nguyên văn từ tài liệu nguồn)';
+          }
+
+          const claim = {
+            claimStatement: stmt,
+            validatorKey: 'definite_integral',
+            expectedExpression: expr,
+            quote: chunk.text.slice(0, 100),
+            pageNumber: chunk.pageNumber,
+            documentId: chunk.documentId
+          };
+          candidateClaims.push(claim);
+
+          const evidence = this.groundingService.buildEvidence(
+            `claim_integral_${chunk.chunkId}`,
+            chunk.documentId,
+            chunk.pageNumber,
+            chunk.text.slice(0, 100)
           );
           evidenceList.push(evidence);
         }

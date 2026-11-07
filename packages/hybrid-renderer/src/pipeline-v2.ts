@@ -19,11 +19,18 @@ import { loadEnvironmentConfig } from './config';
 import { probeAndVerifyVideoAsset, probeFinalVideo, type VerifiedVideoMetadata } from './ffprobe';
 import { assertValidJobId, resolveInside } from './paths';
 import { createHybridJobId, isGoogleTtsConfigured, type HybridPipelineStage } from './pipeline';
+import {
+  GoogleCloudTtsProvider,
+  prepareProvidedAudio,
+  synthesizeNarrationV2,
+  type TtsProvider
+} from './audio';
 
 export interface HybridPipelineV2Options {
   jobId?: string;
   onStage?: (stage: HybridPipelineStage) => void | Promise<void>;
   documentStore?: DocumentStore;
+  ttsProvider?: TtsProvider;
 }
 
 export interface HybridPipelineV2Result {
@@ -227,12 +234,38 @@ export async function runHybridPipelineV2(
 
     // Stage 3: Narration & Audio
     await stage('narrating');
-    if (request.narrationMode !== 'none') {
+    let audioAssets: Array<{ id: string; path: string; durationSeconds: number; codec: 'mp3'; startFrame?: number }> = [];
+
+    if (request.narrationMode === 'google_cloud_tts') {
       await stage('synthesizing_audio');
-      // Audio handling can be configured if narrationMode is provided
+      const provider = options.ttsProvider ?? new GoogleCloudTtsProvider();
+      audioAssets = await synthesizeNarrationV2({
+        provider,
+        narrationPlan: context.narrationPlan!,
+        storyboard: context.storyboard!,
+        jobId,
+        jobDirectory,
+        stagedDirectory,
+        fps: 24
+      });
+    } else if (request.narrationMode === 'provided_audio' && request.providedAudioPath) {
+      await stage('synthesizing_audio');
+      const prepared = await prepareProvidedAudio({
+        sourcePath: request.providedAudioPath,
+        jobId,
+        jobDirectory,
+        stagedDirectory
+      });
+      audioAssets = prepared.map((a) => ({
+        id: a.id,
+        path: a.publicPath,
+        durationSeconds: a.durationSeconds,
+        codec: 'mp3',
+        startFrame: a.startFrame
+      }));
     }
 
-    // Compile final RenderManifestV2 with the verified video asset
+    // Compile final RenderManifestV2 with the verified video asset and audio assets
     const publicAssetPath = `generated/${jobId}/${stagedClipName}`;
     const compiledManifest = compileStoryboardV2(context.storyboard!, context.narrationPlan!, {
       jobId,
@@ -253,7 +286,8 @@ export async function runHybridPipelineV2(
           codec: 'h264',
           pixelFormat: 'yuv420p'
         }
-      ]
+      ],
+      audioAssets
     });
 
     // Subtitle export
@@ -299,7 +333,12 @@ export async function runHybridPipelineV2(
     const normalizeResult = await run('ffmpeg', normalizeArgs, { timeoutMs: 180_000 });
     logs.push(normalizeResult.stdout, normalizeResult.stderr);
 
-    const metadata = await probeFinalVideo(outputPath, 30_000, hasAudio);
+    const metadata = await probeFinalVideo(outputPath, {
+      timeoutMs: 30_000,
+      requireAudio: hasAudio,
+      expectedFrames: manifest.totalFrames,
+      expectedDurationSeconds: manifest.totalFrames / manifest.fps
+    });
     await writeJson(resolve(jobDirectory, 'final.mp4.metadata.json'), metadata);
 
     await stage('completed');

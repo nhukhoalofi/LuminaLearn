@@ -243,6 +243,7 @@ export const LuminaDynamicV2: React.FC<LuminaDynamicV2Props> = ({ manifest: inpu
         <Audio
           key={asset.id}
           src={staticFile(asset.path)}
+          from={asset.startFrame ?? 0}
           volume={0.92}
         />
       ))}

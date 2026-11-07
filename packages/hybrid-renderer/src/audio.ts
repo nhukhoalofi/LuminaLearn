@@ -2,7 +2,14 @@ import { execFile } from 'node:child_process';
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
-import { NarrationAudioAssetSchema, type HybridTimelineScene, type NarrationAudioAsset, type NarrationScript } from '@luminalearn/scene-schema';
+import {
+  NarrationAudioAssetSchema,
+  type HybridTimelineScene,
+  type NarrationAudioAsset,
+  type NarrationScript,
+  type NarrationPlanV2,
+  type StoryboardV2
+} from '@luminalearn/scene-schema';
 import { assertPathInside } from './paths';
 
 export interface AudioMetadata {
@@ -48,6 +55,28 @@ export class GoogleCloudTtsProvider implements TtsProvider {
   }
 }
 
+export class MockTtsProvider implements TtsProvider {
+  readonly id = 'mock_tts';
+  constructor(private readonly defaultDurationSeconds?: number) {}
+
+  async synthesize(text: string, outputPath: string): Promise<void> {
+    const words = text.split(/\s+/).length;
+    const duration = this.defaultDurationSeconds ?? Math.max(1, Math.min(10, Math.round(words / 3.5)));
+    await new Promise<void>((resolvePromise, reject) => {
+      execFile('ffmpeg', [
+        '-y', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
+        '-t', String(duration),
+        '-c:a', 'libmp3lame',
+        '-b:a', '64k',
+        outputPath
+      ], { windowsHide: true }, (err) => {
+        if (err) return reject(new Error(`mock_tts_failed: ${err.message}`));
+        resolvePromise();
+      });
+    });
+  }
+}
+
 function runFfprobeAudio(filePath: string, timeoutMs = 30_000): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     execFile('ffprobe', [
@@ -60,7 +89,7 @@ function runFfprobeAudio(filePath: string, timeoutMs = 30_000): Promise<unknown>
   });
 }
 
-export function validateAudioProbe(raw: unknown): AudioMetadata {
+export function validateAudioProbe(raw: unknown, maxDurationSeconds = 40.1): AudioMetadata {
   const value = raw as { streams?: Array<{ codec_name?: string; sample_rate?: string; channels?: number }>; format?: { duration?: string; size?: string } };
   const stream = value.streams?.[0];
   const codec = stream?.codec_name;
@@ -69,17 +98,17 @@ export function validateAudioProbe(raw: unknown): AudioMetadata {
   const sampleRate = Number(stream?.sample_rate);
   const channels = Number(stream?.channels);
   const sizeBytes = Number(value.format?.size);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 40.1) throw new Error('audio_duration_invalid: expected duration between 0 and 40 seconds');
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > maxDurationSeconds) throw new Error('audio_duration_invalid: expected duration between 0 and 40 seconds');
   if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 96_000) throw new Error('audio_validation_failed: invalid sample rate');
   if (!Number.isInteger(channels) || channels < 1 || channels > 2) throw new Error('audio_validation_failed: invalid channel count');
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) throw new Error('audio_validation_failed: empty file');
   return { codec, durationSeconds, sampleRate, channels, sizeBytes };
 }
 
-export async function probeAudio(filePath: string): Promise<AudioMetadata> {
+export async function probeAudio(filePath: string, maxDurationSeconds = 40.1): Promise<AudioMetadata> {
   const file = await stat(filePath);
   if (!file.isFile() || file.size <= 0) throw new Error('audio_validation_failed: file is missing or empty');
-  return validateAudioProbe(await runFfprobeAudio(filePath));
+  return validateAudioProbe(await runFfprobeAudio(filePath), maxDurationSeconds);
 }
 
 function asAsset(options: { jobId: string; fileName: string; startFrame: number; metadata: AudioMetadata; segmentId?: string; sceneId?: string }): NarrationAudioAsset {
@@ -139,5 +168,80 @@ export async function synthesizeNarration(options: {
     await writeFile(resolve(options.jobDirectory, `${fileName}.metadata.json`), JSON.stringify(metadata, null, 2), 'utf8');
     assets.push(asAsset({ jobId: options.jobId, fileName, startFrame: scene.startFrame, metadata, segmentId: segment.id, sceneId: scene.id }));
   }
+  return assets;
+}
+
+export interface V2AudioOutputAsset {
+  id: string;
+  path: string;
+  durationSeconds: number;
+  codec: 'mp3';
+  startFrame: number;
+}
+
+export async function synthesizeNarrationV2(options: {
+  provider: TtsProvider;
+  narrationPlan: NarrationPlanV2;
+  storyboard: StoryboardV2;
+  jobId: string;
+  jobDirectory: string;
+  stagedDirectory: string;
+  fps?: number;
+}): Promise<V2AudioOutputAsset[]> {
+  const fps = options.fps ?? 24;
+  await mkdir(options.jobDirectory, { recursive: true });
+  await mkdir(options.stagedDirectory, { recursive: true });
+
+  const sceneMap = new Map(options.storyboard.scenes.map((s) => [s.sceneId, s]));
+  const assets: V2AudioOutputAsset[] = [];
+
+  let currentStartFrame = 0;
+  for (const scene of options.storyboard.scenes) {
+    const segment = options.narrationPlan.segments.find((seg) => seg.sceneId === scene.sceneId);
+    if (!segment) {
+      currentStartFrame += scene.durationFrames;
+      continue;
+    }
+
+    const fileName = `${segment.segmentId}.mp3`;
+    const jobPath = resolve(options.jobDirectory, fileName);
+    let metadata: AudioMetadata | undefined;
+
+    try {
+      metadata = await probeAudio(jobPath, 300);
+    } catch {
+      // synthesize if not already probed
+    }
+
+    if (!metadata) {
+      await options.provider.synthesize(segment.text, jobPath);
+      metadata = await probeAudio(jobPath, 300);
+    }
+
+    const sceneDurationSeconds = scene.durationFrames / fps;
+    if (metadata.durationSeconds > sceneDurationSeconds + 0.5) {
+      throw new Error(
+        `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s)`
+      );
+    }
+
+    await copyFile(jobPath, resolve(options.stagedDirectory, fileName));
+    await writeFile(
+      resolve(options.jobDirectory, `${fileName}.metadata.json`),
+      JSON.stringify(metadata, null, 2),
+      'utf8'
+    );
+
+    assets.push({
+      id: `audio_${segment.segmentId}`,
+      path: `generated/${options.jobId}/${fileName}`,
+      durationSeconds: metadata.durationSeconds,
+      codec: 'mp3',
+      startFrame: currentStartFrame
+    });
+
+    currentStartFrame += scene.durationFrames;
+  }
+
   return assets;
 }

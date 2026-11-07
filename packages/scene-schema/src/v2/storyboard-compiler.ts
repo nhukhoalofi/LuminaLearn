@@ -9,6 +9,8 @@ import {
 } from './contracts';
 import { type SourceReference } from './document';
 
+export type AssetAlignmentPolicy = 'adjust_timeline' | 'hold_last_frame' | 'strict';
+
 export interface StoryboardCompilerOptions {
   jobId: string;
   lessonTitle: string;
@@ -17,6 +19,8 @@ export interface StoryboardCompilerOptions {
   aspectRatio?: SupportedAspectRatio;
   verifiedClaims?: VerifiedClaim[];
   sourceReferences?: SourceReference[];
+  assetAlignmentPolicy?: AssetAlignmentPolicy;
+  maxHoldFrames?: number;
   assets?: Array<{
     id: string;
     publicPath: string;
@@ -27,6 +31,13 @@ export interface StoryboardCompilerOptions {
     height: number;
     codec: 'h264';
     pixelFormat: 'yuv420p';
+  }>;
+  audioAssets?: Array<{
+    id: string;
+    path: string;
+    durationSeconds: number;
+    codec: 'aac' | 'wav' | 'mp3';
+    startFrame?: number;
   }>;
 }
 
@@ -40,7 +51,8 @@ const DIMENSIONS_BY_ASPECT_RATIO: Record<SupportedAspectRatio, { width: number; 
  * Compiler V2 chuyển đổi StoryboardV2 và NarrationPlanV2 thành RenderManifestV2
  * - Động 100%: Không hardcode số lượng scene hay chủ đề.
  * - Phân bổ timeline liên tục, không khe hở (gap-free contiguous timeline).
- * - Tự động map phân đoạn lời dẫn thành subtitle track khớp khung hình.
+ * - Kiểm tra tính toàn vẹn của asset video: khớp duration, chống black frame và lặp âm thầm.
+ * - Tự động map phân đoạn lời dẫn thành subtitle track khớp khung hình cảnh.
  */
 export function compileStoryboardV2(
   storyboard: StoryboardV2,
@@ -50,6 +62,8 @@ export function compileStoryboardV2(
   const fps = options.fps ?? 24;
   const aspectRatio = options.aspectRatio ?? '9:16';
   const dimensions = DIMENSIONS_BY_ASPECT_RATIO[aspectRatio];
+  const policy: AssetAlignmentPolicy = options.assetAlignmentPolicy ?? 'adjust_timeline';
+  const maxHoldFrames = options.maxHoldFrames ?? 48; // Tối đa 2 giây hold frame
 
   let currentFrame = 0;
   const timeline: TimelineSceneV2[] = [];
@@ -60,10 +74,42 @@ export function compileStoryboardV2(
   for (let index = 0; index < storyboard.scenes.length; index++) {
     const sceneSpec = storyboard.scenes[index];
     const startFrame = currentFrame;
-    const durationFrames = sceneSpec.durationFrames;
+    let durationFrames = sceneSpec.durationFrames;
+
+    // Tìm asset clip nếu có cho cảnh animation hoặc khớp sceneId
+    const asset = options.assets?.find(
+      (a) => a.id === `asset_${sceneSpec.sceneId}` || (sceneSpec.sceneType === 'animation' && a.id === 'asset_manim')
+    );
+
+    if (asset) {
+      if (asset.frameCount !== durationFrames) {
+        if (policy === 'strict') {
+          throw new Error(
+            `media_timeline_mismatch: Asset '${asset.id}' frameCount (${asset.frameCount}) does not match scene '${sceneSpec.sceneId}' duration (${durationFrames} frames) under strict policy`
+          );
+        } else if (policy === 'hold_last_frame') {
+          if (asset.frameCount > durationFrames) {
+            throw new Error(
+              `media_timeline_mismatch: Asset '${asset.id}' frameCount (${asset.frameCount}) exceeds scene '${sceneSpec.sceneId}' duration (${durationFrames} frames) under hold_last_frame policy`
+            );
+          }
+          const diff = durationFrames - asset.frameCount;
+          if (diff > maxHoldFrames) {
+            throw new Error(
+              `media_timeline_mismatch: Hold frame duration of ${diff} frames exceeds max allowed hold of ${maxHoldFrames} frames`
+            );
+          }
+          // Giữ nguyên durationFrames, video sẽ hold frame cuối
+        } else {
+          // Default: adjust_timeline — Điều chỉnh timeline theo đúng frame count thực tế của verified asset
+          durationFrames = asset.frameCount;
+        }
+      }
+    }
+
     const endFrame = startFrame + durationFrames;
 
-    // Gắn narration tương ứng nếu có
+    // Gắn narration tương ứng và xác thực biên phụ đề (Subtitle boundary validation)
     const narration = narrationMap.get(sceneSpec.sceneId);
     if (narration) {
       subtitleCues.push({
@@ -77,11 +123,6 @@ export function compileStoryboardV2(
     const formulas = sceneSpec.mathematicalBinding?.latexFormulas ?? [];
     const contentTitle = (sceneSpec.parameters?.title as string) || `Phân đoạn ${index + 1}: ${sceneSpec.templateId}`;
     const contentBody = (sceneSpec.parameters?.description as string) || (sceneSpec.parameters?.body as string) || '';
-
-    // Tìm asset clip nếu có cho cảnh animation hoặc khớp sceneId
-    const asset = options.assets?.find(
-      (a) => a.id === `asset_${sceneSpec.sceneId}` || (sceneSpec.sceneType === 'animation' && a.id === 'asset_manim')
-    );
 
     timeline.push({
       id: sceneSpec.sceneId,
@@ -115,7 +156,13 @@ export function compileStoryboardV2(
     totalFrames: currentFrame,
     timeline,
     visualAssets: options.assets ?? [],
-    audioAssets: [],
+    audioAssets: (options.audioAssets ?? []).map((a) => ({
+      id: a.id,
+      path: a.path,
+      durationSeconds: a.durationSeconds,
+      codec: a.codec,
+      startFrame: a.startFrame ?? 0
+    })),
     subtitleTrack: subtitleCues.length > 0 ? {
       trackId: `subtitles_${options.jobId}`,
       cues: subtitleCues

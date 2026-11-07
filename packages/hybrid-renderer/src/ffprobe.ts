@@ -111,14 +111,47 @@ export async function probeAndVerifyVideoAsset(options: {
   return metadata;
 }
 
-export async function probeFinalVideo(filePath: string, timeoutMs = 30_000, requireAudio = false): Promise<VerifiedVideoMetadata> {
+export interface FinalVideoProbeOptions {
+  timeoutMs?: number;
+  requireAudio?: boolean;
+  expectedFrames?: number;
+  expectedDurationSeconds?: number;
+}
+
+export async function probeFinalVideo(
+  filePath: string,
+  timeoutMsOrOptions?: number | FinalVideoProbeOptions,
+  requireAudioFlag = false
+): Promise<VerifiedVideoMetadata> {
+  let timeoutMs = 30_000;
+  let requireAudio = requireAudioFlag;
+  let expectedFrames = 960;
+  let expectedDurationSeconds = 40;
+
+  if (typeof timeoutMsOrOptions === 'number') {
+    timeoutMs = timeoutMsOrOptions;
+  } else if (timeoutMsOrOptions && typeof timeoutMsOrOptions === 'object') {
+    timeoutMs = timeoutMsOrOptions.timeoutMs ?? 30_000;
+    requireAudio = timeoutMsOrOptions.requireAudio ?? false;
+    expectedFrames = timeoutMsOrOptions.expectedFrames ?? 960;
+    expectedDurationSeconds = timeoutMsOrOptions.expectedDurationSeconds ?? 40;
+  }
+
   const raw = await runFfprobe(filePath, timeoutMs);
-  const metadata = validateProbeOutput(raw, 'video-manifest.json', 41);
+  const metadata = validateProbeOutput(raw, 'video-manifest.json', expectedDurationSeconds + 1);
   metadata.fileName = basename(filePath);
-  if (metadata.frameCount !== 960) throw new Error(`Final video must have 960 frames; received ${metadata.frameCount}`);
-  if (Math.abs(metadata.durationSeconds - 40) > 1 / 24) throw new Error(`Final video must be 40 seconds; received ${metadata.durationSeconds}`);
-  try { metadata.audio = await probeAudio(filePath); } catch (error) {
-    if (requireAudio) throw new Error('Final video is missing its required narration audio stream', { cause: error });
+  if (metadata.frameCount !== expectedFrames) {
+    throw new Error(`Final video must have ${expectedFrames} frames; received ${metadata.frameCount}`);
+  }
+  if (Math.abs(metadata.durationSeconds - expectedDurationSeconds) > 1 / 24) {
+    throw new Error(`Final video must be ${expectedDurationSeconds} seconds; received ${metadata.durationSeconds}`);
+  }
+  try {
+    metadata.audio = await probeAudio(filePath);
+  } catch (error) {
+    if (requireAudio) {
+      throw new Error('Final video is missing its required narration audio stream', { cause: error });
+    }
   }
   return metadata;
 }

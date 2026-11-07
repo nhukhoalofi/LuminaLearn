@@ -24,9 +24,15 @@ def verify_derivative_scene(scene: dict[str, Any], claims: dict[str, str] | None
 
     expected = {
         "derivative": derivative,
+        "polynomial_derivative": derivative,
         "secantSlope": secant,
+        "secant_slope": secant,
         "limitAtZero": slope_limit,
+        "limit_at_zero": slope_limit,
         "slopeAtPoint": slope_at_point,
+        "slope_at_point": slope_at_point,
+        "value_at_point": slope_at_point,
+        "valueAtPoint": slope_at_point,
     }
     checks: dict[str, dict[str, Any]] = {}
     status = "verified"

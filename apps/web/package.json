@@ -10,7 +10,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@luminalearn/agent": "workspace:*",
     "@luminalearn/hybrid-renderer": "workspace:*",
+    "@luminalearn/scene-schema": "workspace:*",
     "next": "^16.4.5",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
