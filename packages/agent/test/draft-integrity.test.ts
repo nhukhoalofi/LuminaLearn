@@ -180,6 +180,70 @@ describe('Draft-to-Render Integrity & Hardening (Phase 0)', () => {
     );
   });
 
+  it('invalidates verification when only MathSpec changes from x squared to x cubed', async () => {
+    const manager = new LessonDraftManager({ artifactsDir: tempDir });
+    const draft = await manager.createDraft({
+      requestId: 'req_mathspec_stale_01',
+      inputMode: 'topic_prompt',
+      sourceDocumentIds: [],
+      topic: 'Bản chất hình học của đạo hàm',
+      audience: 'Học sinh lớp 12',
+      language: 'vi',
+      targetDurationSeconds: 40,
+      renderMode: 'mock',
+      narrationMode: 'none',
+      aspectRatio: '9:16'
+    });
+    const previousSpec = draft.context.lessonPlan!.mathSpec!;
+
+    const updated = await manager.updateDraft(draft.draftId, {
+      mathSpec: {
+        ...previousSpec,
+        function: { type: 'polynomial', coefficients: [0, 0, 0, 1] }
+      }
+    });
+
+    assert.equal(updated.context.mathVerification?.status, 'failed');
+    assert.equal(updated.context.stage, 'failed');
+    assert.deepEqual(updated.context.lessonPlan?.mathSpec?.function.coefficients, [0, 0, 1]);
+    await assert.rejects(
+      () => manager.approveDraft(draft.draftId),
+      /Mathematical claims are not verified/
+    );
+  });
+
+  it('protects source references and verification proof with the artifact hash', async () => {
+    const manager = new LessonDraftManager({ artifactsDir: tempDir });
+    const draft = await manager.createDraft({
+      requestId: 'req_proof_hash_01',
+      inputMode: 'topic_prompt',
+      sourceDocumentIds: [],
+      topic: 'Tổng tích phân Riemann',
+      audience: 'Học sinh phổ thông',
+      language: 'vi',
+      targetDurationSeconds: 40,
+      renderMode: 'mock',
+      narrationMode: 'none',
+      aspectRatio: '9:16'
+    });
+    await manager.approveDraft(draft.draftId);
+    const artifact = draft.approvedArtifact!;
+
+    const tamperedProof = structuredClone(artifact);
+    tamperedProof.verificationProof.engine = 'Untrusted verifier';
+    assert.equal(verifyArtifactIntegrity(tamperedProof), false);
+
+    const tamperedReferences = structuredClone(artifact);
+    tamperedReferences.sourceReferences.push({
+      id: 'ref_tampered',
+      documentId: 'doc_tampered',
+      pageNumber: 1,
+      exactQuote: 'Nội dung không được phê duyệt',
+      relevanceScore: 1
+    });
+    assert.equal(verifyArtifactIntegrity(tamperedReferences), false);
+  });
+
   it('separates exact citation matching from semantic fuzzy matching', () => {
     const store = new DocumentStore();
     store.addChunk({

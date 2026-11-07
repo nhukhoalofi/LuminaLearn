@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@luminalearn/animation": "workspace:*",
     "@luminalearn/scene-schema": "workspace:*",
     "@remotion/media": "4.0.541",
     "react": "^19.3.1",

@@ -5,7 +5,8 @@ import React, { useEffect, useRef, useState } from 'react';
 type UiState = 'idle' | 'ingesting' | 'drafting' | 'reviewing' | 'submitting' | 'generating' | 'completed' | 'failed';
 type InputMode = 'topic_prompt' | 'source_document';
 type RenderMode = 'mock' | 'live';
-type VoiceoverMode = 'none' | 'google_cloud_tts';
+type VoiceoverMode = 'none' | 'google_cloud_tts' | 'gemini_tts';
+type VisualStyleId = 'math_chalkboard' | 'clean_educational_infographic';
 
 interface JobStatus {
   jobId: string;
@@ -15,7 +16,7 @@ interface JobStatus {
   renderMode: RenderMode;
   error?: string;
   videoUrl?: string;
-  voiceoverMode: 'none' | 'provided_audio' | 'google_cloud_tts';
+  voiceoverMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
   subtitlesEnabled: boolean;
   failureType?: 'ai' | 'tts' | 'validation' | 'render' | 'interrupted';
 }
@@ -81,9 +82,11 @@ const statusLabels: Record<JobStatus['status'], string> = {
 
 export function CreateVideoForm({
   liveEnabled,
+  geminiTtsEnabled,
   googleTtsEnabled
 }: {
   liveEnabled: boolean;
+  geminiTtsEnabled: boolean;
   googleTtsEnabled: boolean;
 }) {
   const [inputMode, setInputMode] = useState<InputMode>('topic_prompt');
@@ -94,7 +97,8 @@ export function CreateVideoForm({
   const [draft, setDraft] = useState<LessonDraftInfo | null>(null);
 
   const [renderMode, setRenderMode] = useState<RenderMode>('mock');
-  const [voiceoverMode, setVoiceoverMode] = useState<VoiceoverMode>('none');
+  const [voiceoverMode, setVoiceoverMode] = useState<VoiceoverMode>(geminiTtsEnabled ? 'gemini_tts' : 'none');
+  const [visualStyleId, setVisualStyleId] = useState<VisualStyleId>('clean_educational_infographic');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [uiState, setUiState] = useState<UiState>('idle');
   const [job, setJob] = useState<JobStatus | null>(null);
@@ -188,6 +192,7 @@ export function CreateVideoForm({
         targetDurationSeconds: 40,
         renderMode,
         narrationMode: voiceoverMode,
+        visualStyleId,
         aspectRatio: '9:16'
       };
 
@@ -439,6 +444,21 @@ export function CreateVideoForm({
             <option value="vi">Tiếng Việt</option>
           </select>
         </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label" htmlFor="visual-style-select">
+            Phong cách hình ảnh
+          </label>
+          <select
+            id="visual-style-select"
+            className="form-select"
+            value={visualStyleId}
+            disabled={busy}
+            onChange={(event) => setVisualStyleId(event.target.value as VisualStyleId)}
+          >
+            <option value="clean_educational_infographic">Đồ họa giáo dục tinh gọn</option>
+            <option value="math_chalkboard">Bảng phấn toán học</option>
+          </select>
+        </div>
       </div>
 
       <div className="form-group mode-group">
@@ -487,6 +507,19 @@ export function CreateVideoForm({
             <span>
               <strong>Không giọng đọc</strong>
               <small>Video im tiếng, phụ đề đồng bộ</small>
+            </span>
+          </label>
+          <label className={`mode-option ${voiceoverMode === 'gemini_tts' ? 'selected' : ''} ${!geminiTtsEnabled ? 'disabled' : ''}`}>
+            <input
+              type="radio"
+              name="voiceoverMode"
+              checked={voiceoverMode === 'gemini_tts'}
+              disabled={busy || !geminiTtsEnabled}
+              onChange={() => setVoiceoverMode('gemini_tts')}
+            />
+            <span>
+              <strong>Gemini TTS</strong>
+              <small>{geminiTtsEnabled ? 'Giọng Kore tiếng Việt; có sử dụng mạng và quota' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
             </span>
           </label>
           <label className={`mode-option ${voiceoverMode === 'google_cloud_tts' ? 'selected' : ''} ${!googleTtsEnabled ? 'disabled' : ''}`}>
@@ -648,6 +681,11 @@ export function CreateVideoForm({
               <a className="download-link" href={`${job.videoUrl}?download=1`}>
                 Tải video MP4
               </a>
+              {job.subtitlesEnabled ? (
+                <a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`}>
+                  Tải phụ đề SRT
+                </a>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -31,6 +31,18 @@ describe('Architecture V2 Contracts & Schemas', () => {
     assert.equal(valid.inputMode, 'topic_prompt');
   });
 
+  it('keeps Gemini TTS independent from mock/live lesson generation mode', () => {
+    const request = LessonRequestV2Schema.parse({
+      requestId: 'req_gemini_tts_01',
+      inputMode: 'topic_prompt',
+      topic: 'Tổng Riemann và tích phân',
+      renderMode: 'mock',
+      narrationMode: 'gemini_tts'
+    });
+    assert.equal(request.renderMode, 'mock');
+    assert.equal(request.narrationMode, 'gemini_tts');
+  });
+
   it('requires sourceDocumentIds when inputMode is source_document', () => {
     assert.throws(
       () =>

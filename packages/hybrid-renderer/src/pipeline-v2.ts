@@ -19,6 +19,7 @@ import {
   type MathVisualizationSpecV2,
   type NarrationPlanV2,
   type RenderManifestV2,
+  type SourceReference,
   type StoryboardV2,
   type SubtitleCueV2,
   type VerifiedClaim
@@ -33,12 +34,15 @@ import {
   synthesizeNarrationV2,
   type TtsProvider
 } from './audio';
+import { GeminiTtsProvider, isGeminiTtsConfigured } from './gemini-tts';
+import { createVisualQaReport } from './visual-qa';
 
 export interface HybridPipelineV2Options {
   jobId?: string;
   onStage?: (stage: HybridPipelineStage) => void | Promise<void>;
   documentStore?: DocumentStore;
   ttsProvider?: TtsProvider;
+  authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>;
 }
 
 export interface HybridPipelineV2Result {
@@ -103,20 +107,29 @@ export async function runHybridPipelineV2(
   let mathSpec!: MathVisualizationSpecV2;
   let topicId!: string;
   let renderMode: 'mock' | 'live';
-  let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts';
+  let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
   let aspectRatio: '9:16' | '16:9' | '1:1';
   let providedAudioPath: string | undefined;
+  let sourceReferences: SourceReference[] = [];
+
+  const assertArtifactAuthorized = async (): Promise<void> => {
+    if (artifact && options.authorizeArtifact && !(await options.authorizeArtifact(artifact))) {
+      throw new Error('artifact_revoked: Approved artifact is no longer authorized for rendering');
+    }
+  };
 
   if (isArtifact) {
     artifact = ApprovedRenderArtifactV2Schema.parse(input);
     if (!verifyArtifactIntegrity(artifact)) {
       throw new Error('artifact_tampered: Approved render artifact content hash mismatch');
     }
-    lessonPlan = artifact.lessonPlan;
-    storyboard = artifact.storyboard;
-    narrationPlan = artifact.narrationPlan;
-    verifiedClaims = artifact.verifiedClaims;
-    mathSpec = artifact.mathSpec;
+    await assertArtifactAuthorized();
+    lessonPlan = structuredClone(artifact.lessonPlan);
+    storyboard = structuredClone(artifact.storyboard);
+    narrationPlan = structuredClone(artifact.narrationPlan);
+    verifiedClaims = structuredClone(artifact.verifiedClaims);
+    mathSpec = structuredClone(artifact.mathSpec);
+    sourceReferences = structuredClone(artifact.sourceReferences);
     topicId = artifact.lessonPlan.topicId;
     renderMode = artifact.renderConfig.renderMode;
     narrationMode = artifact.renderConfig.narrationMode;
@@ -135,6 +148,9 @@ export async function runHybridPipelineV2(
   }
   if (narrationMode === 'google_cloud_tts' && !isGoogleTtsConfigured()) {
     throw new Error('tts_unavailable: Google Cloud authentication is not configured');
+  }
+  if (narrationMode === 'gemini_tts' && !options.ttsProvider && !isGeminiTtsConfigured()) {
+    throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   }
 
   const jobId = options.jobId ?? createHybridJobId();
@@ -219,6 +235,9 @@ export async function runHybridPipelineV2(
       await writeJson(resolve(jobDirectory, 'lesson-plan.json'), context.lessonPlan);
       await writeJson(resolve(jobDirectory, 'storyboard.json'), context.storyboard);
       await writeJson(resolve(jobDirectory, 'narration-plan.json'), context.narrationPlan);
+      if (context.teachingTreatment) {
+        await writeJson(resolve(jobDirectory, 'teaching-treatment.json'), context.teachingTreatment);
+      }
       await writeJson(resolve(jobDirectory, 'orchestration-context.json'), {
         topicInfo: context.topicInfo,
         stage: context.stage,
@@ -310,6 +329,35 @@ export async function runHybridPipelineV2(
       verificationReportPath: verificationPath
     });
 
+    // Finalize the visual timeline from measured media before audio positions are computed.
+    const measuredTimeline = compileStoryboardV2(storyboard, narrationPlan, {
+      jobId,
+      lessonTitle: lessonPlan.title,
+      topicId: lessonPlan.topicId,
+      fps: 24,
+      aspectRatio,
+      verifiedClaims,
+      sourceReferences,
+      assets: [{
+        id: 'asset_manim',
+        publicPath: `generated/${jobId}/math-clip.mp4`,
+        durationSeconds: asset.durationSeconds,
+        frameCount: asset.frameCount,
+        fps: asset.fps,
+        width: asset.width,
+        height: asset.height,
+        codec: 'h264',
+        pixelFormat: 'yuv420p'
+      }],
+      assetAlignmentPolicy: 'adjust_timeline'
+    });
+    const measuredScenes = new Map(measuredTimeline.timeline.map((scene) => [scene.id, scene]));
+    for (const scene of storyboard.scenes) {
+      const measured = measuredScenes.get(scene.sceneId);
+      if (measured) scene.durationFrames = measured.durationFrames;
+    }
+    storyboard.estimatedDurationFrames = storyboard.scenes.reduce((sum, scene) => sum + scene.durationFrames, 0);
+
     // Stage Math Clip into worker public
     await mkdir(resolve(workerPublic, 'generated'), { recursive: true });
     await mkdir(stagedDirectory, { recursive: false });
@@ -320,9 +368,11 @@ export async function runHybridPipelineV2(
     await stage('narrating');
     let audioAssets: Array<{ id: string; path: string; durationSeconds: number; codec: 'mp3'; startFrame?: number }> = [];
 
-    if (narrationMode === 'google_cloud_tts') {
+    if (narrationMode === 'google_cloud_tts' || narrationMode === 'gemini_tts') {
       await stage('synthesizing_audio');
-      const provider = options.ttsProvider ?? new GoogleCloudTtsProvider();
+      const provider = options.ttsProvider ?? (
+        narrationMode === 'gemini_tts' ? new GeminiTtsProvider() : new GoogleCloudTtsProvider()
+      );
       audioAssets = await synthesizeNarrationV2({
         provider,
         narrationPlan,
@@ -331,7 +381,10 @@ export async function runHybridPipelineV2(
         jobDirectory,
         stagedDirectory,
         fps: 24,
-        alignmentPolicy: 'adjust_timeline'
+        alignmentPolicy: 'adjust_timeline',
+        lockedSceneIds: new Set(
+          measuredTimeline.timeline.filter((scene) => scene.assetId).map((scene) => scene.id)
+        )
       });
     } else if (narrationMode === 'provided_audio' && providedAudioPath) {
       await stage('synthesizing_audio');
@@ -359,6 +412,7 @@ export async function runHybridPipelineV2(
       fps: 24,
       aspectRatio,
       verifiedClaims: lessonPlan.mathematicalClaims,
+      sourceReferences,
       assets: [
         {
           id: 'asset_manim',
@@ -373,7 +427,7 @@ export async function runHybridPipelineV2(
         }
       ],
       audioAssets,
-      assetAlignmentPolicy: 'adjust_timeline'
+      assetAlignmentPolicy: 'strict'
     });
 
     // Subtitle export
@@ -390,6 +444,7 @@ export async function runHybridPipelineV2(
     await writeJson(propsPath, { manifest });
 
     // Stage 4: Remotion Render
+    await assertArtifactAuthorized();
     await stage('rendering_remotion');
     const rawOutputPath = resolve(jobDirectory, 'remotion-raw.mp4');
     const outputPath = resolve(jobDirectory, 'final.mp4');
@@ -426,6 +481,13 @@ export async function runHybridPipelineV2(
       expectedDurationSeconds: manifest.totalFrames / manifest.fps
     });
     await writeJson(resolve(jobDirectory, 'final.mp4.metadata.json'), metadata);
+    await createVisualQaReport({
+      videoPath: outputPath,
+      jobDirectory,
+      manifest,
+      metadata,
+      ttsSelected: narrationMode === 'gemini_tts' || narrationMode === 'google_cloud_tts'
+    });
 
     await stage('completed');
     await writeFile(resolve(jobDirectory, 'render-log.txt'), logs.filter(Boolean).join('\n'), 'utf8');

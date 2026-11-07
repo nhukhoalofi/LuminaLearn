@@ -31,7 +31,7 @@ export interface JobRecord {
   error?: string;
   videoUrl?: string;
   outputPath?: string;
-  voiceoverMode: 'none' | 'provided_audio' | 'google_cloud_tts';
+  voiceoverMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
   subtitlesEnabled: boolean;
   failureType?: 'ai' | 'tts' | 'validation' | 'render' | 'interrupted';
 }
@@ -54,6 +54,7 @@ interface QueuedJob {
   request?: HybridRenderRequest;
   v2Request?: LessonRequestV2;
   v2Artifact?: ApprovedRenderArtifactV2;
+  authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>;
 }
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
@@ -94,9 +95,13 @@ async function runEntry(entry: QueuedJob): Promise<void> {
     let result: { outputPath: string };
 
     if (entry.v2Artifact) {
+      if (entry.authorizeArtifact && !(await entry.authorizeArtifact(entry.v2Artifact))) {
+        throw new Error('artifact_revoked: Approved artifact is no longer authorized for rendering');
+      }
       result = await runHybridPipelineV2(entry.v2Artifact, {
         jobId: entry.jobId,
         documentStore,
+        authorizeArtifact: entry.authorizeArtifact,
         onStage: (stage) => {
           if (stage !== 'completed') transition(entry.jobId, stage);
         }
@@ -170,6 +175,7 @@ export function createJob(input: unknown): Omit<JobRecord, 'outputPath'> {
   if (request.renderMode === 'live' && !process.env.GEMINI_API_KEY) throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
   if (request.voiceoverMode === 'provided_audio') throw new Error('provided_audio_web_unavailable: use the trusted local CLI with --provided-audio');
   if (request.voiceoverMode === 'google_cloud_tts' && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.GOOGLE_CLOUD_PROJECT && process.env.GOOGLE_TTS_ENABLED !== 'true') throw new Error('tts_unavailable: Google Cloud authentication is not configured');
+  if (request.voiceoverMode === 'gemini_tts' && !process.env.GEMINI_API_KEY) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   const jobId = createHybridJobId();
   const now = new Date().toISOString();
   const job: JobRecord = { jobId, status: 'queued', progress: 0, message: messageByState.queued, renderMode: request.renderMode, voiceoverMode: request.voiceoverMode, subtitlesEnabled: request.subtitlesEnabled, createdAt: now, updatedAt: now };
@@ -184,6 +190,9 @@ export function createV2Job(input: unknown): Omit<JobRecord, 'outputPath'> {
   const v2Request = LessonRequestV2Schema.parse(input);
   if (v2Request.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
     throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
+  }
+  if (v2Request.narrationMode === 'gemini_tts' && !process.env.GEMINI_API_KEY) {
+    throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   }
   const jobId = createHybridJobId();
   const now = new Date().toISOString();
@@ -205,13 +214,19 @@ export function createV2Job(input: unknown): Omit<JobRecord, 'outputPath'> {
   return publicJob(job);
 }
 
-export function createV2JobFromArtifact(input: unknown): Omit<JobRecord, 'outputPath'> {
+export function createV2JobFromArtifact(
+  input: unknown,
+  authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>
+): Omit<JobRecord, 'outputPath'> {
   const artifact = ApprovedRenderArtifactV2Schema.parse(input);
   if (!verifyArtifactIntegrity(artifact)) {
     throw new Error('artifact_tampered: Approved render artifact content hash does not match canonical payload');
   }
   if (artifact.renderConfig.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
     throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
+  }
+  if (artifact.renderConfig.narrationMode === 'gemini_tts' && !process.env.GEMINI_API_KEY) {
+    throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   }
   const jobId = createHybridJobId();
   const now = new Date().toISOString();
@@ -228,7 +243,7 @@ export function createV2JobFromArtifact(input: unknown): Omit<JobRecord, 'output
   };
   store.jobs.set(jobId, job);
   repository.save(job);
-  store.queue.push({ jobId, v2Artifact: artifact });
+  store.queue.push({ jobId, v2Artifact: artifact, authorizeArtifact });
   pump();
   return publicJob(job);
 }

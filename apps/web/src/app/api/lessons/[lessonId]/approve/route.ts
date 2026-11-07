@@ -16,7 +16,10 @@ export async function POST(
       throw new Error('draft_approval_missing_artifact: Draft was approved but no immutable artifact was generated');
     }
 
-    const job = createV2JobFromArtifact(draft.approvedArtifact);
+    const job = createV2JobFromArtifact(
+      draft.approvedArtifact,
+      (artifact) => draftManager.isArtifactCurrentlyApproved(artifact)
+    );
 
     return NextResponse.json({
       success: true,

@@ -13,7 +13,7 @@ export function buildHybridManifest(options: {
   renderMode: 'mock' | 'live';
   draft: AgentMathLessonDraft;
   asset: VerifiedVideoMetadata;
-  voiceoverMode?: 'none' | 'provided_audio' | 'google_cloud_tts';
+  voiceoverMode?: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
   narrationScript?: NarrationScript;
   narrationAudioAssets?: NarrationAudioAsset[];
   subtitles?: SubtitleTrack;

@@ -41,6 +41,10 @@ export const VerificationProofV2Schema = z.object({
   status: z.literal('verified'),
   verifiedAt: z.string().datetime(),
   checkedClaimIds: z.array(SafeIdString).min(1),
+  verificationBindingHash: z.string().regex(
+    /^[a-f0-9]{64}$/,
+    'Verification binding hash must be a 64-character lowercase SHA-256 hex string'
+  ),
   engine: z.string().trim().min(1).max(100).default('SymPy Python Engine')
 }).strict();
 
@@ -48,7 +52,7 @@ export type VerificationProofV2 = z.infer<typeof VerificationProofV2Schema>;
 
 /**
  * Bản kết xuất bất biến đã phê chuẩn (ApprovedRenderArtifactV2)
- * Mang chữ ký số / băm SHA-256 bảo đảm tính toàn vẹn (Integrity-Preserving).
+ * Mang mã băm SHA-256 bảo đảm tính toàn vẹn (không phải chữ ký số).
  * Remotion & Manim sẽ render CHÍNH XÁC từ artifact này, loại bỏ hoàn toàn
  * lỗi trôi sửa đổi (Draft-to-Render Drift).
  */

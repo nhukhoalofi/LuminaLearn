@@ -135,6 +135,7 @@ export function compileStoryboardV2(
       id: sceneSpec.sceneId,
       sceneType: sceneSpec.sceneType,
       templateId: sceneSpec.templateId,
+      visualStyleId: sceneSpec.visualStyleId,
       startFrame,
       durationFrames,
       assetId: asset?.id,
@@ -144,7 +145,11 @@ export function compileStoryboardV2(
         body: contentBody,
         formulas
       },
-      parameters: sceneSpec.parameters
+      parameters: {
+        ...sceneSpec.parameters,
+        visualStyleId: sceneSpec.visualStyleId ?? 'clean_educational_infographic',
+        safeAreaPadding: sceneSpec.layout.safeAreaPadding
+      }
     });
 
     currentFrame += durationFrames;

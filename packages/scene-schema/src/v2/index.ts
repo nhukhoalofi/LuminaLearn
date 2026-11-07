@@ -4,3 +4,4 @@ export * from './contracts';
 export * from './artifact';
 export * from './template-registry';
 export * from './storyboard-compiler';
+export * from './visual-style';

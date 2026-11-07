@@ -11,6 +11,7 @@ import { probeAndVerifyVideoAsset, probeFinalVideo, type VerifiedVideoMetadata }
 import { assertValidJobId, resolveInside } from './paths';
 import { HybridRenderRequestSchema, type HybridRenderRequest } from './request';
 import { GoogleCloudTtsProvider, prepareProvidedAudio, synthesizeNarration } from './audio';
+import { GeminiTtsProvider, isGeminiTtsConfigured } from './gemini-tts';
 import { buildSubtitleTrack, exportSrt } from './subtitles';
 import { loadEnvironmentConfig } from './config';
 
@@ -52,6 +53,7 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
   const request = HybridRenderRequestSchema.parse(input);
   if (request.renderMode === 'live' && !process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is required for live mode');
   if (request.voiceoverMode === 'google_cloud_tts' && !isGoogleTtsConfigured()) throw new Error('tts_unavailable: Google Cloud authentication is not configured');
+  if (request.voiceoverMode === 'gemini_tts' && !isGeminiTtsConfigured()) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   const jobId = options.jobId ?? createHybridJobId();
   assertValidJobId(jobId);
   const outputsRoot = resolve(repositoryRoot, 'outputs');
@@ -116,7 +118,7 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
       narrationAudioAssets = request.voiceoverMode === 'provided_audio'
         ? await prepareProvidedAudio({ sourcePath: request.providedAudioPath!, jobId, jobDirectory, stagedDirectory })
         : await synthesizeNarration({
-            provider: new GoogleCloudTtsProvider(), narration, scenes: baseManifest.timelineScenes,
+            provider: request.voiceoverMode === 'gemini_tts' ? new GeminiTtsProvider() : new GoogleCloudTtsProvider(), narration, scenes: baseManifest.timelineScenes,
             jobId, jobDirectory, stagedDirectory
           });
     }

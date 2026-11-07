@@ -8,6 +8,7 @@ import {
   type NarrationAudioAsset,
   type NarrationScript,
   type NarrationPlanV2,
+  type PronunciationHintV2,
   type StoryboardV2
 } from '@luminalearn/scene-schema';
 import { assertPathInside } from './paths';
@@ -23,6 +24,29 @@ export interface AudioMetadata {
 export interface TtsProvider {
   readonly id: string;
   synthesize(text: string, outputPath: string): Promise<void>;
+}
+
+const VIETNAMESE_MATH_PRONUNCIATION_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/∫₀¹\s*x²\s*dx/gu, 'tích phân từ không đến một của x bình phương theo x'],
+  [/f['′] ?\(x\)/gu, 'f phẩy của x'],
+  [/x²/gu, 'x bình phương'],
+  [/x³/gu, 'x lập phương'],
+  [/Δx/gu, 'đen-ta x'],
+  [/\blim\b/giu, 'giới hạn']
+];
+
+export function buildSpokenNarrationText(
+  narrationText: string,
+  pronunciationHints: PronunciationHintV2[] = []
+): string {
+  let spoken = narrationText;
+  for (const hint of pronunciationHints) {
+    spoken = spoken.split(hint.written).join(hint.spoken);
+  }
+  for (const [pattern, replacement] of VIETNAMESE_MATH_PRONUNCIATION_RULES) {
+    spoken = spoken.replace(pattern, replacement);
+  }
+  return spoken;
 }
 
 export class GoogleCloudTtsProvider implements TtsProvider {
@@ -157,7 +181,7 @@ export async function synthesizeNarration(options: {
     let metadata: AudioMetadata | undefined;
     try { metadata = await probeAudio(jobPath); } catch { /* invalid cache is replaced */ }
     if (!metadata) {
-      await options.provider.synthesize(segment.text, jobPath);
+      await options.provider.synthesize(buildSpokenNarrationText(segment.text, segment.pronunciationHints), jobPath);
       metadata = await probeAudio(jobPath);
     }
     const sceneSeconds = scene.durationFrames / 24;
@@ -188,6 +212,7 @@ export async function synthesizeNarrationV2(options: {
   stagedDirectory: string;
   fps?: number;
   alignmentPolicy?: 'adjust_timeline' | 'hold_last_frame' | 'strict';
+  lockedSceneIds?: ReadonlySet<string>;
 }): Promise<V2AudioOutputAsset[]> {
   const fps = options.fps ?? 24;
   const alignmentPolicy = options.alignmentPolicy ?? 'strict';
@@ -216,15 +241,15 @@ export async function synthesizeNarrationV2(options: {
     }
 
     if (!metadata) {
-      await options.provider.synthesize(segment.text, jobPath);
+      await options.provider.synthesize(buildSpokenNarrationText(segment.text, segment.pronunciationHints), jobPath);
       metadata = await probeAudio(jobPath, 300);
     }
 
     const sceneDurationSeconds = scene.durationFrames / fps;
     if (metadata.durationSeconds > sceneDurationSeconds) {
-      if (alignmentPolicy === 'strict') {
+      if (alignmentPolicy === 'strict' || options.lockedSceneIds?.has(scene.sceneId)) {
         throw new Error(
-          `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s)`
+          `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s); không thể kéo dài clip hình ảnh đã được đo`
         );
       } else if (alignmentPolicy === 'adjust_timeline') {
         // Expand scene frames to accommodate narration with small breathing room

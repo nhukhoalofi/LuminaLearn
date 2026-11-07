@@ -10,6 +10,7 @@ import {
   useVideoConfig
 } from 'remotion';
 import { Audio } from '@remotion/media';
+import { ConceptTitleReveal, StepFormulaReveal } from '@luminalearn/animation';
 import {
   RenderManifestV2Schema,
   type RenderManifestV2,
@@ -86,9 +87,26 @@ const DynamicTextScene: React.FC<{ scene: TimelineSceneV2 }> = ({ scene }) => {
   );
 
   const formulas = scene.content.formulas ?? [];
+  const chalkboard = scene.parameters.visualStyleId === 'math_chalkboard';
+  const sceneShellStyle: React.CSSProperties = chalkboard
+    ? { ...shellStyle, backgroundColor: '#102A24', backgroundImage: 'radial-gradient(circle at 50% 30%, rgba(245,241,223,.06), transparent 55%)', color: '#F5F1DF' }
+    : shellStyle;
+
+  if (isIntro) {
+    return (
+      <AbsoluteFill style={sceneShellStyle}>
+        <BrandHeader />
+        <ConceptTitleReveal
+          title={scene.content.title}
+          eyebrow={scene.content.eyebrow}
+          accentColor={colors.cyan}
+        />
+      </AbsoluteFill>
+    );
+  }
 
   return (
-    <AbsoluteFill style={shellStyle}>
+    <AbsoluteFill style={sceneShellStyle}>
       <BrandHeader />
       <div
         style={{
@@ -116,37 +134,7 @@ const DynamicTextScene: React.FC<{ scene: TimelineSceneV2 }> = ({ scene }) => {
             {scene.content.body}
           </div>
         ) : null}
-        {formulas.length ? (
-          <div style={{ marginTop: 36, display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {formulas.map((formula, index) => {
-              const formulaOpacity = interpolate(
-                frame,
-                [18 + index * 25, 28 + index * 25],
-                [0, 1],
-                { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
-              );
-              const isHighlight = index === formulas.length - 1;
-              return (
-                <div
-                  key={formula}
-                  style={{
-                    opacity: formulaOpacity,
-                    padding: '20px 24px',
-                    borderRadius: 18,
-                    background: 'rgba(15,23,42,.92)',
-                    border: `1px solid ${isHighlight ? colors.violet : '#1E3A5F'}`,
-                    color: isHighlight ? colors.violet : colors.text,
-                    fontSize: 28,
-                    fontWeight: 700,
-                    textAlign: 'center'
-                  }}
-                >
-                  {formula}
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
+        {formulas.length ? <StepFormulaReveal formulas={formulas} accentColor={colors.violet} /> : null}
       </div>
     </AbsoluteFill>
   );
@@ -168,7 +156,6 @@ const DynamicMathClipScene: React.FC<{
         muted
         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
       />
-      <BrandHeader />
     </AbsoluteFill>
   );
 };
@@ -181,6 +168,10 @@ const DynamicSubtitleOverlay: React.FC<{ manifest: RenderManifestV2 }> = ({ mani
     (candidate) => frame >= candidate.startFrame && frame < candidate.endFrame
   );
   if (!cue) return null;
+  const activeScene = manifest.timeline.find(
+    (scene) => frame >= scene.startFrame && frame < scene.startFrame + scene.durationFrames
+  );
+  const overlaysVerifiedMath = Boolean(activeScene?.assetId);
 
   return (
     <div
@@ -189,7 +180,7 @@ const DynamicSubtitleOverlay: React.FC<{ manifest: RenderManifestV2 }> = ({ mani
         zIndex: 40,
         left: 48,
         right: 48,
-        bottom: 58,
+        bottom: overlaysVerifiedMath ? 190 : 58,
         display: 'flex',
         justifyContent: 'center',
         pointerEvents: 'none'

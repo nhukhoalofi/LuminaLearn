@@ -16,6 +16,7 @@ export async function POST(req: Request) {
       targetDurationSeconds: body.targetDurationSeconds || 40,
       renderMode: body.renderMode || 'mock',
       narrationMode: body.narrationMode || 'none',
+      visualStyleId: body.visualStyleId || 'clean_educational_infographic',
       aspectRatio: body.aspectRatio || '9:16'
     };
 

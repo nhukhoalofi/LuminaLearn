@@ -8,10 +8,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx test/*.test.ts",
-    "render": "tsx src/cli.ts"
+    "render": "tsx src/cli.ts",
+    "smoke:gemini-tts": "tsx src/gemini-tts-smoke.ts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "7.1.1",
+    "@google/genai": "^3.0.0",
     "@luminalearn/agent": "workspace:*",
     "@luminalearn/scene-schema": "workspace:*",
     "dotenv": "16.4.7",

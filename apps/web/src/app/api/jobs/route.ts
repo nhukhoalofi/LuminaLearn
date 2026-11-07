@@ -11,7 +11,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof ZodError) return Response.json({ error: 'invalid_request', details: error.issues.map((issue) => issue.message) }, { status: 400 });
     const message = error instanceof Error ? error.message : 'unknown_error';
-    return Response.json({ error: message }, { status: /^(live_mode_unavailable|tts_unavailable)/.test(message) ? 503 : 400 });
+    return Response.json({ error: message }, { status: /^(live_mode_unavailable|tts_unavailable|tts_api_key_missing)/.test(message) ? 503 : 400 });
   }
 }
 

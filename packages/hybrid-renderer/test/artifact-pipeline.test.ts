@@ -11,6 +11,7 @@ import {
 } from '@luminalearn/scene-schema';
 import {
   computeArtifactContentHash,
+  computeVerificationBindingHash,
   verifyArtifactIntegrity
 } from '@luminalearn/agent';
 import { synthesizeNarrationV2, MockTtsProvider } from '../src/audio';
@@ -168,8 +169,22 @@ describe('Artifact-Driven Pipeline & Timeline Alignment (Phase 0)', () => {
         }
       ],
       renderConfig,
-      mathSpec
+      mathSpec,
+      sourceReferences: [],
+      verificationProof: {
+        status: 'verified' as const,
+        verifiedAt: new Date().toISOString(),
+        checkedClaimIds: ['claim_deriv'],
+        verificationBindingHash: '',
+        engine: 'SymPy Python Engine'
+      }
     };
+
+    hashPayload.verificationProof.verificationBindingHash = computeVerificationBindingHash({
+      topicId: hashPayload.lessonPlan.topicId,
+      mathSpec,
+      verifiedClaims: hashPayload.verifiedClaims
+    });
 
     const contentHash = computeArtifactContentHash(hashPayload);
 
@@ -186,15 +201,10 @@ describe('Artifact-Driven Pipeline & Timeline Alignment (Phase 0)', () => {
       storyboard,
       narrationPlan,
       verifiedClaims: hashPayload.verifiedClaims,
-      sourceReferences: [],
+      sourceReferences: hashPayload.sourceReferences,
       renderConfig,
       mathSpec,
-      verificationProof: {
-        status: 'verified',
-        verifiedAt: new Date().toISOString(),
-        checkedClaimIds: ['claim_deriv'],
-        engine: 'SymPy Python Engine'
-      }
+      verificationProof: hashPayload.verificationProof
     };
   }
 

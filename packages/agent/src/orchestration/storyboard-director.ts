@@ -5,7 +5,8 @@ import {
   type MathTemplateRegistry,
   type StoryboardV2,
   type SupportedAspectRatio,
-  type VisualSceneSpecV2
+  type VisualSceneSpecV2,
+  type VisualStyleId
 } from '@luminalearn/scene-schema';
 
 export class VisualStoryboardDirectorV2 {
@@ -16,10 +17,12 @@ export class VisualStoryboardDirectorV2 {
     lessonPlan: LessonPlanV2;
     fps?: number;
     aspectRatio?: SupportedAspectRatio;
+    visualStyleId?: VisualStyleId;
   }): StoryboardV2 {
     const { storyboardId, lessonPlan } = options;
     const fps = options.fps ?? 24;
     const aspectRatio = options.aspectRatio ?? '9:16';
+    const visualStyleId = options.visualStyleId ?? 'clean_educational_infographic';
 
     const scenes: VisualSceneSpecV2[] = [];
     const usedTemplateIds = new Set<string>();
@@ -117,11 +120,12 @@ export class VisualStoryboardDirectorV2 {
         sceneId: `scene_${index + 1}_${templateId}`,
         templateId,
         sceneType,
+        visualStyleId,
         durationFrames,
         parameters,
         layout: {
           aspectRatio,
-          safeAreaPadding: 32
+          safeAreaPadding: 48
         },
         mathematicalBinding: {
           boundClaimIds,

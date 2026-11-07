@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { DocumentStore, DocumentIngestionService } from '@luminalearn/agent';
 import { runHybridPipeline } from './pipeline';
 import { runHybridPipelineV2 } from './pipeline-v2';
+import { MockTtsProvider } from './audio';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -15,6 +16,8 @@ const args = process.argv.slice(2);
 const mode = value(args, '--mode') ?? 'mock';
 const topic = value(args, '--topic') ?? 'Đạo hàm là gì?';
 const voiceover = value(args, '--voiceover') ?? 'none';
+const fixtureTts = args.includes('--fixture-tts');
+const visualStyleId = value(args, '--visual-style') ?? 'clean_educational_infographic';
 const providedAudioPath = value(args, '--provided-audio');
 const subtitlesEnabled = !args.includes('--no-subtitles');
 const docPath = value(args, '--document');
@@ -49,20 +52,22 @@ async function main() {
         language: 'vi',
         targetDurationSeconds: 40,
         renderMode: mode as 'mock' | 'live',
-        narrationMode: voiceover as 'none' | 'provided_audio' | 'google_cloud_tts',
+        narrationMode: (fixtureTts ? 'gemini_tts' : voiceover) as 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts',
         providedAudioPath,
-        aspectRatio: '9:16'
+        aspectRatio: '9:16',
+        visualStyleId: visualStyleId as 'math_chalkboard' | 'clean_educational_infographic'
       },
       {
         documentStore: docStore,
+        ttsProvider: fixtureTts ? new MockTtsProvider() : undefined,
         onStage: (stage) => { process.stderr.write(`[v2:${mode}] ${stage}\n`); }
       }
     );
 
-    process.stdout.write(`${JSON.stringify({ status: 'completed', pipeline: 'v2', renderMode: mode, jobId: result.jobId, output: result.outputPath, metadata: result.metadata }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ status: 'completed', pipeline: 'v2', renderMode: mode, narrationProvider: fixtureTts ? 'offline_mock_fixture' : voiceover, jobId: result.jobId, output: result.outputPath, metadata: result.metadata }, null, 2)}\n`);
   } else {
     const result = await runHybridPipeline(
-      { topic, language: 'vi', durationSeconds: 40, renderMode: mode as 'mock' | 'live', voiceoverMode: voiceover as 'none' | 'provided_audio' | 'google_cloud_tts', providedAudioPath, subtitlesEnabled },
+      { topic, language: 'vi', durationSeconds: 40, renderMode: mode as 'mock' | 'live', voiceoverMode: voiceover as 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts', providedAudioPath, subtitlesEnabled },
       {
         onStage: (stage) => { process.stderr.write(`[hybrid:${mode}] ${stage}\n`); }
       }

@@ -31,6 +31,7 @@ export async function PATCH(
       summary: body.summary,
       learningObjectives: body.learningObjectives,
       mathematicalClaims: body.mathematicalClaims,
+      mathSpec: body.mathSpec,
       narrationTexts: body.narrationTexts
     }, body.note);
 

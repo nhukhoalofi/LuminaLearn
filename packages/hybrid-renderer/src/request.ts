@@ -8,7 +8,7 @@ export const HybridRenderRequestSchema = z.object({
   language: z.literal('vi'),
   durationSeconds: z.literal(40),
   renderMode: z.enum(['mock', 'live']),
-  voiceoverMode: z.enum(['none', 'provided_audio', 'google_cloud_tts']).default('none'),
+  voiceoverMode: z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   providedAudioPath: z.string().trim().min(1).max(1024).optional()
 }).strict().superRefine((request, ctx) => {

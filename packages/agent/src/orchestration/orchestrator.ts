@@ -13,6 +13,7 @@ import { NarrationPlannerV2 } from './narration-planner';
 import { QualityReviewer } from './quality-reviewer';
 import { TopicRouter } from './router';
 import { VisualStoryboardDirectorV2 } from './storyboard-director';
+import { EducationalFilmDirector } from './educational-film-director';
 import type { OrchestrationContext, OrchestrationLogEntry, OrchestrationStage } from './types';
 
 export interface LessonOrchestratorOptions {
@@ -32,6 +33,7 @@ export class LessonOrchestrator {
   private readonly verifier: MathVerificationService;
   private readonly aiProvider: AIProvider;
   private readonly storyboardDirector: VisualStoryboardDirectorV2;
+  private readonly filmDirector: EducationalFilmDirector;
   private readonly narrationPlanner: NarrationPlannerV2;
   private readonly qualityReviewer: QualityReviewer;
   private readonly registry: MathTemplateRegistry;
@@ -47,6 +49,7 @@ export class LessonOrchestrator {
     this.verifier = options.verifier ?? new MathVerificationService();
     this.aiProvider = options.aiProvider ?? new MockAIProvider();
     this.storyboardDirector = new VisualStoryboardDirectorV2(this.registry);
+    this.filmDirector = new EducationalFilmDirector();
     this.narrationPlanner = new NarrationPlannerV2();
     this.qualityReviewer = new QualityReviewer(this.registry);
     this.maxRetries = options.maxRetries ?? 2;
@@ -204,9 +207,15 @@ export class LessonOrchestrator {
       const storyboard = this.storyboardDirector.direct({
         storyboardId: `sb_${request.requestId}`,
         lessonPlan: context.lessonPlan,
-        aspectRatio: request.aspectRatio
+        aspectRatio: request.aspectRatio,
+        visualStyleId: request.visualStyleId
       });
       context.storyboard = storyboard;
+      context.teachingTreatment = this.filmDirector.createTreatment({
+        lessonPlan: context.lessonPlan,
+        storyboard,
+        visualStyleId: request.visualStyleId
+      });
       log('storyboard_directing', 'storyboarded', 'success', `Đã tạo storyboard với ${storyboard.scenes.length} cảnh trực quan (${storyboard.estimatedDurationFrames} frames)`);
     } catch (err) {
       log('storyboard_directing', 'failed', 'error', `Đạo diễn storyboard thất bại: ${err instanceof Error ? err.message : String(err)}`);

@@ -4,6 +4,7 @@ import type {
   NarrationPlanV2,
   RenderManifestV2,
   StoryboardV2,
+  TeachingTreatmentV2,
   VerifiedClaim
 } from '@luminalearn/scene-schema';
 import type { DocumentChunk, GroundingEvidence } from '@luminalearn/scene-schema';
@@ -74,6 +75,7 @@ export interface OrchestrationContext {
   lessonPlan?: LessonPlanV2;
   mathVerification?: MathVerificationReportV2;
   storyboard?: StoryboardV2;
+  teachingTreatment?: TeachingTreatmentV2;
   narrationPlan?: NarrationPlanV2;
   manifest?: RenderManifestV2;
   logs: OrchestrationLogEntry[];

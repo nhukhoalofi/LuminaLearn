@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -92,9 +92,37 @@ export function computeArtifactContentHash(payload: {
   verifiedClaims: unknown;
   renderConfig: unknown;
   mathSpec: unknown;
+  sourceReferences: unknown;
+  verificationProof: unknown;
 }): string {
   const canonical = canonicalJsonStringify(payload);
   return createHash('sha256').update(canonical, 'utf8').digest('hex');
+}
+
+export function computeVerificationBindingHash(payload: {
+  topicId: string;
+  mathSpec: unknown;
+  verifiedClaims: unknown;
+}): string {
+  return createHash('sha256')
+    .update(canonicalJsonStringify(payload), 'utf8')
+    .digest('hex');
+}
+
+function claimIdsMatchSpec(mathSpec: MathVisualizationSpecV2, claims: VerifiedClaim[]): boolean {
+  const expected = [...new Set(claims.map((claim) => claim.id))].sort();
+  const bound = [...new Set(mathSpec.boundClaimIds)].sort();
+  return canonicalJsonStringify(expected) === canonicalJsonStringify(bound);
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(child);
+    }
+  }
+  return value;
 }
 
 /**
@@ -111,9 +139,25 @@ export function verifyArtifactIntegrity(artifact: ApprovedRenderArtifactV2): boo
       narrationPlan: artifact.narrationPlan,
       verifiedClaims: artifact.verifiedClaims,
       renderConfig: artifact.renderConfig,
-      mathSpec: artifact.mathSpec
+      mathSpec: artifact.mathSpec,
+      sourceReferences: artifact.sourceReferences,
+      verificationProof: artifact.verificationProof
     });
-    return expectedHash === artifact.contentHash;
+    const bindingHash = computeVerificationBindingHash({
+      topicId: artifact.lessonPlan.topicId,
+      mathSpec: artifact.mathSpec,
+      verifiedClaims: artifact.verifiedClaims
+    });
+    const claimsConsistent = canonicalJsonStringify(artifact.lessonPlan.mathematicalClaims) ===
+      canonicalJsonStringify(artifact.verifiedClaims);
+    const checkedClaimIds = [...artifact.verificationProof.checkedClaimIds].sort();
+    const verifiedClaimIds = artifact.verifiedClaims.map((claim) => claim.id).sort();
+    return expectedHash === artifact.contentHash &&
+      bindingHash === artifact.verificationProof.verificationBindingHash &&
+      claimsConsistent &&
+      canonicalJsonStringify(checkedClaimIds) === canonicalJsonStringify(verifiedClaimIds) &&
+      artifact.mathSpec.topicId === artifact.lessonPlan.topicId &&
+      claimIdsMatchSpec(artifact.mathSpec, artifact.verifiedClaims);
   } catch {
     return false;
   }
@@ -222,6 +266,15 @@ export class LessonDraftManager {
     return this.drafts.get(draftId)?.approvedArtifact;
   }
 
+  public isArtifactCurrentlyApproved(artifact: ApprovedRenderArtifactV2): boolean {
+    const draft = this.drafts.get(artifact.draftId);
+    return draft?.status === 'approved' &&
+      draft.version === artifact.version &&
+      draft.approvedArtifact?.artifactId === artifact.artifactId &&
+      draft.approvedArtifact.contentHash === artifact.contentHash &&
+      verifyArtifactIntegrity(artifact);
+  }
+
   public async loadArtifactFromDisk(artifactId: string): Promise<ApprovedRenderArtifactV2 | null> {
     try {
       const artifactPath = join(this.artifactsDir, `${artifactId}.json`);
@@ -268,12 +321,67 @@ export class LessonDraftManager {
       draft.status = 'reviewing';
     }
 
+    // Reverify the complete claim set whenever either the claims or MathSpec changes.
+    // This happens before the candidate MathSpec is accepted, so stale verification
+    // can never survive a specification-only edit.
+    if (updates.mathematicalClaims || updates.mathSpec) {
+      if (!draft.context.topicInfo || !draft.context.lessonPlan) {
+        throw new Error('Cannot update mathematical content on an incomplete draft');
+      }
+      const candidateClaims = updates.mathematicalClaims ?? draft.context.lessonPlan.mathematicalClaims;
+      const existingMathSpec = draft.context.lessonPlan.mathSpec;
+      const candidateMathSpec = updates.mathSpec ?? (existingMathSpec
+        ? { ...existingMathSpec, boundClaimIds: candidateClaims.map((claim) => claim.id) }
+        : undefined);
+      if (!candidateMathSpec) {
+        throw new Error('math_spec_missing: Mathematical updates require an explicit MathSpec');
+      }
+      if (candidateMathSpec.topicId !== draft.context.topicInfo.topicId) {
+        throw new Error(`math_spec_topic_mismatch: expected '${draft.context.topicInfo.topicId}', got '${candidateMathSpec.topicId}'`);
+      }
+      if (!claimIdsMatchSpec(candidateMathSpec, candidateClaims)) {
+        throw new Error('math_spec_claim_binding_mismatch: MathSpec must bind the complete mathematical claim set');
+      }
+
+      const verifyReport = await this.verifier.verifyClaims(
+        draft.context.topicInfo.topicId,
+        candidateClaims,
+        { mathSpec: candidateMathSpec }
+      );
+      draft.context.mathVerification = {
+        status: verifyReport.allVerified ? 'verified' : 'failed',
+        checkedClaims: verifyReport.claims,
+        verificationDetails: verifyReport.result.checks
+      };
+      draft.context.lessonPlan.mathematicalClaims = verifyReport.claims;
+
+      draft.approvalHistory.push({
+        action: 'claims_reverified',
+        timestamp: now,
+        note: verifyReport.allVerified
+          ? 'Complete claim set reverified against the exact candidate MathSpec'
+          : 'Mathematical verification FAILED against the exact candidate MathSpec',
+        details: { allVerified: verifyReport.allVerified }
+      });
+
+      if (!verifyReport.allVerified) {
+        draft.status = 'reviewing';
+        draft.context.stage = 'failed';
+        draft.context.error = {
+          code: 'math_spec_verification_failed',
+          message: 'Mathematical claims are inconsistent with the candidate MathSpec'
+        };
+        return draft;
+      }
+      draft.context.lessonPlan.mathSpec = candidateMathSpec;
+      draft.context.error = undefined;
+    }
+
     // 1. Update title / summary / objectives if provided
     if (draft.context.lessonPlan) {
       if (updates.title) draft.context.lessonPlan.title = updates.title;
       if (updates.summary) draft.context.lessonPlan.summary = updates.summary;
       if (updates.learningObjectives) draft.context.lessonPlan.learningObjectives = updates.learningObjectives;
-      if (updates.mathSpec) draft.context.lessonPlan.mathSpec = updates.mathSpec;
     }
 
     // 2. Update narration texts if provided
@@ -285,55 +393,6 @@ export class LessonDraftManager {
           if (custom.subtitleText) segment.subtitleText = custom.subtitleText;
         }
       }
-    }
-
-    // 3. Mathematical Claims update (FAIL-CLOSED VERIFICATION GATE)
-    if (updates.mathematicalClaims) {
-      if (!draft.context.topicInfo) {
-        throw new Error('Cannot update mathematical claims on a draft without topicInfo');
-      }
-
-      // Re-run formal verification through SymPy / verifier
-      const verifyReport = await this.verifier.verifyClaims(
-        draft.context.topicInfo.topicId,
-        updates.mathematicalClaims,
-        {
-          mathSpec: updates.mathSpec ?? draft.context.lessonPlan?.mathSpec
-        }
-      );
-
-      if (draft.context.lessonPlan) {
-        draft.context.lessonPlan.mathematicalClaims = verifyReport.claims;
-      }
-
-      draft.context.mathVerification = {
-        status: verifyReport.allVerified ? 'verified' : 'failed',
-        checkedClaims: verifyReport.claims,
-        verificationDetails: verifyReport.result.checks
-      };
-
-      if (!verifyReport.allVerified) {
-        draft.status = 'reviewing';
-        draft.context.stage = 'failed';
-        draft.context.error = {
-          code: 'claim_update_verification_failed',
-          message: 'One or more updated mathematical claims failed formal SymPy verification'
-        };
-        draft.approvalHistory.push({
-          action: 'claims_reverified',
-          timestamp: now,
-          note: 'Mathematical verification FAILED after user claim edits',
-          details: { allVerified: false, claims: verifyReport.claims }
-        });
-        return draft;
-      }
-
-      draft.approvalHistory.push({
-        action: 'claims_reverified',
-        timestamp: now,
-        note: 'All updated mathematical claims successfully reverified by formal SymPy engine',
-        details: { allVerified: true }
-      });
     }
 
     draft.approvalHistory.push({
@@ -386,6 +445,25 @@ export class LessonDraftManager {
       );
     draft.context.lessonPlan.mathSpec = mathSpec;
 
+    if (mathSpec.topicId !== draft.context.lessonPlan.topicId ||
+        !claimIdsMatchSpec(mathSpec, draft.context.lessonPlan.mathematicalClaims)) {
+      throw new Error('Cannot approve draft: MathSpec does not match the topic and complete claim set');
+    }
+    const approvalVerification = await this.verifier.verifyClaims(
+      draft.context.lessonPlan.topicId,
+      draft.context.lessonPlan.mathematicalClaims,
+      { mathSpec }
+    );
+    if (!approvalVerification.allVerified) {
+      throw new Error('Cannot approve draft: exact MathSpec and complete claim set failed re-verification');
+    }
+    draft.context.lessonPlan.mathematicalClaims = approvalVerification.claims;
+    draft.context.mathVerification = {
+      status: 'verified',
+      checkedClaims: approvalVerification.claims,
+      verificationDetails: approvalVerification.result.checks
+    };
+
     // Recompile manifest to ensure total consistency with any edited narration/title
     const manifest = compileStoryboardV2(
       draft.context.storyboard,
@@ -417,6 +495,11 @@ export class LessonDraftManager {
     const artifactId = `art_${draft.draftId.replace(/[^a-zA-Z0-9_-]/g, '_')}_v${draft.version}`;
 
     // Validate with zod first to populate schema defaults consistently
+    const verificationBindingHash = computeVerificationBindingHash({
+      topicId: draft.context.lessonPlan.topicId,
+      mathSpec,
+      verifiedClaims: draft.context.lessonPlan.mathematicalClaims
+    });
     const preArtifact = ApprovedRenderArtifactV2Schema.parse({
       schemaVersion: 'artifact-v2',
       artifactId,
@@ -437,6 +520,7 @@ export class LessonDraftManager {
         status: 'verified',
         verifiedAt: now,
         checkedClaimIds: draft.context.lessonPlan.mathematicalClaims.map((c) => c.id),
+        verificationBindingHash,
         engine: 'SymPy Python Engine'
       }
     });
@@ -449,19 +533,32 @@ export class LessonDraftManager {
       narrationPlan: preArtifact.narrationPlan,
       verifiedClaims: preArtifact.verifiedClaims,
       renderConfig: preArtifact.renderConfig,
-      mathSpec: preArtifact.mathSpec
+      mathSpec: preArtifact.mathSpec,
+      sourceReferences: preArtifact.sourceReferences,
+      verificationProof: preArtifact.verificationProof
     };
 
     const contentHash = computeArtifactContentHash(hashPayload);
-    const artifact: ApprovedRenderArtifactV2 = {
+    const artifact: ApprovedRenderArtifactV2 = deepFreeze({
       ...preArtifact,
       contentHash
-    };
+    });
+
+    if (!verifyArtifactIntegrity(artifact)) {
+      throw new Error('artifact_integrity_failed: Refusing to persist an inconsistent approved artifact');
+    }
 
     // ATOMIC PERSISTENCE TO DISK
     await mkdir(this.artifactsDir, { recursive: true });
     const artifactPath = join(this.artifactsDir, `${artifactId}.json`);
-    await writeFile(artifactPath, JSON.stringify(artifact, null, 2), 'utf8');
+    const temporaryPath = join(this.artifactsDir, `.${artifactId}.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporaryPath, JSON.stringify(artifact, null, 2), { encoding: 'utf8', flag: 'wx' });
+      await rename(temporaryPath, artifactPath);
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
 
     draft.approvedArtifact = artifact;
 

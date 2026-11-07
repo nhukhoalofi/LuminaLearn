@@ -14,6 +14,7 @@ export default function HomePage() {
           <Hero />
           <CreateVideoForm
             liveEnabled={Boolean(process.env.GEMINI_API_KEY)}
+            geminiTtsEnabled={Boolean(process.env.GEMINI_API_KEY)}
             googleTtsEnabled={Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_TTS_ENABLED === 'true')}
           />
           <WorkflowSection />
