@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
-type UiState = 'idle' | 'ingesting' | 'drafting' | 'reviewing' | 'submitting' | 'generating' | 'completed' | 'failed';
+type UiState = 'idle' | 'ingesting' | 'drafting' | 'saving' | 'reviewing' | 'submitting' | 'generating' | 'completed' | 'failed';
 type InputMode = 'topic_prompt' | 'source_document';
 type RenderMode = 'mock' | 'live';
 type VoiceoverMode = 'none' | 'google_cloud_tts' | 'gemini_tts';
@@ -32,6 +32,7 @@ interface IngestedDocumentInfo {
 
 interface LessonDraftInfo {
   draftId: string;
+  version: number;
   status: string;
   lessonPlan: {
     title: string;
@@ -60,6 +61,7 @@ interface LessonDraftInfo {
   narrationPlan?: {
     segments: Array<{
       segmentId: string;
+      sceneId: string;
       text: string;
       subtitleText: string;
       targetDurationSeconds: number;
@@ -95,6 +97,7 @@ export function CreateVideoForm({
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [ingestedDoc, setIngestedDoc] = useState<IngestedDocumentInfo | null>(null);
   const [draft, setDraft] = useState<LessonDraftInfo | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
 
   const [renderMode, setRenderMode] = useState<RenderMode>('mock');
   const [voiceoverMode, setVoiceoverMode] = useState<VoiceoverMode>(geminiTtsEnabled ? 'gemini_tts' : 'none');
@@ -165,6 +168,9 @@ export function CreateVideoForm({
       }
 
       setIngestedDoc(data);
+      if (data.needsOcr) {
+        setError(data.ocrReason || 'Tài liệu PDF là bản scan chưa có lớp văn bản (cần OCR).');
+      }
       setUiState('idle');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -208,9 +214,46 @@ export function CreateVideoForm({
       }
 
       setDraft(data);
+      setDraftDirty(false);
       setUiState('reviewing');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setUiState('failed');
+    }
+  }
+
+  async function handleSaveDraft(): Promise<void> {
+    if (!draft) return;
+    setError(null);
+    setUiState('saving');
+    try {
+      const narrationTexts = Object.fromEntries(
+        (draft.narrationPlan?.segments ?? []).map((segment) => [segment.segmentId, {
+          text: segment.text,
+          subtitleText: segment.subtitleText
+        }])
+      );
+      const response = await fetch(`/api/lessons/${draft.draftId}/draft`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draft.lessonPlan.title,
+          summary: draft.lessonPlan.summary,
+          mathematicalClaims: draft.lessonPlan.mathematicalClaims,
+          narrationTexts,
+          note: 'User revised the lesson draft from the LuminaLearn V2.4.2 web review'
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || 'Không thể lưu và xác minh lại bản thảo.');
+      setDraft(payload);
+      setDraftDirty(false);
+      if (payload.mathVerification?.status === 'failed' || payload.error) {
+        setError(payload.error?.message || 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.');
+      }
+      setUiState('reviewing');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
       setUiState('failed');
     }
   }
@@ -224,14 +267,14 @@ export function CreateVideoForm({
     controllerRef.current = controller;
 
     setError(null);
-    setUiState('submitting');
+      setUiState('submitting');
 
     try {
       const res = await fetch(`/api/lessons/${draft.draftId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ note: 'Duyệt bài học từ giao diện web LuminaLearn V2.2' })
+        body: JSON.stringify({ note: 'Duyệt bài học từ giao diện web LuminaLearn V2.4.2' })
       });
 
       const data = await res.json();
@@ -249,59 +292,12 @@ export function CreateVideoForm({
     }
   }
 
-  // Handle direct legacy submit (skip manual draft review)
-  async function handleDirectSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (uiState === 'submitting' || uiState === 'generating' || uiState === 'drafting') return;
-
-    if (!topic.trim()) {
-      setError('Vui lòng nhập chủ đề video.');
-      return;
-    }
-
-    const controller = new AbortController();
-    controllerRef.current?.abort();
-    controllerRef.current = controller;
-    setError(null);
-    setJob(null);
-    setUiState('submitting');
-
-    try {
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          topic: topic.trim(),
-          language: 'vi',
-          durationSeconds: 40,
-          renderMode,
-          voiceoverMode,
-          subtitlesEnabled
-        })
-      });
-
-      const payload = (await response.json()) as JobStatus & { error?: string; details?: string[] };
-      if (!response.ok) {
-        throw new Error(payload.details?.join(' ') ?? payload.error ?? 'Không thể tạo job.');
-      }
-
-      setJob(payload);
-      setUiState('generating');
-      await pollJob(payload.jobId, controller.signal);
-    } catch (caught) {
-      if (caught instanceof DOMException && caught.name === 'AbortError') return;
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setUiState('failed');
-    }
-  }
-
-  const busy = uiState === 'submitting' || uiState === 'generating' || uiState === 'ingesting' || uiState === 'drafting';
+  const busy = uiState === 'submitting' || uiState === 'generating' || uiState === 'ingesting' || uiState === 'drafting' || uiState === 'saving';
 
   return (
     <section className="create-card" aria-labelledby="create-form-title">
       <div className="create-card-header">
-        <h2 id="create-form-title" className="card-title">Tạo video Toán học V2.2</h2>
+        <h2 id="create-form-title" className="card-title">Tạo video Toán học V2.4.2</h2>
         <p className="card-subtitle">
           Chuyển đổi chủ đề hoặc tài liệu thành bài giảng video trực quan với AI Multi-Agent, SymPy Formal Verification và Manim Animation.
         </p>
@@ -563,15 +559,6 @@ export function CreateVideoForm({
           {uiState === 'drafting' ? 'Đang tạo bản thảo...' : '📋 Xem trước bản thảo (Draft Review)'}
         </button>
 
-        <button
-          type="button"
-          className="btn-generate"
-          style={{ flex: 1 }}
-          disabled={busy}
-          onClick={handleDirectSubmit as unknown as React.MouseEventHandler}
-        >
-          {uiState === 'submitting' ? 'Đang tạo job…' : uiState === 'generating' ? 'Đang render video…' : '🚀 Xuất video trực tiếp'}
-        </button>
       </div>
 
       {error ? (
@@ -593,7 +580,7 @@ export function CreateVideoForm({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--accent-cyan)' }}>
-              Bản thảo bài học: {draft.lessonPlan.title}
+              Bản thảo bài học — phiên bản {draft.version}
             </h3>
             <span
               style={{
@@ -609,21 +596,98 @@ export function CreateVideoForm({
             </span>
           </div>
 
-          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-            {draft.lessonPlan.summary}
-          </p>
+          <label className="form-label" htmlFor="draft-title">Tiêu đề đã duyệt</label>
+          <input
+            id="draft-title"
+            className="form-input"
+            value={draft.lessonPlan.title}
+            disabled={busy}
+            onChange={(event) => {
+              setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, title: event.target.value } });
+              setDraftDirty(true);
+            }}
+          />
+          <label className="form-label" htmlFor="draft-summary" style={{ marginTop: '10px' }}>Tóm tắt</label>
+          <textarea
+            id="draft-summary"
+            className="form-textarea"
+            rows={3}
+            value={draft.lessonPlan.summary}
+            disabled={busy}
+            onChange={(event) => {
+              setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, summary: event.target.value } });
+              setDraftDirty(true);
+            }}
+          />
 
           <div style={{ marginBottom: '14px' }}>
             <strong style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Mệnh đề toán học được kiểm định:</strong>
             <ul style={{ paddingLeft: '20px', marginTop: '6px', fontSize: '13px', color: 'var(--text-primary)' }}>
-              {draft.lessonPlan.mathematicalClaims.map((claim) => (
-                <li key={claim.id} style={{ marginBottom: '4px' }}>
-                  <code>{claim.validatorKey}</code>: <em>{claim.statement}</em> &rarr; Biểu thức: <code>{claim.expectedExpression}</code>
-                  {' '}(<strong style={{ color: claim.verificationStatus === 'verified' ? '#4ade80' : '#f87171' }}>{claim.verificationStatus}</strong>)
+              {draft.lessonPlan.mathematicalClaims.map((claim, claimIndex) => (
+                <li key={claim.id} style={{ marginBottom: '10px' }}>
+                  <code>{claim.validatorKey}</code>
+                  <input
+                    className="form-input"
+                    aria-label={`Mệnh đề ${claim.id}`}
+                    value={claim.statement}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const mathematicalClaims = draft.lessonPlan.mathematicalClaims.map((item, index) => index === claimIndex ? { ...item, statement: event.target.value, verificationStatus: 'unverified' as const } : item);
+                      setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, mathematicalClaims } });
+                      setDraftDirty(true);
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    aria-label={`Biểu thức ${claim.id}`}
+                    value={claim.expectedExpression}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const mathematicalClaims = draft.lessonPlan.mathematicalClaims.map((item, index) => index === claimIndex ? { ...item, expectedExpression: event.target.value, verificationStatus: 'unverified' as const } : item);
+                      setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, mathematicalClaims } });
+                      setDraftDirty(true);
+                    }}
+                  />
+                  <strong style={{ color: claim.verificationStatus === 'verified' ? '#4ade80' : '#f87171' }}>{claim.verificationStatus}</strong>
                 </li>
               ))}
             </ul>
           </div>
+
+          {draft.narrationPlan?.segments.length ? (
+            <div style={{ marginBottom: '14px' }}>
+              <strong style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Lời dẫn và phụ đề:</strong>
+              {draft.narrationPlan.segments.map((segment, segmentIndex) => (
+                <div key={segment.segmentId} style={{ marginTop: '8px' }}>
+                  <code>{segment.sceneId}</code>
+                  <textarea
+                    className="form-textarea"
+                    rows={2}
+                    aria-label={`Lời dẫn ${segment.sceneId}`}
+                    value={segment.text}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const segments = draft.narrationPlan!.segments.map((item, index) => index === segmentIndex ? { ...item, text: event.target.value } : item);
+                      setDraft({ ...draft, narrationPlan: { ...draft.narrationPlan!, segments } });
+                      setDraftDirty(true);
+                    }}
+                  />
+                  <textarea
+                    className="form-textarea"
+                    rows={2}
+                    aria-label={`Phụ đề ${segment.sceneId}`}
+                    value={segment.subtitleText}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const segments = draft.narrationPlan!.segments.map((item, index) => index === segmentIndex ? { ...item, subtitleText: event.target.value } : item);
+                      setDraft({ ...draft, narrationPlan: { ...draft.narrationPlan!, segments } });
+                      setDraftDirty(true);
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div style={{ marginBottom: '14px' }}>
             <strong style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Các phân đoạn sư phạm ({draft.lessonPlan.pedagogicalSequence.length} cảnh):</strong>
@@ -641,8 +705,18 @@ export function CreateVideoForm({
           <button
             type="button"
             className="btn-generate"
+            style={{ width: '100%', marginTop: '12px' }}
+            disabled={busy || !draftDirty}
+            onClick={handleSaveDraft}
+          >
+            {uiState === 'saving' ? 'Đang lưu và xác minh lại…' : 'Lưu chỉnh sửa & chạy lại SymPy'}
+          </button>
+
+          <button
+            type="button"
+            className="btn-generate"
             style={{ width: '100%', marginTop: '12px', backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-            disabled={busy || draft.mathVerification?.status !== 'verified'}
+            disabled={busy || draftDirty || draft.mathVerification?.status !== 'verified'}
             onClick={handleApproveAndRender}
           >
             {draft.mathVerification?.status === 'verified'

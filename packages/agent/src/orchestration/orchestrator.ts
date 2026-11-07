@@ -145,26 +145,50 @@ export class LessonOrchestrator {
       effectiveAiProvider = new LiveGeminiAIProvider();
     }
 
-    try {
-      const plan = await this.curriculumPlanner.plan({
-        lessonId: `lesson_${request.requestId}`,
-        topicInfo,
-        audience: request.audience,
-        targetDurationSeconds: request.targetDurationSeconds,
-        documentAnalysis: context.documentAnalysis,
-        sourceContext: context.sourceContext,
-        aiProvider: effectiveAiProvider,
-        onProviderCall: (trace) => context.providerCalls?.push(trace)
-      });
-      if (request.inputMode === 'source_document') {
-        if (plan.sourceEvidence.length === 0) throw new Error('source_evidence_missing: live source-document plan returned no citations');
-        for (const evidence of plan.sourceEvidence) {
-          const reference = evidence.sourceReference;
-          if (!request.sourceDocumentIds.includes(reference.documentId)) throw new Error(`fabricated_source_reference: ${reference.documentId}`);
-          const match = this.groundingService.verifyQuoteInDocument(reference.documentId, reference.pageNumber, reference.exactQuote);
-          if (!match.found || match.matchType !== 'exact') throw new Error(`fabricated_source_reference: ${reference.id}`);
+    const runWithBoundedRevision = async <T>(step: string, operation: () => Promise<T>): Promise<T> => {
+      while (true) {
+        try {
+          return await operation();
+        } catch (error) {
+          if (effectiveAiProvider.isMock || context.retryCount >= context.maxRetries) throw error;
+          context.retryCount += 1;
+          log(step, context.stage, 'warning', `Provider output không hợp lệ; yêu cầu sửa lần ${context.retryCount}/${context.maxRetries}`, {
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
       }
+    };
+
+    try {
+      const plan = await runWithBoundedRevision('curriculum_revision', async () => {
+        const candidate = await this.curriculumPlanner.plan({
+          lessonId: `lesson_${request.requestId}`,
+          topicInfo,
+          audience: request.audience,
+          targetDurationSeconds: request.targetDurationSeconds,
+          documentAnalysis: context.documentAnalysis,
+          sourceContext: context.sourceContext,
+          aiProvider: effectiveAiProvider,
+          onProviderCall: (trace) => context.providerCalls?.push(trace)
+        });
+        if (!candidate.mathSpec) throw new Error('math_spec_missing: provider must return the exact mathematical specification');
+        if (candidate.mathSpec.topicId !== topicInfo.topicId) throw new Error('math_spec_topic_mismatch: provider MathSpec does not match routed topic');
+        const claimIds = [...new Set(candidate.mathematicalClaims.map((claim) => claim.id))].sort();
+        const boundClaimIds = [...new Set(candidate.mathSpec.boundClaimIds)].sort();
+        if (JSON.stringify(claimIds) !== JSON.stringify(boundClaimIds)) {
+          throw new Error('math_spec_claim_binding_mismatch: MathSpec must bind the complete claim set');
+        }
+        if (request.inputMode === 'source_document') {
+          if (candidate.sourceEvidence.length === 0) throw new Error('source_evidence_missing: live source-document plan returned no citations');
+          for (const evidence of candidate.sourceEvidence) {
+            const reference = evidence.sourceReference;
+            if (!request.sourceDocumentIds.includes(reference.documentId)) throw new Error(`fabricated_source_reference: ${reference.documentId}`);
+            const match = this.groundingService.verifyQuoteInDocument(reference.documentId, reference.pageNumber, reference.exactQuote);
+            if (!match.found || match.matchType !== 'exact') throw new Error(`fabricated_source_reference: ${reference.id}`);
+          }
+        }
+        return candidate;
+      });
       const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.lessonPlan = plan;
       log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode, providerCall: context.providerCalls?.at(-1) });
@@ -239,14 +263,17 @@ export class LessonOrchestrator {
 
     // Stage 7: Sinh lời dẫn và phụ đề (Narration Planning)
     try {
-      const narrationPlan = await this.narrationPlanner.plan({
+      const verifiedLessonPlan = context.lessonPlan;
+      const directedStoryboard = context.storyboard;
+      if (!verifiedLessonPlan || !directedStoryboard) throw new Error('narration_context_missing: verified lesson plan or storyboard is absent');
+      const narrationPlan = await runWithBoundedRevision('narration_revision', () => this.narrationPlanner.plan({
         planId: `narr_${request.requestId}`,
-        lessonPlan: context.lessonPlan,
-        storyboard: context.storyboard,
+        lessonPlan: verifiedLessonPlan,
+        storyboard: directedStoryboard,
         language: request.language,
         aiProvider: effectiveAiProvider,
         onProviderCall: (trace) => context.providerCalls?.push(trace)
-      });
+      }));
       const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.narrationPlan = narrationPlan;
       log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode, providerCall: context.providerCalls?.at(-1) });

@@ -8,6 +8,7 @@ import {
   MathVerificationService,
   LessonOrchestrator
 } from '@luminalearn/agent';
+import type { LessonDraft } from '@luminalearn/agent';
 import {
   createHybridJobId,
   runHybridPipelineV2,
@@ -49,4 +50,27 @@ export const draftManager: LessonDraftManager =
     })
   });
 globalServices.__luminaDraftManager = draftManager;
+
+export async function ensureDocumentsLoaded(documentIds: string[]): Promise<void> {
+  for (const docId of documentIds) {
+    if (/^doc_[a-zA-Z0-9_-]+$/.test(docId) && documentStore.getChunksByDocument(docId).length === 0) {
+      await documentStore.loadFromDisk(documentsDir, docId);
+    }
+  }
+}
+
+export function toLessonDraftResponse(draft: LessonDraft) {
+  return {
+    draftId: draft.draftId,
+    version: draft.version,
+    status: draft.status,
+    stage: draft.context.stage,
+    error: draft.context.error,
+    updatedAt: draft.updatedAt,
+    lessonPlan: draft.context.lessonPlan,
+    mathVerification: draft.context.mathVerification,
+    narrationPlan: draft.context.narrationPlan,
+    approvalHistory: draft.approvalHistory
+  };
+}
 

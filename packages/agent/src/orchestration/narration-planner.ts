@@ -45,8 +45,10 @@ export class NarrationPlannerV2 {
         throw new Error('narration_scene_mismatch: provider invented or omitted storyboard scene IDs');
       }
       const verifiedIds = new Set(verifiedClaims.map((claim) => claim.id));
-      if (result.data.mathematicalReview.status !== 'verified' || result.data.mathematicalReview.verifiedClaimIds.some((id) => !verifiedIds.has(id))) {
-        throw new Error('narration_claim_mismatch: narration references claims outside the independently verified set');
+      const reviewedIds = new Set(result.data.mathematicalReview.verifiedClaimIds);
+      if (result.data.mathematicalReview.status !== 'verified' || reviewedIds.size !== verifiedIds.size ||
+          [...reviewedIds].some((id) => !verifiedIds.has(id))) {
+        throw new Error('narration_claim_mismatch: narration must reference the complete independently verified claim set and no others');
       }
       return result.data;
     }

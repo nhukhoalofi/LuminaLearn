@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/server.ts",
+    "demo:workflow": "tsx src/demo-workflow.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx test/*.test.ts"

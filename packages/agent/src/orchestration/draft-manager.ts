@@ -417,6 +417,7 @@ export class LessonDraftManager {
         return draft;
       }
       draft.context.lessonPlan.mathSpec = candidateMathSpec;
+      draft.context.stage = draft.context.manifest ? 'ready_to_render' : 'verified';
       draft.context.error = undefined;
     }
 

@@ -87,6 +87,64 @@ test('live narration request receives verified claims, exact references, scene I
   assert.match(provider.requests[0].userPrompt, /Kết luận/);
 });
 
+test('live narration rejects an incomplete independently verified claim review', async () => {
+  const verifiedPlan = plan({ verified: true });
+  const storyboard = StoryboardV2Schema.parse({ storyboardId: 'sb_claim_review', lessonId: verifiedPlan.lessonId, topicId: verifiedPlan.topicId, scenes: [
+    { sceneId: 'scene_intro', templateId: 'function_graph', sceneType: 'intro', durationFrames: 240, parameters: { title: 'Mở bài' }, layout: { aspectRatio: '9:16', safeAreaPadding: 48 }, mathematicalBinding: { boundClaimIds: [], latexFormulas: [] }, sourceReferenceIds: [] },
+    { sceneId: 'scene_only', templateId: 'function_graph', sceneType: 'summary', durationFrames: 240, parameters: { title: 'Kết luận' }, layout: { aspectRatio: '9:16', safeAreaPadding: 48 }, mathematicalBinding: { boundClaimIds: ['claim_source'], latexFormulas: ['2x'] }, sourceReferenceIds: ['ref_source'] }
+  ], visualTemplateIds: ['function_graph'], mathematicalData: {}, narrationObjectives: [], estimatedDurationFrames: 480, sourceReferences: ['ref_source'] });
+  const incomplete = NarrationPlanV2Schema.parse({ planId: 'narr_incomplete', storyboardId: storyboard.storyboardId, language: 'vi', segments: [
+    { segmentId: 'seg_intro', sceneId: 'scene_intro', text: 'Mở bài.', subtitleText: 'Mở bài.', targetDurationSeconds: 10, pronunciationHints: [] },
+    { segmentId: 'seg_only', sceneId: 'scene_only', text: 'Đạo hàm bằng hai x.', subtitleText: "f'(x)=2x", targetDurationSeconds: 10, pronunciationHints: [] }
+  ], totalWords: 5, estimatedDurationSeconds: 10, mathematicalReview: { status: 'verified', verifiedClaimIds: [] } });
+  await assert.rejects(
+    () => new NarrationPlannerV2().plan({ planId: incomplete.planId, lessonPlan: verifiedPlan, storyboard, aiProvider: new CapturingProvider({ narration_planning: incomplete }) }),
+    /narration_claim_mismatch/
+  );
+});
+
+test('orchestration uses a real stored excerpt through planning, SymPy, storyboard, and narration', async () => {
+  const store = new DocumentStore();
+  store.addChunk({ chunkId: 'chunk_source', documentId: 'doc_source', documentTitle: 'Nguồn', pageNumber: 2, text: 'Đạo hàm của x^2 là 2x.', contentType: 'text/plain', tokenEstimate: 8, metadata: {} });
+  const validPlan = plan();
+  const integratedNarration = NarrationPlanV2Schema.parse({
+    planId: 'narr_integrated', storyboardId: 'sb_req_integrated', language: 'vi',
+    segments: [
+      { segmentId: 'seg_intro', sceneId: 'scene_1_function_graph', text: 'Mở bài về đạo hàm.', subtitleText: 'Mở bài về đạo hàm.', targetDurationSeconds: 20, pronunciationHints: [] },
+      { segmentId: 'seg_summary', sceneId: 'scene_2_function_graph', text: 'Đạo hàm của x bình phương bằng hai x.', subtitleText: "f'(x)=2x", targetDurationSeconds: 20, pronunciationHints: [] }
+    ], totalWords: 14, estimatedDurationSeconds: 40,
+    mathematicalReview: { status: 'verified', verifiedClaimIds: ['claim_source'] }
+  });
+  const provider = new CapturingProvider({ curriculum_planning: validPlan, narration_planning: integratedNarration });
+  const result = await new LessonOrchestrator({ documentStore: store, aiProvider: provider }).orchestrate({
+    requestId: 'req_integrated', inputMode: 'source_document', sourceDocumentIds: ['doc_source'], topic: 'Đạo hàm của x^2',
+    audience: 'Học sinh', language: 'vi', targetDurationSeconds: 40, renderMode: 'live', narrationMode: 'none', aspectRatio: '9:16'
+  });
+  assert.equal(result.stage, 'ready_to_render');
+  assert.equal(result.mathVerification?.status, 'verified');
+  assert.equal(result.sourceContext?.excerpts[0].text, 'Đạo hàm của x^2 là 2x.');
+  assert.deepEqual(provider.requests.map((request) => request.purpose), ['curriculum_planning', 'narration_planning']);
+});
+
+test('empty source and invalid provider schema fail closed with bounded revision attempts', async () => {
+  const emptyProvider = new CapturingProvider({ curriculum_planning: plan() });
+  const empty = await new LessonOrchestrator({ documentStore: new DocumentStore(), aiProvider: emptyProvider }).orchestrate({
+    requestId: 'req_empty_source', inputMode: 'source_document', sourceDocumentIds: ['doc_empty'], topic: 'Đạo hàm',
+    audience: 'Học sinh', language: 'vi', targetDurationSeconds: 40, renderMode: 'live', narrationMode: 'none', aspectRatio: '9:16'
+  });
+  assert.equal(empty.error?.code, 'source_evidence_missing');
+  assert.equal(emptyProvider.requests.length, 0);
+
+  const invalidProvider = new CapturingProvider({ curriculum_planning: { schemaVersion: 'not-a-lesson' } });
+  const invalid = await new LessonOrchestrator({ aiProvider: invalidProvider, maxRetries: 2 }).orchestrate({
+    requestId: 'req_invalid_schema', inputMode: 'topic_prompt', sourceDocumentIds: [], topic: 'Đạo hàm',
+    audience: 'Học sinh', language: 'vi', targetDurationSeconds: 40, renderMode: 'live', narrationMode: 'none', aspectRatio: '9:16'
+  });
+  assert.equal(invalid.error?.code, 'planning_failed');
+  assert.equal(invalid.retryCount, 2);
+  assert.equal(invalidProvider.requests.length, 3);
+});
+
 test('orchestration rejects fabricated citations, invalid math, and unsupported topics before narration', async () => {
   const store = new DocumentStore();
   store.addChunk({ chunkId: 'chunk_source', documentId: 'doc_source', documentTitle: 'Nguồn', pageNumber: 2, text: 'Đạo hàm của x^2 là 2x.', contentType: 'text/plain', tokenEstimate: 8, metadata: {} });

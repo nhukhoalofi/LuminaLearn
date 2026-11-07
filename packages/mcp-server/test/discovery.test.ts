@@ -10,7 +10,7 @@ import { createLuminaMcpServer, DEFAULT_REPOSITORY_ROOT } from '../src/server.js
 
 async function createFixtureRepository(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'lumina-mcp-'));
-  const jobDir = join(root, 'outputs', 'job_fixture');
+  const jobDir = join(root, 'outputs', 'job-20261107171652-3cc5c0df');
   await mkdir(jobDir, { recursive: true });
   await writeFile(join(root, '.env'), 'GEMINI_API_KEY=must-never-be-readable\n', 'utf8');
   await writeFile(join(jobDir, 'storyboard.json'), JSON.stringify({
@@ -39,10 +39,10 @@ test('all five read-only tools work over the in-memory MCP protocol with control
     ]);
     assert.match(JSON.stringify(await client.callTool({ name: 'list_math_templates', arguments: {} })), /riemann_sum/);
     assert.match(JSON.stringify(await client.callTool({ name: 'list_visual_styles', arguments: {} })), /math_chalkboard/);
-    assert.match(JSON.stringify(await client.callTool({ name: 'inspect_storyboard', arguments: { jobId: 'job_fixture' } })), /sb_fixture/);
-    assert.match(JSON.stringify(await client.callTool({ name: 'inspect_render_job', arguments: { jobId: 'job_fixture' } })), /720/);
+    assert.match(JSON.stringify(await client.callTool({ name: 'inspect_storyboard', arguments: { jobId: 'job-20261107171652-3cc5c0df' } })), /sb_fixture/);
+    assert.match(JSON.stringify(await client.callTool({ name: 'inspect_render_job', arguments: { jobId: 'job-20261107171652-3cc5c0df' } })), /720/);
     assert.match(JSON.stringify(await client.callTool({ name: 'validate_math_spec', arguments: { spec: { topicId: '../secret' } } })), /"valid":false/);
-    for (const invalidId of ['../.env', '..\\.env', 'job_fixture/storyboard.json']) {
+    for (const invalidId of ['../.env', '..\\.env', 'job-20261107171652-3cc5c0df/storyboard.json']) {
       const response = await client.callTool({ name: 'inspect_storyboard', arguments: { jobId: invalidId } });
       assert.equal(response.isError, true);
       assert.doesNotMatch(JSON.stringify(response), /must-never-be-readable/);

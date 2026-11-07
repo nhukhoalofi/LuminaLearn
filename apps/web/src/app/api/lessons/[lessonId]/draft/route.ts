@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { draftManager } from '@/server/v2-services';
+import { draftManager, toLessonDraftResponse } from '@/server/v2-services';
 
 export async function GET(
   _req: Request,
@@ -15,7 +15,7 @@ export async function GET(
     );
   }
 
-  return NextResponse.json(draft);
+  return NextResponse.json(toLessonDraftResponse(draft));
 }
 
 export async function PATCH(
@@ -35,7 +35,7 @@ export async function PATCH(
       narrationTexts: body.narrationTexts
     }, body.note);
 
-    return NextResponse.json(updated);
+    return NextResponse.json(toLessonDraftResponse(updated));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
