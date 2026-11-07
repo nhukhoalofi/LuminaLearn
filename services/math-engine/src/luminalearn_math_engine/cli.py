@@ -9,6 +9,13 @@ from typing import Any
 from .renderer import render_math_scene
 from .schemas.math_scene import validate_math_scene
 from .validators.derivative import verify_derivative_scene
+from .validators.riemann import verify_riemann_scene
+
+
+def _verify_scene(scene: dict[str, Any], claims: dict[str, str] | None) -> dict[str, Any]:
+    if scene.get("visualization") == "riemann_sum" or scene.get("topicId") == "calculus.integral.riemann_sum":
+        return verify_riemann_scene(scene, claims)
+    return verify_derivative_scene(scene, claims)
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -46,10 +53,10 @@ def main() -> None:
     try:
         scene = _read_json(args.input)
         if args.command == "validate": result: Any = {"status": "valid", "scene": validate_math_scene(scene)}
-        elif args.command == "verify": result = verify_derivative_scene(scene, _read_claims(args.claims))
+        elif args.command == "verify": result = _verify_scene(scene, _read_claims(args.claims))
         elif args.command == "render": result = {"status": "rendered", "output": str(render_math_scene(scene, Path(args.output_dir), args.timeout))}
         else:
-            report = verify_derivative_scene(scene, _read_claims(args.claims))
+            report = _verify_scene(scene, _read_claims(args.claims))
             if report["status"] != "verified": raise ValueError(f"Mathematical verification failed: {report['status']}")
             output = render_math_scene(scene, Path(args.output_dir), args.timeout)
             result = {"status": "rendered", "verification": report, "output": str(output)}

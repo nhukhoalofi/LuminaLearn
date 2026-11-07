@@ -4,6 +4,7 @@ import {
   assertJobTransition,
   createHybridJobId,
   runHybridPipeline,
+  runHybridPipelineV2,
   type HybridRenderRequest,
   type JobState,
   LocalJobRepository
@@ -77,16 +78,46 @@ function failureType(error: unknown): JobRecord['failureType'] {
 
 async function runEntry(entry: QueuedJob): Promise<void> {
   try {
-    const result = await runHybridPipeline(entry.request, {
-      jobId: entry.jobId,
-      onStage: (stage) => {
-        if (stage !== 'completed') transition(entry.jobId, stage);
-      }
-    });
+    const isRiemann = /tích phân|tich phan|riemann|integral/i.test(entry.request.topic);
+    let result: { outputPath: string };
+    if (isRiemann) {
+      result = await runHybridPipelineV2(
+        {
+          requestId: `req_${entry.jobId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+          inputMode: 'topic_prompt',
+          topic: entry.request.topic,
+          audience: 'Học sinh phổ thông',
+          language: 'vi',
+          targetDurationSeconds: 40,
+          renderMode: entry.request.renderMode,
+          narrationMode: entry.request.voiceoverMode,
+          aspectRatio: '9:16',
+          sourceDocumentIds: []
+        },
+        {
+          jobId: entry.jobId,
+          onStage: (stage) => {
+            if (stage !== 'completed') transition(entry.jobId, stage);
+          }
+        }
+      );
+    } else {
+      result = await runHybridPipeline(entry.request, {
+        jobId: entry.jobId,
+        onStage: (stage) => {
+          if (stage !== 'completed') transition(entry.jobId, stage);
+        }
+      });
+    }
     transition(entry.jobId, 'completed', { outputPath: result.outputPath, videoUrl: `/api/jobs/${entry.jobId}/video` });
   } catch (error) {
     const current = store.jobs.get(entry.jobId);
-    if (current && current.status !== 'completed' && current.status !== 'failed') transition(entry.jobId, 'failed', { error: error instanceof Error ? error.message : String(error), failureType: failureType(error) });
+    if (current && current.status !== 'completed' && current.status !== 'failed') {
+      transition(entry.jobId, 'failed', {
+        error: error instanceof Error ? error.message : String(error),
+        failureType: failureType(error)
+      });
+    }
   }
 }
 

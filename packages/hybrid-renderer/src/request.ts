@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const HybridRenderRequestSchema = z.object({
   topic: z.string().trim().min(3).max(300).refine(
-    (value) => /đạo hàm|dao ham|derivative|cát tuyến.*tiếp tuyến/i.test(value),
-    'unsupported_topic: Phase 4 only supports calculus.derivative.intuition'
+    (value) => /đạo hàm|dao ham|derivative|cát tuyến.*tiếp tuyến|tích phân|tich phan|riemann|integral/i.test(value),
+    'unsupported_topic: LuminaLearn supports calculus.derivative.intuition and calculus.integral.riemann_sum'
   ),
   language: z.literal('vi'),
   durationSeconds: z.literal(40),

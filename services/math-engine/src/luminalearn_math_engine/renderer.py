@@ -11,7 +11,11 @@ from typing import Any
 
 from .schemas.math_scene import validate_math_scene
 
-SCENE_CLASSES = {"function_graph": "FunctionGraphScene", "secant_to_tangent": "SecantToTangentScene"}
+SCENE_CLASSES = {
+    "function_graph": "FunctionGraphScene",
+    "secant_to_tangent": "SecantToTangentScene",
+    "riemann_sum": "RiemannSumScene"
+}
 
 
 class RenderError(RuntimeError):

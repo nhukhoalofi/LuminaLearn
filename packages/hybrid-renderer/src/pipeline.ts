@@ -12,6 +12,7 @@ import { assertValidJobId, resolveInside } from './paths';
 import { HybridRenderRequestSchema, type HybridRenderRequest } from './request';
 import { GoogleCloudTtsProvider, prepareProvidedAudio, synthesizeNarration } from './audio';
 import { buildSubtitleTrack, exportSrt } from './subtitles';
+import { loadEnvironmentConfig } from './config';
 
 export type HybridPipelineStage = 'planning' | 'validating' | 'rendering_manim' | 'narrating' | 'synthesizing_audio' | 'rendering_remotion' | 'completed';
 export interface HybridPipelineResult { jobId: string; jobDirectory: string; outputPath: string; manifest: HybridVideoManifest; metadata: VerifiedVideoMetadata; }
@@ -64,9 +65,10 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
 
   try {
     await writeJson(resolve(jobDirectory, 'request.json'), request);
-    const python = resolve(repositoryRoot, 'services/math-engine/.venv/Scripts/python.exe');
-    const remotionCli = resolve(repositoryRoot, 'apps/worker/node_modules/@remotion/cli/remotion-cli.js');
-    const chrome = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    const envConfig = loadEnvironmentConfig(repositoryRoot);
+    const python = envConfig.pythonExecutable;
+    const remotionCli = envConfig.remotionCliExecutable;
+    const chrome = envConfig.chromeExecutable || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : '/usr/bin/google-chrome');
     await Promise.all([access(python), access(remotionCli), access(chrome)]);
     await run('ffprobe', ['-version'], { timeoutMs: 10_000 });
     await run(python, ['-m', 'manim', '--version'], { timeoutMs: 20_000 });

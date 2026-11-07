@@ -83,17 +83,18 @@ export function CreateVideoForm({ liveEnabled, googleTtsEnabled }: { liveEnabled
     <section className="create-card" aria-labelledby="create-form-title">
       <div className="create-card-header">
         <h2 id="create-form-title" className="card-title">Tạo video Toán học</h2>
-        <p className="card-subtitle">Tạo bài giảng đạo hàm 40 giây bằng SymPy, Manim và Remotion.</p>
+        <p className="card-subtitle">Tạo bài giảng Toán trực quan 40 giây bằng SymPy, Manim và Remotion (Đạo hàm & Tổng Riemann).</p>
       </div>
       <form onSubmit={handleSubmit} noValidate>
         <div className="form-group">
           <label htmlFor="video-topic" className="form-label">Chủ đề bài học</label>
           <textarea id="video-topic" className={`form-textarea ${error ? 'has-error' : ''}`} value={topic}
             onChange={(event) => { setTopic(event.target.value); if (error) setError(null); }} rows={3}
-            maxLength={300} disabled={busy} placeholder="Đạo hàm là gì?" />
+            maxLength={300} disabled={busy} placeholder="Đạo hàm là gì? hoặc Tổng Riemann và tích phân" />
           <div className="quick-topics">
-            <span className="quick-topics-label">MVP hỗ trợ:</span>
+            <span className="quick-topics-label">Chủ đề V2.1:</span>
             <button type="button" className="quick-chip" disabled={busy} onClick={() => setTopic('Đạo hàm là gì? — Từ cát tuyến đến tiếp tuyến')}>Đạo hàm: cát tuyến → tiếp tuyến</button>
+            <button type="button" className="quick-chip" disabled={busy} onClick={() => setTopic('Tổng Riemann và trực giác tích phân')}>Tích phân: Tổng Riemann xấp xỉ diện tích</button>
           </div>
         </div>
         <div className="form-grid-row">

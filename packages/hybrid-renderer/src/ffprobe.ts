@@ -19,7 +19,7 @@ const ProbeOutputSchema = z.object({
   format: z.object({ duration: z.string(), size: z.string() }).passthrough()
 }).passthrough();
 
-const VerificationReportSchema = z.object({
+const DerivativeVerificationReportSchema = z.object({
   status: z.literal('verified'),
   topicId: z.literal('calculus.derivative.intuition'),
   derivative: z.string().min(1),
@@ -27,6 +27,17 @@ const VerificationReportSchema = z.object({
   limitAtZero: z.string().min(1),
   slopeAtPoint: z.number()
 }).passthrough();
+
+const RiemannVerificationReportSchema = z.object({
+  status: z.literal('verified'),
+  topicId: z.literal('calculus.integral.riemann_sum'),
+  integral: z.string().min(1)
+}).passthrough();
+
+const VerificationReportSchema = z.discriminatedUnion('topicId', [
+  DerivativeVerificationReportSchema,
+  RiemannVerificationReportSchema
+]);
 
 export interface VerifiedVideoMetadata {
   status: 'verified';
