@@ -9,10 +9,14 @@ import {
 } from '@luminalearn/scene-schema';
 import { CurriculumPlanner } from '../src/orchestration/curriculum-planner';
 import { NarrationPlannerV2 } from '../src/orchestration/narration-planner';
-import { DocumentStore } from '../src/orchestration/document-grounding';
+import { DocumentGroundingService, DocumentStore } from '../src/orchestration/document-grounding';
 import { LessonOrchestrator } from '../src/orchestration/orchestrator';
 import type { AIProvider, AIStructuredRequest, AIProviderResult } from '../src/orchestration/ai-provider';
 import type { SourceContextBundle, TopicClassification } from '../src/orchestration/types';
+import { LessonDraftManager } from '../src/orchestration/draft-manager';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 class CapturingProvider implements AIProvider {
   readonly isMock = false;
@@ -154,11 +158,63 @@ test('orchestration rejects fabricated citations, invalid math, and unsupported 
   assert.equal(fabricated.stage, 'failed');
   assert.match(fabricated.error?.message ?? '', /fabricated_source_reference/);
 
-  const invalidMath = await new LessonOrchestrator({ documentStore: store, aiProvider: new CapturingProvider({ curriculum_planning: plan({ expression: '3*x' }) }) }).orchestrate({ ...baseRequest, requestId: 'req_bad_math' });
+  const wrongSourceStore = new DocumentStore();
+  wrongSourceStore.addChunk({ chunkId: 'chunk_source', documentId: 'doc_source', documentTitle: 'Nguồn sai', pageNumber: 2, text: 'Đạo hàm của x^2 là 3x.', contentType: 'text/plain', tokenEstimate: 8, metadata: {} });
+  const invalidMath = await new LessonOrchestrator({ documentStore: wrongSourceStore, aiProvider: new CapturingProvider({ curriculum_planning: plan({ expression: '3*x', quote: 'Đạo hàm của x^2 là 3x.' }) }) }).orchestrate({ ...baseRequest, requestId: 'req_bad_math' });
   assert.equal(invalidMath.error?.code, 'mathematical_verification_failed');
+
+  const invalidClaimBinding = plan();
+  invalidClaimBinding.sourceEvidence[0].claimId = 'claim_not_in_lesson';
+  const invalidBinding = await new LessonOrchestrator({ documentStore: store, aiProvider: new CapturingProvider({ curriculum_planning: invalidClaimBinding }) }).orchestrate({ ...baseRequest, requestId: 'req_bad_binding' });
+  assert.equal(invalidBinding.stage, 'failed');
+  assert.match(invalidBinding.error?.message ?? '', /invalid_evidence_claim_id/);
 
   const provider = new CapturingProvider({});
   const unsupported = await new LessonOrchestrator({ documentStore: store, aiProvider: provider }).orchestrate({ ...baseRequest, requestId: 'req_unsupported', inputMode: 'topic_prompt', sourceDocumentIds: [], topic: 'topology algebraic spectral sequence' });
   assert.equal(unsupported.stage, 'needs_review');
   assert.equal(provider.requests.length, 0);
+});
+
+test('grounding requires an explicit claim-to-result relation instead of token substring matching', () => {
+  const grounding = new DocumentGroundingService(new DocumentStore());
+  const ambiguous = grounding.verifyClaimEvidenceAssociation('polynomial_derivative', '2*x', 'Tài liệu chỉ nhắc đến x^2 và ví dụ riêng 2x.');
+  assert.equal(ambiguous.supportStatus, 'needs_review');
+  assert.equal(ambiguous.claimExtracted, false);
+  const unrelatedFraction = grounding.verifyClaimEvidenceAssociation('definite_integral', '1/3', 'Ta sẽ học tích phân. Ở ví dụ xác suất không liên quan, phân số bằng 1/3.');
+  assert.notEqual(unrelatedFraction.supportStatus, 'supported');
+});
+
+test('semantic needs_review persists across restart and resumes without repeating curriculum planning', async () => {
+  const store = new DocumentStore();
+  store.addChunk({ chunkId: 'chunk_source', documentId: 'doc_source', documentTitle: 'Nguồn', pageNumber: 2, text: 'Đạo hàm của x^2 là 2x.', contentType: 'text/plain', tokenEstimate: 8, metadata: {} });
+  const reviewPlan = plan();
+  reviewPlan.mathematicalClaims[0].statement = 'Đạo hàm biểu diễn tốc độ biến thiên tức thời của hàm số đã cho';
+  const narration = NarrationPlanV2Schema.parse({
+    planId: 'narr_review_resume', storyboardId: 'sb_req_review_resume', language: 'vi',
+    segments: [
+      { segmentId: 'seg_review_intro', sceneId: 'scene_1_function_graph', text: 'Mở bài về đạo hàm.', subtitleText: 'Mở bài về đạo hàm.', targetDurationSeconds: 20, pronunciationHints: [] },
+      { segmentId: 'seg_review_summary', sceneId: 'scene_2_function_graph', text: 'Đạo hàm của x bình phương bằng hai x.', subtitleText: "f'(x)=2x", targetDurationSeconds: 20, pronunciationHints: [] }
+    ], totalWords: 14, estimatedDurationSeconds: 40,
+    mathematicalReview: { status: 'verified', verifiedClaimIds: ['claim_source'] }
+  });
+  const provider = new CapturingProvider({ curriculum_planning: reviewPlan, narration_planning: narration });
+  const root = await mkdtemp(join(tmpdir(), 'lumina-review-'));
+  try {
+    const orchestrator = new LessonOrchestrator({ documentStore: store, aiProvider: provider });
+    const manager = new LessonDraftManager({ orchestrator, artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
+    const draft = await manager.createDraft({ requestId: 'req_review_resume', inputMode: 'source_document', sourceDocumentIds: ['doc_source'], topic: 'Đạo hàm của x^2', audience: 'Học sinh', language: 'vi', targetDurationSeconds: 40, renderMode: 'live', narrationMode: 'none', aspectRatio: '9:16' }, 'tok_aaaaaaaaaaaaaaaa');
+    assert.equal(draft.context.stage, 'needs_review');
+    assert.deepEqual(provider.requests.map((request) => request.purpose), ['curriculum_planning']);
+
+    const restarted = new LessonDraftManager({ orchestrator, artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
+    const resumed = await restarted.updateDraft(draft.draftId, { humanSemanticReviewConfirmed: true });
+    assert.equal(resumed.context.stage, 'ready_to_render');
+    assert.equal(resumed.context.mathVerification?.status, 'verified');
+    assert.ok(resumed.context.storyboard);
+    assert.ok(resumed.context.narrationPlan);
+    assert.equal(resumed.context.requestBudget?.counts.totalTextRequests, 2);
+    assert.deepEqual(provider.requests.map((request) => request.purpose), ['curriculum_planning', 'narration_planning']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

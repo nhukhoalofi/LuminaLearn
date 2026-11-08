@@ -36,7 +36,7 @@ export async function POST(req: Request) {
       });
 
       documentStore.addChunks(result.chunks);
-      registerDocumentOwner(result.documentId, ownerId);
+      await registerDocumentOwner(result.documentId, ownerId);
 
       return NextResponse.json(result);
     }
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 
     const result = await ingestionService.ingestText(text, filename);
     documentStore.addChunks(result.chunks);
-    registerDocumentOwner(result.documentId, ownerId);
+    await registerDocumentOwner(result.documentId, ownerId);
 
     return NextResponse.json(result);
   } catch (error) {

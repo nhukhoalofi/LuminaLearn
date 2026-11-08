@@ -23,8 +23,8 @@ export async function POST(req: Request) {
       ? body.sourceDocumentIds.map((id) => String(id))
       : [];
 
-    assertDocumentsOwnedBy(sourceDocumentIds, ownerId);
-    await ensureDocumentsLoaded(sourceDocumentIds);
+    await ensureDocumentsLoaded(sourceDocumentIds, ownerId);
+    await assertDocumentsOwnedBy(sourceDocumentIds, ownerId);
 
     const renderMode = (body.renderMode === 'live' ? 'live' : 'mock') as 'mock' | 'live';
     const narrationMode = (
@@ -60,12 +60,10 @@ export async function POST(req: Request) {
     };
 
     const draft = await draftManager.createDraft(requestPayload, ownerId);
-    if (
-      draft.status === 'rejected' ||
-      draft.context.stage === 'failed' ||
-      draft.context.stage === 'needs_review' ||
-      !draft.context.lessonPlan
-    ) {
+    if (draft.context.stage === 'needs_review' && draft.context.lessonPlan) {
+      return NextResponse.json(toLessonDraftResponse(draft), { status: 202 });
+    }
+    if (draft.status === 'rejected' || draft.context.stage === 'failed' || !draft.context.lessonPlan) {
       const code = draft.context.error?.code || 'draft_creation_failed';
       const message = draft.context.error?.message || 'Không thể tạo bản thảo bài học';
       return NextResponse.json(

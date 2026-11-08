@@ -69,6 +69,23 @@ function runCommand(
   });
 }
 
+function assertUniqueFormalClaimKeys(claims: VerifiedClaim[]): void {
+  const ids = new Set<string>();
+  const validatorKeys = new Set<string>();
+  for (const claim of claims) {
+    if (ids.has(claim.id)) {
+      throw new Error(`duplicate_claim_id: Formal verification batch contains duplicate claim ID '${claim.id}'`);
+    }
+    if (validatorKeys.has(claim.validatorKey)) {
+      throw new Error(
+        `duplicate_validator_key: Formal verification batch contains duplicate validatorKey '${claim.validatorKey}'; each independent claim must use a unique verifier key`
+      );
+    }
+    ids.add(claim.id);
+    validatorKeys.add(claim.validatorKey);
+  }
+}
+
 function formatPolynomialFromSpec(mathSpec?: MathVisualizationSpecV2): string {
   const coeffs = mathSpec?.function.coefficients;
   if (!coeffs || coeffs.length === 0) return 'x^2';
@@ -347,6 +364,21 @@ abstract class BaseSymPyVerifier implements MathVerifier {
     claims: VerifiedClaim[],
     options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
   ): Promise<VerificationResult> {
+    try {
+      assertUniqueFormalClaimKeys(claims);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        status: 'failed',
+        checks: Object.fromEntries(
+          claims.map((claim) => [
+            claim.validatorKey,
+            { passed: false, status: 'rejected' as const, reason }
+          ])
+        ),
+        rawReport: { error: reason, policy: 'unique_claim_ids_and_validator_keys_required' }
+      };
+    }
     const timeoutMs = options?.timeoutMs ?? 15_000;
     const python = getPythonExecutable();
 
@@ -641,6 +673,27 @@ export class MathVerificationService {
         allVerified: true,
         claims: [],
         result: { status: 'verified', checks: {} }
+      };
+    }
+
+
+    try {
+      assertUniqueFormalClaimKeys(claims);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        allVerified: false,
+        claims: claims.map((claim) => ({ ...claim, verificationStatus: 'failed' as const })),
+        result: {
+          status: 'failed',
+          checks: Object.fromEntries(
+            claims.map((claim) => [
+              claim.validatorKey,
+              { passed: false, status: 'rejected' as const, reason }
+            ])
+          ),
+          rawReport: { error: reason, policy: 'unique_claim_ids_and_validator_keys_required' }
+        }
       };
     }
 

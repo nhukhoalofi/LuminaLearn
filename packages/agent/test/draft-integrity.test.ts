@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   LessonDraftManager,
   computeArtifactContentHash,
+  computeVerificationBindingHash,
   verifyArtifactIntegrity,
   DocumentGroundingService,
   DocumentStore,
@@ -71,6 +72,20 @@ describe('Draft-to-Render Integrity & Hardening (Phase 0)', () => {
 
     // Verify integrity validation succeeds
     assert.equal(verifyArtifactIntegrity(artifact), true);
+  });
+
+  it('rejects a legacy artifact whose claim set contains duplicate validator keys even with recomputed hashes', async () => {
+    const manager = new LessonDraftManager({ artifactsDir: tempDir });
+    const draft = await manager.createDraft({ requestId: 'req_duplicate_artifact', inputMode: 'topic_prompt', sourceDocumentIds: [], topic: 'Đạo hàm là gì?', audience: 'Học sinh', language: 'vi', targetDurationSeconds: 40, renderMode: 'mock', narrationMode: 'none', aspectRatio: '9:16' });
+    const artifact = structuredClone((await manager.approveDraft(draft.draftId)).approvedArtifact!);
+    const duplicate = { ...artifact.verifiedClaims[0], id: 'claim_duplicate_legacy' };
+    artifact.verifiedClaims.push(duplicate);
+    artifact.lessonPlan.mathematicalClaims.push({ ...duplicate });
+    artifact.mathSpec.boundClaimIds.push(duplicate.id);
+    artifact.verificationProof.checkedClaimIds.push(duplicate.id);
+    artifact.verificationProof.verificationBindingHash = computeVerificationBindingHash({ topicId: artifact.lessonPlan.topicId, mathSpec: artifact.mathSpec, verifiedClaims: artifact.verifiedClaims });
+    artifact.contentHash = computeArtifactContentHash({ draftId: artifact.draftId, version: artifact.version, lessonPlan: artifact.lessonPlan, storyboard: artifact.storyboard, narrationPlan: artifact.narrationPlan, verifiedClaims: artifact.verifiedClaims, renderConfig: artifact.renderConfig, mathSpec: artifact.mathSpec, sourceReferences: artifact.sourceReferences, verificationProof: artifact.verificationProof });
+    assert.equal(verifyArtifactIntegrity(artifact), false);
   });
 
   it('invalidates approval when draft is updated after approval', async () => {

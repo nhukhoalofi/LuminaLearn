@@ -27,25 +27,19 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
       });
       assert.doesNotThrow(() => assertRequestAuthorized(localReq));
 
-      // 2. Non-loopback host is blocked with 403 public_deployment_disabled
+      // Host/IP headers are not treated as proof of identity in explicit local single-user mode.
       const remoteReq = new Request('http://203.0.113.50:3000/api/lessons/draft', {
         method: 'POST',
         headers: { host: '203.0.113.50:3000' }
       });
-      assert.throws(
-        () => assertRequestAuthorized(remoteReq),
-        (err: unknown) => err instanceof SecurityError && err.status === 403 && err.code === 'public_deployment_disabled'
-      );
+      assert.doesNotThrow(() => assertRequestAuthorized(remoteReq));
 
       // 3. Spoofed localhost with non-loopback x-forwarded-for is blocked
       const forwardedReq = new Request('http://localhost:3000/api/lessons/draft', {
         method: 'POST',
         headers: { host: 'localhost:3000', 'x-forwarded-for': '198.51.100.77' }
       });
-      assert.throws(
-        () => assertRequestAuthorized(forwardedReq),
-        (err: unknown) => err instanceof SecurityError && err.status === 403 && err.code === 'public_deployment_disabled'
-      );
+      assert.doesNotThrow(() => assertRequestAuthorized(forwardedReq));
 
       // 4. Public deployment mode requires LUMINA_API_AUTH_TOKEN and valid Bearer header
       process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
@@ -88,14 +82,30 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
 
     const ownerA = resolveOwnerId(reqA);
     const ownerB = resolveOwnerId(reqB);
-    assert.equal(ownerA, 'teacher_session_a');
-    assert.equal(ownerB, 'teacher_session_b');
+    assert.equal(ownerA, 'local-single-user');
+    assert.equal(ownerB, 'local-single-user');
 
     assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerA, 'draft_1'));
-    assert.throws(
-      () => assertOwnerMatch(ownerA, ownerB, 'draft_1'),
-      (err: unknown) => err instanceof SecurityError && err.status === 403 && err.code === 'forbidden_owner_mismatch'
-    );
+    assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerB, 'draft_1'));
+  });
+
+  it('ignores forged owner headers and binds public identity to the validated credential', () => {
+    const oldPublic = process.env.LUMINA_PUBLIC_DEPLOYMENT;
+    const oldToken = process.env.LUMINA_API_AUTH_TOKEN;
+    try {
+      process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
+      process.env.LUMINA_API_AUTH_TOKEN = 'valid-server-token';
+      const reqA = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer valid-server-token', 'x-lumina-owner-id': 'victim_a' } });
+      const reqB = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer valid-server-token', 'x-lumina-owner-id': 'victim_b' } });
+      assert.doesNotThrow(() => assertRequestAuthorized(reqA));
+      assert.equal(resolveOwnerId(reqA), resolveOwnerId(reqB));
+      assert.notEqual(resolveOwnerId(reqA), 'victim_a');
+      const invalid = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer invalid', 'x-lumina-owner-id': 'victim_a' } });
+      assert.throws(() => assertRequestAuthorized(invalid), (error: unknown) => error instanceof SecurityError && error.code === 'unauthorized');
+    } finally {
+      if (oldPublic === undefined) delete process.env.LUMINA_PUBLIC_DEPLOYMENT; else process.env.LUMINA_PUBLIC_DEPLOYMENT = oldPublic;
+      if (oldToken === undefined) delete process.env.LUMINA_API_AUTH_TOKEN; else process.env.LUMINA_API_AUTH_TOKEN = oldToken;
+    }
   });
 
   it('rejects oversized JSON payloads, oversized file uploads, and unconfirmed external API calls', async () => {

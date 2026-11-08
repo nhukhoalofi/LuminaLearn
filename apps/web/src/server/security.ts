@@ -80,16 +80,16 @@ function extractAuthToken(req: Request): string | undefined {
  */
 export function assertRequestAuthorized(req: Request): void {
   const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
+  const localDemo = process.env.LUMINA_LOCAL_DEMO === 'true' || (!publicDeployment && process.env.NODE_ENV !== 'production');
   const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
-  const loopback = isLoopbackRequest(req);
   const providedToken = extractAuthToken(req);
 
-  if (!loopback || publicDeployment) {
+  if (!localDemo) {
     if (!configuredToken) {
       throw new SecurityError(
         403,
         'public_deployment_disabled',
-        'Unauthenticated non-loopback/public access is disabled to protect API quotas. Set LUMINA_API_AUTH_TOKEN or access via localhost.'
+        'Public/shared access is disabled until LUMINA_PUBLIC_DEPLOYMENT=true and a server-side authentication token are configured.'
       );
     }
     if (!providedToken || !safeTokenCompare(providedToken, configuredToken)) {
@@ -102,36 +102,24 @@ export function assertRequestAuthorized(req: Request): void {
     return;
   }
 
-  // Even on loopback, if a caller explicitly supplies an auth token when LUMINA_API_AUTH_TOKEN is configured, verify it
-  if (configuredToken && providedToken && !safeTokenCompare(providedToken, configuredToken)) {
-    throw new SecurityError(401, 'unauthorized', 'Invalid authentication token.');
-  }
+  // Local demo is deliberately a single-user trust domain. Host and forwarding
+  // headers are not identity proofs and never select a resource owner.
 }
 
 /**
  * Resolves the caller's session/owner identifier for document, draft, and job isolation.
  */
 export function resolveOwnerId(req: Request): string {
-  const headerOwner =
-    req.headers.get('x-lumina-owner-id')?.trim() ||
-    req.headers.get('x-lumina-client-id')?.trim();
-  if (headerOwner) {
-    if (!/^[a-zA-Z0-9_-]{3,64}$/.test(headerOwner)) {
-      throw new SecurityError(
-        400,
-        'invalid_owner_id',
-        'x-lumina-owner-id must be 3-64 alphanumeric, dash, or underscore characters'
-      );
-    }
-    return headerOwner;
-  }
-
+  const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
+  const localDemo = process.env.LUMINA_LOCAL_DEMO === 'true' || (!publicDeployment && process.env.NODE_ENV !== 'production');
+  if (localDemo) return 'local-single-user';
   const token = extractAuthToken(req);
-  if (token) {
+  const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
+  if (token && configuredToken && safeTokenCompare(token, configuredToken)) {
     return `tok_${createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
   }
 
-  return 'local-default';
+  throw new SecurityError(401, 'unauthorized', 'Authenticated identity is required.');
 }
 
 export function assertOwnerMatch(
@@ -139,7 +127,10 @@ export function assertOwnerMatch(
   callerOwnerId: string,
   resourceLabel = 'resource'
 ): void {
-  const effectiveResourceOwner = resourceOwnerId || 'local-default';
+  if (!resourceOwnerId) {
+    throw new SecurityError(403, 'missing_resource_owner', `${resourceLabel} has no valid ownership metadata`);
+  }
+  const effectiveResourceOwner = resourceOwnerId;
   if (effectiveResourceOwner !== callerOwnerId) {
     throw new SecurityError(
       403,

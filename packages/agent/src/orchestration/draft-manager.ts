@@ -141,6 +141,11 @@ function deepFreeze<T>(value: T): T {
 export function verifyArtifactIntegrity(artifact: ApprovedRenderArtifactV2): boolean {
   try {
     ApprovedRenderArtifactV2Schema.parse(artifact);
+    const claimIds = artifact.verifiedClaims.map((claim) => claim.id);
+    const validatorKeys = artifact.verifiedClaims.map((claim) => claim.validatorKey);
+    if (new Set(claimIds).size !== claimIds.length || new Set(validatorKeys).size !== validatorKeys.length) {
+      return false;
+    }
     const expectedHash = computeArtifactContentHash({
       draftId: artifact.draftId,
       version: artifact.version,
@@ -445,8 +450,23 @@ export class LessonDraftManager {
         return draft;
       }
       draft.context.lessonPlan.mathSpec = candidateMathSpec;
-      draft.context.stage = draft.context.manifest ? 'ready_to_render' : 'verified';
       draft.context.error = undefined;
+      if (!draft.context.storyboard || !draft.context.narrationPlan || !draft.context.manifest) {
+        try {
+          await this.orchestrator.resumeAfterSemanticReview(draft.context);
+        } catch (error) {
+          draft.status = 'reviewing';
+          draft.context.stage = 'failed';
+          draft.context.error = {
+            code: 'semantic_review_resume_failed',
+            message: error instanceof Error ? error.message : String(error)
+          };
+          this.persistDraft(draft);
+          return draft;
+        }
+      } else {
+        draft.context.stage = 'ready_to_render';
+      }
     }
 
     // 1. Update title / summary / objectives if provided

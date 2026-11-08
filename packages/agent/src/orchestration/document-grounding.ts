@@ -205,6 +205,30 @@ export class DocumentGroundingService {
   }
 
   /**
+   * Claim-aware association gate. A matching token is insufficient: the quote must
+   * explicitly connect the relevant operation to the claimed result.
+   */
+  public verifyClaimEvidenceAssociation(
+    validatorKey: string,
+    expectedExpression: string,
+    quote: string
+  ): ReturnType<DocumentGroundingService['verifyClaimSupportInQuote']> {
+    const relation = validatorKey === 'polynomial_derivative'
+      ? /(?:\u0111\u1ea1o\s+h\u00e0m|dao\s+ham|f'\s*\(\s*x\s*\))[^.;\n]{0,120}?(?:=|l\u00e0|b\u1eb1ng)[^.;\n]{0,60}/i
+      : validatorKey === 'definite_integral' || validatorKey === 'riemann_sum_limit'
+      ? /(?:t\u00edch\s+ph\u00e2n|tich\s+phan|riemann|\u222b)[^.;\n]{0,140}?(?:=|l\u00e0|b\u1eb1ng)[^.;\n]{0,60}/i
+      : undefined;
+    if (relation && !relation.test(quote)) {
+      return {
+        claimExtracted: false,
+        supportStatus: 'needs_review',
+        reason: 'source_relation_missing: Quote does not explicitly associate this operation with the claimed result'
+      };
+    }
+    return this.verifyClaimSupportInQuote(validatorKey, expectedExpression, quote);
+  }
+
+  /**
    * Xây dựng bằng chứng đối chiếu nguồn (Grounding Evidence) cho mệnh đề bài học
    */
   public buildEvidence(

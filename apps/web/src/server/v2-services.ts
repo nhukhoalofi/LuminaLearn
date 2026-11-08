@@ -16,6 +16,7 @@ import {
   LocalJobRepository
 } from '@luminalearn/hybrid-renderer';
 import { assertOwnerMatch } from './security';
+import { DocumentOwnershipRepository } from './document-ownership';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const documentsDir = resolve(repositoryRoot, 'outputs/.documents');
@@ -26,27 +27,22 @@ const globalServices = globalThis as typeof globalThis & {
   __luminaIngestionService?: DocumentIngestionService;
   __luminaDraftManager?: LessonDraftManager;
   __luminaMathVerifier?: MathVerificationService;
-  __luminaDocOwners?: Map<string, string>;
 };
 
 export const documentStore: DocumentStore =
   globalServices.__luminaDocStore ?? new DocumentStore();
 globalServices.__luminaDocStore = documentStore;
 
-export const documentOwners: Map<string, string> =
-  globalServices.__luminaDocOwners ?? new Map<string, string>();
-globalServices.__luminaDocOwners = documentOwners;
+export const documentOwnershipRepository = new DocumentOwnershipRepository(documentsDir);
 
-export function registerDocumentOwner(documentId: string, ownerId: string): void {
-  documentOwners.set(documentId, ownerId);
+export async function registerDocumentOwner(documentId: string, ownerId: string): Promise<void> {
+  await documentOwnershipRepository.persist(documentId, ownerId);
 }
 
-export function assertDocumentsOwnedBy(documentIds: string[], callerOwnerId: string): void {
+export async function assertDocumentsOwnedBy(documentIds: string[], callerOwnerId: string): Promise<void> {
   for (const docId of documentIds) {
-    const owner = documentOwners.get(docId);
-    if (owner) {
-      assertOwnerMatch(owner, callerOwnerId, `document '${docId}'`);
-    }
+    const record = await documentOwnershipRepository.load(docId).catch(() => undefined);
+    assertOwnerMatch(record?.ownerId, callerOwnerId, `document '${docId}'`);
   }
 }
 
@@ -70,11 +66,12 @@ export const draftManager: LessonDraftManager =
   });
 globalServices.__luminaDraftManager = draftManager;
 
-export async function ensureDocumentsLoaded(documentIds: string[]): Promise<void> {
+export async function ensureDocumentsLoaded(documentIds: string[], callerOwnerId: string): Promise<void> {
   for (const docId of documentIds) {
-    if (/^doc_[a-zA-Z0-9_-]+$/.test(docId) && documentStore.getChunksByDocument(docId).length === 0) {
-      await documentStore.loadFromDisk(documentsDir, docId);
-    }
+    if (!/^doc_[a-zA-Z0-9_-]+$/.test(docId)) throw new Error(`invalid_document_id: '${docId}'`);
+    const record = await documentOwnershipRepository.load(docId).catch(() => undefined);
+    assertOwnerMatch(record?.ownerId, callerOwnerId, `document '${docId}'`);
+    if (documentStore.getChunksByDocument(docId).length === 0) await documentStore.loadFromDisk(documentsDir, docId);
   }
 }
 

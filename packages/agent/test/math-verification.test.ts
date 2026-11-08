@@ -11,6 +11,45 @@ import {
 
 describe('Milestone 1 — Mathematical Verification Gate (P0)', () => {
   describe('DerivativeSymPyVerifier (Real SymPy)', () => {
+    it('fails closed for duplicate validator keys regardless of claim order after exercising real SymPy', async () => {
+      const verifier = new DerivativeSymPyVerifier();
+      const correct: VerifiedClaim = {
+        id: 'claim_correct',
+        statement: "f'(x) = 2x",
+        validatorKey: 'polynomial_derivative',
+        expectedExpression: '2*x',
+        verificationStatus: 'unverified'
+      };
+      const wrong: VerifiedClaim = {
+        id: 'claim_wrong',
+        statement: "f'(x) = 999x",
+        validatorKey: 'polynomial_derivative',
+        expectedExpression: '999*x',
+        verificationStatus: 'verified'
+      };
+
+      // This successful singleton call crosses the real TypeScript/Python SymPy boundary.
+      const singleton = await verifier.verify('calculus.derivative.intuition', [correct]);
+      assert.equal(singleton.status, 'verified');
+
+      for (const claims of [[wrong, correct], [correct, wrong]]) {
+        const result = await verifier.verify('calculus.derivative.intuition', claims);
+        assert.equal(result.status, 'failed');
+        assert.match(String(result.rawReport?.error), /duplicate_validator_key/);
+      }
+    });
+
+    it('rejects duplicate validator keys even when their expressions are identical', async () => {
+      const service = new MathVerificationService();
+      const report = await service.verifyClaims('calculus.derivative.intuition', [
+        { id: 'claim_same_a', statement: "f'(x) = 2x", validatorKey: 'polynomial_derivative', expectedExpression: '2*x', verificationStatus: 'unverified' },
+        { id: 'claim_same_b', statement: "f'(x) = 2x", validatorKey: 'polynomial_derivative', expectedExpression: '2*x', verificationStatus: 'unverified' }
+      ]);
+      assert.equal(report.allVerified, false);
+      assert.equal(report.result.status, 'failed');
+      assert.match(String(report.result.rawReport?.error), /duplicate_validator_key/);
+    });
+
     it('verifies correct derivative claims against SymPy', async () => {
       const verifier = new DerivativeSymPyVerifier();
       const claims: VerifiedClaim[] = [

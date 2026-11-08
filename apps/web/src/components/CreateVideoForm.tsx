@@ -257,6 +257,9 @@ export function CreateVideoForm({
       setDraft(data);
       syncControlsFromDraft(data);
       setDraftDirty(false);
+      if (data.stage === 'needs_review') {
+        setError(data.error?.message || 'Bản thảo cần giáo viên xác nhận ngữ nghĩa trước khi tiếp tục.');
+      }
       setUiState('reviewing');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

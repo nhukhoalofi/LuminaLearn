@@ -282,23 +282,17 @@ export class LessonOrchestrator {
             reference.chunkId = match.matchedChunkId;
             evidence.quoteExists = true;
 
-            const linkedClaim = candidate.mathematicalClaims.find((c) => c.id === evidence.claimId) ?? candidate.mathematicalClaims[0];
-            if (linkedClaim) {
-              const support = this.groundingService.verifyClaimSupportInQuote(
+            const linkedClaim = candidate.mathematicalClaims.find((c) => c.id === evidence.claimId);
+            if (!linkedClaim) throw new Error(`invalid_evidence_claim_id: '${evidence.claimId}' does not identify a lesson claim`);
+            {
+              const support = this.groundingService.verifyClaimEvidenceAssociation(
                 linkedClaim.validatorKey,
                 linkedClaim.expectedExpression,
                 reference.exactQuote
               );
               evidence.claimExtracted = support.claimExtracted;
               evidence.supportStatus = support.supportStatus;
-              if (!support.claimExtracted) {
-                throw new Error(`unsupported_source_claim: ${support.reason}`);
-              }
-              if (
-                support.supportStatus !== 'supported' &&
-                support.extractedExpression &&
-                !linkedClaim.statement.replace(/\s+/g, '').includes(support.extractedExpression.replace(/\*/g, ''))
-              ) {
+              if (!support.claimExtracted || support.supportStatus !== 'supported') {
                 throw new Error(`unsupported_source_claim: ${support.reason}`);
               }
               linkedClaim.sourceReferenceId = reference.id;
@@ -467,6 +461,94 @@ export class LessonOrchestrator {
       return context;
     }
 
+    return context;
+  }
+
+  /** Continue a persisted semantic-review draft without repeating curriculum planning. */
+  public async resumeAfterSemanticReview(context: OrchestrationContext): Promise<OrchestrationContext> {
+    const lessonPlan = context.lessonPlan;
+    const topicInfo = context.topicInfo;
+    if (!lessonPlan || !topicInfo || context.mathVerification?.status !== 'verified' ||
+        lessonPlan.mathematicalClaims.some((claim) => claim.verificationStatus !== 'verified')) {
+      throw new Error('semantic_review_prerequisites_missing: complete SymPy verification is required before resume');
+    }
+
+    const request = context.request;
+    const storyboard = this.storyboardDirector.direct({
+      storyboardId: `sb_${request.requestId}`,
+      lessonPlan,
+      aspectRatio: request.aspectRatio,
+      visualStyleId: request.visualStyleId
+    });
+    storyboard.sourceReferences = lessonPlan.sourceEvidence.map((evidence) => evidence.sourceReference.id);
+    context.storyboard = storyboard;
+    context.teachingTreatment = this.filmDirector.createTreatment({ lessonPlan, storyboard, visualStyleId: request.visualStyleId });
+
+    const priorBudget = context.requestBudget;
+    const remainingTotal = priorBudget
+      ? priorBudget.limits.maxRequestsPerJob - priorBudget.counts.totalTextRequests
+      : undefined;
+    const remainingNarration = priorBudget
+      ? priorBudget.limits.maxNarrationRequests - priorBudget.counts.narrationPlanning
+      : undefined;
+    if (remainingTotal !== undefined && (remainingTotal <= 0 || (remainingNarration ?? 0) <= 0)) {
+      throw new Error('gemini_budget_exceeded: No request budget remains for semantic-review resume');
+    }
+    const budget = priorBudget
+      ? new GeminiRequestBudget({
+          maxRequestsPerJob: remainingTotal,
+          maxCurriculumRequests: 1,
+          maxNarrationRequests: remainingNarration,
+          maxTtsRequestsPerJob: priorBudget.limits.maxTtsRequestsPerJob
+        })
+      : this.createJobBudget();
+    let provider = this.aiProvider;
+    if (request.renderMode === 'live' && provider.isMock) {
+      if (!process.env.GEMINI_API_KEY) throw new Error('live_mode_unavailable: GEMINI_API_KEY is required for live renderMode');
+      provider = new LiveGeminiAIProvider({ requestBudget: budget });
+    }
+    const effectiveProvider: AIProvider = provider.isMock ? provider : new BudgetEnforcingProviderWrapper(provider, budget);
+    context.narrationPlan = await this.narrationPlanner.plan({
+      planId: `narr_${request.requestId}`,
+      lessonPlan,
+      storyboard,
+      language: request.language,
+      aiProvider: effectiveProvider,
+      requestBudget: budget,
+      onProviderCall: (trace) => context.providerCalls?.push(trace)
+    });
+
+    const review = this.qualityReviewer.review(context);
+    if (!review.valid) throw new Error(`quality_review_failed: ${review.errors.join('; ')}`);
+    context.manifest = compileStoryboardV2(storyboard, context.narrationPlan, {
+      jobId: `job_${request.requestId}`,
+      lessonTitle: lessonPlan.title,
+      topicId: lessonPlan.topicId,
+      fps: 24,
+      aspectRatio: request.aspectRatio,
+      visualStyleId: request.visualStyleId,
+      subtitlesEnabled: request.subtitlesEnabled ?? true,
+      verifiedClaims: lessonPlan.mathematicalClaims,
+      sourceReferences: lessonPlan.sourceEvidence.map((evidence) => evidence.sourceReference)
+    });
+    context.stage = 'ready_to_render';
+    context.error = undefined;
+    const resumedBudget = budget.getSummary();
+    context.requestBudget = priorBudget ? {
+      limits: priorBudget.limits,
+      counts: {
+        curriculumPlanning: priorBudget.counts.curriculumPlanning + resumedBudget.counts.curriculumPlanning,
+        narrationPlanning: priorBudget.counts.narrationPlanning + resumedBudget.counts.narrationPlanning,
+        geminiTts: priorBudget.counts.geminiTts + resumedBudget.counts.geminiTts,
+        totalTextRequests: priorBudget.counts.totalTextRequests + resumedBudget.counts.totalTextRequests,
+        totalTtsRequests: priorBudget.counts.totalTtsRequests + resumedBudget.counts.totalTtsRequests,
+        totalAllRequests: priorBudget.counts.totalAllRequests + resumedBudget.counts.totalAllRequests
+      },
+      attempts: [
+        ...priorBudget.attempts,
+        ...resumedBudget.attempts.map((attempt) => ({ ...attempt, attemptId: attempt.attemptId + priorBudget.attempts.length }))
+      ]
+    } : resumedBudget;
     return context;
   }
 }
