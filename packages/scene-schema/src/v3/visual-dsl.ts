@@ -226,12 +226,36 @@ export const GenericSceneVisualPayloadSchema = z.object({
 }).strict();
 export type GenericSceneVisualPayload = z.infer<typeof GenericSceneVisualPayloadSchema>;
 
+export const AlgebraTransformationStepSchema = z.object({
+  expression: z.string().trim().min(1).max(120).regex(/^[a-b0-9+\-*/^() ]+$/),
+  explanationVietnamese: NoExecutableString,
+  highlightTerms: z.array(z.string().trim().min(1).max(24)).max(6).default([])
+}).strict();
+
+export const AlgebraIdentityVisualPayloadSchema = z.object({
+  sceneType: z.literal('algebra_identity'),
+  identityId: z.enum(['square_sum', 'square_difference', 'difference_squares', 'cube_sum_expansion', 'cube_difference_expansion', 'sum_cubes', 'difference_cubes']),
+  leftExpression: z.string().trim().min(1).max(120).regex(/^[a-b0-9+\-*/^() ]+$/),
+  rightExpression: z.string().trim().min(1).max(120).regex(/^[a-b0-9+\-*/^() ]+$/),
+  transformationSteps: z.array(AlgebraTransformationStepSchema).min(2).max(6),
+  presentation: z.enum(['expansion', 'factorization', 'comparison'])
+}).strict().superRefine((payload, ctx) => {
+  if (payload.transformationSteps[0]?.expression !== payload.leftExpression) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['transformationSteps', 0, 'expression'], message: 'Bước đầu phải giữ nguyên vế trái đã được xác minh' });
+  }
+  if (payload.transformationSteps.at(-1)?.expression !== payload.rightExpression) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['transformationSteps'], message: 'Bước cuối phải đúng vế phải đã được xác minh' });
+  }
+});
+export type AlgebraIdentityVisualPayload = z.infer<typeof AlgebraIdentityVisualPayloadSchema>;
+
 // Union của toàn bộ visual payloads có kiểm định chặt chẽ
 export const EducationalVisualPayloadSchema = z.union([
   ConceptIntroVisualPayloadSchema,
   NeuralArchitectureVisualPayloadSchema,
   LossLandscapeVisualPayloadSchema,
   AttentionHeatmapVisualPayloadSchema,
+  AlgebraIdentityVisualPayloadSchema,
   SummaryVisualPayloadSchema,
   GenericSceneVisualPayloadSchema
 ]);

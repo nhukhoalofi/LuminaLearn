@@ -283,6 +283,55 @@ export class CurriculumPlanner {
         }
       ];
       summary = 'Tích phân xác định là giới hạn của tổng diện tích các hình chữ nhật siêu mỏng khi số lượng phân hoạch tiến ra vô cực.';
+    } else if (topicInfo.topicId === 'algebra.identities.seven') {
+      title = '7 hằng đẳng thức đáng nhớ';
+      learningObjectives = [
+        'Hiểu bản chất hình học và đại số của hằng đẳng thức (a + b)^2 = a^2 + 2ab + b^2',
+        'Nắm vững phương pháp khai triển và rút gọn đa thức'
+      ];
+      keyConcepts = ['Bình phương một tổng', 'Diện tích hình vuông', 'Khai triển đa thức', 'Đồng nhất thức đại số'];
+      mathematicalClaims = [
+        {
+          id: 'claim_algebra_sum_sq',
+          statement: 'Khai triển bình phương một tổng: (a + b)^2 = a^2 + 2*a*b + b^2',
+          canonicalStatement: '(a + b)**2 == a**2 + 2*a*b + b**2',
+          validatorKey: 'algebra_identity_equivalence',
+          expectedExpression: '0',
+          verificationStatus: 'unverified'
+        },
+        {
+          id: 'claim_algebra_diff_sq',
+          statement: 'Khai triển hiệu hai bình phương: a^2 - b^2 = (a - b)*(a + b)',
+          canonicalStatement: 'a**2 - b**2 == (a - b)*(a + b)',
+          validatorKey: 'algebra_identity_equivalence',
+          expectedExpression: '0',
+          verificationStatus: 'unverified'
+        }
+      ];
+      pedagogicalSequence = [
+        {
+          stepNumber: 1,
+          pedagogicalGoal: 'Mở đầu trực quan',
+          intuitiveConcept: 'Một hình vuông cạnh (a + b) được ghép từ một hình vuông a^2, một hình vuông b^2 và hai hình chữ nhật a*b.',
+          formalFormula: '(a + b)^2 = a^2 + 2ab + b^2',
+          targetDurationSeconds: 12
+        },
+        {
+          stepNumber: 2,
+          pedagogicalGoal: 'Khai triển đại số',
+          intuitiveConcept: 'Khai triển phép nhân đa thức (a + b)(a + b) = a^2 + ab + ba + b^2 = a^2 + 2ab + b^2.',
+          formalFormula: '(a + b)^2 - (a^2 + 2ab + b^2) = 0',
+          targetDurationSeconds: 15
+        },
+        {
+          stepNumber: 3,
+          pedagogicalGoal: 'Tổng kết và ứng dụng',
+          intuitiveConcept: 'Hiệu hai bình phương a^2 - b^2 = (a - b)(a + b) ứng dụng tính nhanh và phân tích nhân tử.',
+          formalFormula: 'a^2 - b^2 = (a - b)(a + b)',
+          targetDurationSeconds: 13
+        }
+      ];
+      summary = 'Trực quan hóa hằng đẳng thức đáng nhớ thông qua diện tích hình học và chứng minh đại số chặt chẽ.';
     } else {
       // General fallback for other supported registered topics
       title = topicInfo.displayName;

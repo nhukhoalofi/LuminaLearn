@@ -17,7 +17,7 @@ export async function GET(request: Request, context: { params: Promise<{ jobId: 
     const download = new URL(request.url).searchParams.get('download') === '1';
     const baseHeaders = {
       'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
-      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="luminalearn-derivative.mp4"`,
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="luminalearn-educational-video.mp4"`,
       'Cache-Control': 'private, no-store'
     };
     const range = request.headers.get('range');

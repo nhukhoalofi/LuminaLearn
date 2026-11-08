@@ -110,7 +110,7 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       result = await runRenderPipelineV3(entry.v3Artifact, {
         jobId: entry.jobId,
         authorizeArtifact: entry.authorizeV3Artifact,
-        onStage: (stage) => transition(entry.jobId, stage)
+        onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
       });
     } else if (entry.v2Artifact) {
       if (entry.authorizeArtifact && !(await entry.authorizeArtifact(entry.v2Artifact))) {

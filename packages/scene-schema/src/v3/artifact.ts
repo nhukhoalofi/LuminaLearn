@@ -16,9 +16,12 @@ export const LessonRequestV3Schema = z.object({
   targetDurationSeconds: z.number().int().min(20).max(300).default(35),
   narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
-  fps: z.number().int().min(12).max(60).default(24),
-  width: z.number().int().min(320).max(3840).default(720),
-  height: z.number().int().min(320).max(3840).default(1280)
+  // Phase 4 exposes one honest, fully tested vertical-video profile. Supporting
+  // arbitrary values here would make the approved artifact disagree with the
+  // fixed Remotion composition.
+  fps: z.literal(24).default(24),
+  width: z.literal(720).default(720),
+  height: z.literal(1280).default(1280)
 }).strict();
 export type LessonRequestV3 = z.infer<typeof LessonRequestV3Schema>;
 

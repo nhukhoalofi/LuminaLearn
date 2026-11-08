@@ -50,6 +50,25 @@ const TOPIC_REGISTRY: TopicRule[] = [
     patterns: [/simpson/i, /nghịch lý simpson/i, /paradox/i, /dữ liệu gộp/i],
     supportedTemplates: ['dual_comparison', 'data_merge', 'concept_summary'],
     requiredValidators: ['simpson_rate_reversal']
+  },
+  {
+    topicId: 'algebra.identities.seven',
+    displayName: '7 hằng đẳng thức đáng nhớ',
+    domain: 'algebra',
+    patterns: [
+      /hằng đẳng thức/i,
+      /hang dang thuc/i,
+      /algebra.*identit/i,
+      /bình phương của một tổng/i,
+      /bình phương của một hiệu/i,
+      /hiệu hai bình phương/i,
+      /lập phương của một tổng/i,
+      /lập phương của một hiệu/i,
+      /tổng hai lập phương/i,
+      /hiệu hai lập phương/i
+    ],
+    supportedTemplates: ['algebra_identity', 'concept_summary'],
+    requiredValidators: ['algebra_identity_equivalence']
   }
 ];
 

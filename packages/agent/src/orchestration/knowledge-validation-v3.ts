@@ -7,6 +7,7 @@ import {
   type VerifiedClaim
 } from '@luminalearn/scene-schema';
 import { MathVerificationService } from './math-verifier';
+import { verifyAlgebraIdentityV3 } from './algebra-verifier-v3';
 
 export interface KnowledgeValidationV3Options {
   mathVerifier?: MathVerificationService;
@@ -60,9 +61,28 @@ export class KnowledgeValidationServiceV3 {
     // Xác định xem topic/validator có verifier hình thức thực tế hay không
     const isDerivativeTopic = topicId === 'calculus.derivative.intuition';
     const isRiemannTopic = topicId === 'calculus.riemann_integral.intuition' || topicId === 'calculus.integral.riemann_sum';
+    const isAlgebraIdentityTopic = topicId === 'algebra.identities.seven';
 
     let mappedMathClaims = new Map<string, VerifiedClaim>();
     let sympyResults: Record<string, { passed: boolean; reason?: string }> = {};
+
+    if (isAlgebraIdentityTopic) {
+      for (const claim of formalMathClaims) {
+        const key = claim.validatorKey ?? claim.id;
+        const parts = claim.formalExpression!.split('=');
+        if (parts.length !== 2) {
+          sympyResults[key] = { passed: false, reason: 'algebra_identity_requires_exact_left_and_right' };
+          continue;
+        }
+        try {
+          const result = await verifyAlgebraIdentityV3(parts[0].trim(), parts[1].trim());
+          sympyResults[key] = { passed: result.status === 'verified', reason: result.status === 'verified' ? undefined : `nonzero_difference: ${result.canonicalDifference}` };
+          mappedMathClaims.set(claim.id, { id: claim.id, statement: claim.statement, validatorKey: key, expectedExpression: claim.formalExpression!, verificationStatus: result.status === 'verified' ? 'verified' : 'failed' });
+        } catch (error) {
+          sympyResults[key] = { passed: false, reason: error instanceof Error ? error.message : String(error) };
+        }
+      }
+    }
 
     if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0 && !mathSpec) {
       for (const c of formalMathClaims) {
@@ -118,7 +138,9 @@ export class KnowledgeValidationServiceV3 {
         if (sympyCheck !== undefined) {
           if (sympyCheck.passed && mapped?.verificationStatus === 'verified') {
             cloned.verificationStatus = 'formally_verified';
-            cloned.formalProofSummary = `SymPy verified exact expression ${claim.formalExpression} against the approved MathSpec`;
+            cloned.formalProofSummary = isAlgebraIdentityTopic
+              ? `SymPy verified exact bounded identity ${claim.formalExpression} over symbols a,b`
+              : `SymPy verified exact expression ${claim.formalExpression} against the approved MathSpec`;
           } else {
             cloned.verificationStatus = !mapped || mapped.verificationStatus === 'unverified' ? 'human_review_required' : 'rejected';
             cloned.formalProofSummary = undefined;
@@ -137,11 +159,11 @@ export class KnowledgeValidationServiceV3 {
           claimType: cloned.claimType,
           status: cloned.verificationStatus,
           verifierNotes: cloned.formalProofSummary ?? cloned.humanReviewComment,
-          verifierImplementation: sympyCheck ? 'MathVerificationService/SymPy' : 'unsupported',
-          verificationBinding: cloned.verificationStatus === 'formally_verified' && mathSpec && claim.formalExpression ? {
+          verifierImplementation: sympyCheck ? (isAlgebraIdentityTopic ? 'SymPy bounded algebra identity verifier' : 'MathVerificationService/SymPy') : 'unsupported',
+          verificationBinding: cloned.verificationStatus === 'formally_verified' && claim.formalExpression && (mathSpec || isAlgebraIdentityTopic) ? {
             claimId: claim.id,
             exactExpression: claim.formalExpression,
-            mathSpecCanonical: JSON.stringify(mathSpec),
+            mathSpecCanonical: isAlgebraIdentityTopic ? JSON.stringify({ symbols: ['a', 'b'], relation: claim.formalExpression }) : JSON.stringify(mathSpec),
             assumptions
           } : undefined
         });

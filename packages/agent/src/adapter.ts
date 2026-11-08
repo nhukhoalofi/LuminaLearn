@@ -12,7 +12,8 @@ export class LiveGeminiAdapter implements GeminiAdapter {
   constructor(options: LiveGeminiAdapterOptions = {}) {
     const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is required for live Gemini mode');
-    this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
+    const rawModel = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
+    this.model = rawModel === 'gemini-2.5-flash' ? 'gemini-3.5-flash-lite' : rawModel;
     this.maxRetries = options.maxRetries ?? 2;
     this.client = new GoogleGenAI({ apiKey, httpOptions: { timeout: options.timeoutMs ?? Number(process.env.GEMINI_TIMEOUT_MS || '60000') } });
   }

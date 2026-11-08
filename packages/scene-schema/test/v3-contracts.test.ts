@@ -11,21 +11,23 @@ import {
 } from '../src/v3/index';
 
 describe('V3 Educational Contracts & Capability Registry', () => {
-  it('registers 10 benchmark topics across Mathematics and AI with honest renderReadiness', () => {
+  it('registers the benchmark topics plus Phase 4 algebra with honest renderReadiness', () => {
     const keys = Object.keys(REGISTERED_TOPICS_V3);
-    assert.equal(keys.length, 10);
+    assert.equal(keys.length, 11);
 
     const mathTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'mathematics');
     const aiTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'artificial_intelligence');
 
-    assert.equal(mathTopics.length, 5);
+    assert.equal(mathTopics.length, 6);
     assert.equal(aiTopics.length, 5);
 
     // Only topics with real renderers are marked render_ready
     assert.equal(REGISTERED_TOPICS_V3['calculus.derivative.intuition'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['calculus.riemann_integral.intuition'].renderReadiness, 'render_ready');
-    assert.equal(REGISTERED_TOPICS_V3['ai.transformer.attention'].renderReadiness, 'planning_only');
+    assert.equal(REGISTERED_TOPICS_V3['ai.transformer.attention'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['ai.gradient_descent.optimization'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['ai.perceptron.activation'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['algebra.identities.seven'].renderReadiness, 'render_ready');
   });
 
   it('deterministic classifier routes math and AI topics appropriately', () => {

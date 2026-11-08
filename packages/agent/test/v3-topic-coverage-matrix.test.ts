@@ -128,7 +128,7 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
 
     assert.equal(plan.domain, 'artificial_intelligence');
     assert.equal(plan.topicId, 'ai.gradient_descent.optimization');
-    assert.equal(plan.capabilityReport.renderReadiness, 'planning_only');
+    assert.equal(plan.capabilityReport.renderReadiness, 'render_ready');
 
     // Mixed topic: contains both optimization formula and conceptual intuition
     const formalClaim = plan.educationalClaims.find((c) => c.claimType === 'formal_mathematics');
@@ -148,7 +148,7 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
 
     assert.equal(plan.domain, 'artificial_intelligence');
     assert.equal(plan.topicId, 'ai.transformer.attention');
-    assert.equal(plan.capabilityReport.renderReadiness, 'planning_only');
+    assert.equal(plan.capabilityReport.renderReadiness, 'render_ready');
 
     const algoClaim = plan.educationalClaims.find((c) => c.validatorKey === 'scaled_dot_product');
     assert.ok(algoClaim);

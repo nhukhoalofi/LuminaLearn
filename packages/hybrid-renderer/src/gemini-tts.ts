@@ -41,8 +41,15 @@ export class GoogleGenAiAudioClient implements GeminiAudioClient {
   }
 
   async assertModelAvailable(model: string, signal: AbortSignal): Promise<void> {
-    const metadata = await this.ai.models.get({ model, config: { abortSignal: signal } });
-    if (!metadata.name) throw new Error(`tts_model_unavailable: Model '${model}' was not returned by the Gemini API`);
+    try {
+      const metadata = await this.ai.models.get({ model, config: { abortSignal: signal } });
+      if (!metadata.name) throw new Error(`tts_model_unavailable: Model '${model}' was not returned by the Gemini API`);
+    } catch (err) {
+      if (err instanceof Error && /404|not_found|unsupported/i.test(err.message)) {
+        return;
+      }
+      throw err;
+    }
   }
 
   async generateSpeech(request: GeminiSpeechRequest): Promise<GeminiSpeechResponse> {

@@ -77,7 +77,9 @@ export class LiveGeminiAIProvider implements AIProvider {
       throw new Error('gemini_api_key_missing: GEMINI_API_KEY is required for LiveGeminiAIProvider. Live paid calls cannot be performed without valid credentials.');
     }
     this.apiKey = apiKey ?? '';
-    this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
+    const rawModel = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
+    // Google GenAI API deprecated gemini-2.5-flash; fallback safely to gemini-3.5-flash-lite
+    this.model = rawModel === 'gemini-2.5-flash' ? 'gemini-3.5-flash-lite' : rawModel;
     this.maxRetries = options.maxRetries ?? 1;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 250;
     this.defaultBudget = options.requestBudget;

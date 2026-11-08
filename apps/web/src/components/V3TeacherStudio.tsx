@@ -6,6 +6,7 @@ type Claim = { id: string; statement: string; verificationStatus: string; claimT
 type Scene = { sceneId: string; title: string; sceneType: string; durationSeconds: number; narration: { vietnamese: string; subtitleVietnamese: string }; visualPayload: unknown };
 type Draft = {
   draftId: string; version: number; status: string; semanticReviewConfirmed: boolean;
+  approvedArtifact?: { artifactId: string; contentHash: string };
   lessonPlan: {
     title: string; generationProvenance: string; learningObjectives: string[];
     educationalClaims: Claim[]; storyboard?: { totalDurationSeconds: number; scenes: Scene[] };
@@ -18,6 +19,8 @@ type Job = { jobId: string; status: string; progress: number; message: string; v
 export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [topic, setTopic] = useState('Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
+  const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
+  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
   const [job, setJob] = useState<Job>();
@@ -44,11 +47,28 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     setBusy(true); setError(''); setJob(undefined);
     try {
       setDraft(await jsonRequest('/api/v3/lessons/draft', 'POST', {
-        requestId: `req_v3_${Date.now()}`, topic, domain: 'artificial_intelligence', generationMode: mode,
-        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled: true,
+        requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
+        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
         fps: 24, width: 720, height: 1280, confirmExternalApi
       }));
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function retryEnqueue() {
+    if (!draft?.approvedArtifact) return;
+    setBusy(true); setError('');
+    try {
+      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/enqueue`, 'POST', draft.approvedArtifact);
+      setJob(result.job);
+    } catch (err) {
+      const failure = err as Error & { status?: number };
+      if (failure.status === 429) {
+        const response = await fetch(`/api/v3/lessons/${draft.draftId}/draft`, { cache: 'no-store' });
+        if (response.ok) setDraft(await response.json());
+        setError('Bản duyệt đã được giữ an toàn nhưng hàng đợi đang đầy. Hãy thử xếp hàng lại khi có chỗ trống.');
+      } else setError(failure.message);
+    }
     finally { setBusy(false); }
   }
 
@@ -85,7 +105,14 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     try {
       const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/approve`, 'POST', { expectedVersion: draft.version, note: 'Teacher approved from V3 Studio' });
       setDraft(result.draft); setJob(result.job);
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    } catch (err) {
+      const failure = err as Error & { status?: number };
+      if (failure.status === 429) {
+        const response = await fetch(`/api/v3/lessons/${draft.draftId}/draft`, { cache: 'no-store' });
+        if (response.ok) setDraft(await response.json());
+        setError('Bản duyệt đã được giữ an toàn nhưng hàng đợi đang đầy. Hãy thử xếp hàng lại khi có chỗ trống.');
+      } else setError(failure.message);
+    }
     finally { setBusy(false); }
   }
 
@@ -94,9 +121,23 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       <h2 id="v3-studio-title">V3 Teacher Studio — AI & Toán học</h2>
       <p>{mode === 'mock' ? 'Mock Mode: nội dung fixture xác định, hoàn toàn offline.' : 'Live Gemini: chỉ gọi API sau xác nhận rõ ràng.'}</p>
       <label className="form-label">Lĩnh vực</label>
-      <select className="form-input" value="artificial_intelligence" disabled><option value="artificial_intelligence">Trí tuệ nhân tạo</option></select>
+      <select className="form-input" value={domain} onChange={(event) => {
+        const selected = event.target.value as typeof domain;
+        setDomain(selected);
+        setTopic(selected === 'mathematics' ? '7 hằng đẳng thức đáng nhớ' : 'Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
+      }}>
+        <option value="mathematics">Toán học</option>
+        <option value="artificial_intelligence">Trí tuệ nhân tạo / Học máy</option>
+      </select>
       <label className="form-label">Chủ đề</label>
       <textarea className="form-textarea" value={topic} onChange={(event) => setTopic(event.target.value)} />
+      <div aria-label="Ví dụ chương trình học">
+        {(domain === 'mathematics'
+          ? [['7 hằng đẳng thức đáng nhớ', true], ['Đạo hàm của x³', true], ['Định lý Bayes', false], ['Tích phân Riemann', true], ['Đại số tuyến tính', false]]
+          : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
+        ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => setTopic(String(example))}>{example} · {ready ? 'render-ready' : 'planning-only'}</button>)}
+      </div>
+      <label><input type="checkbox" checked={subtitlesEnabled} onChange={(event) => setSubtitlesEnabled(event.target.checked)} /> Ghi phụ đề vào video và tạo SRT</label>
       <label className="form-label">Chế độ tạo nội dung</label>
       <select className="form-input" value={mode} onChange={(event) => setMode(event.target.value as 'mock' | 'live')}>
         <option value="mock">Mock offline (khuyến nghị demo)</option>
@@ -148,6 +189,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           <button className="quick-chip" disabled={busy || draft.status === 'approved'} onClick={save}>Lưu & tái kiểm định</button>
           <button className="quick-chip" disabled={busy || draft.status !== 'needs_review'} onClick={review}>Xác nhận rà soát ngữ nghĩa</button>
           <button className="btn-generate" disabled={busy || draft.status !== 'ready_for_approval' || draft.lessonPlan.capabilityReport.renderReadiness !== 'render_ready'} onClick={approve}>Duyệt & render MP4</button>
+          <button className="quick-chip" disabled={busy || draft.status !== 'approved' || !draft.approvedArtifact} onClick={retryEnqueue}>Xếp hàng lại bản đã duyệt</button>
         </div>
       </div>}
 

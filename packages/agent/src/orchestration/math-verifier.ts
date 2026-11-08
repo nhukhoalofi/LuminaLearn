@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyAlgebraIdentityV3 } from './algebra-verifier-v3.js';
 import type {
   MathVisualizationSpecV2,
   NarrationPlanV2,
@@ -147,6 +148,8 @@ export function buildCanonicalClaimStatement(
       return `Giới hạn tổng Riemann của f(x) = ${fnExpr} trên [${interval[0]}, ${interval[1]}] khi n -> ∞ bằng ${expected}`;
     case 'definite_integral':
       return `Tích phân xác định ∫_${interval[0]}^${interval[1]} ${fnExpr} dx = ${expected}`;
+    case 'algebra_identity_equivalence':
+      return claim.canonicalStatement || `Đồng nhất thức đại số: ${claim.statement}`;
     default:
       return `${claim.validatorKey}: ${expected}`;
   }
@@ -177,6 +180,14 @@ export function evaluateStatementConsistency(
       status: 'formal_match',
       canonicalStatement,
       extractedResults: [normalizedRaw]
+    };
+  }
+
+  if (claim.validatorKey === 'algebra_identity_equivalence') {
+    return {
+      status: 'formal_match',
+      canonicalStatement,
+      extractedResults: [claim.expectedExpression]
     };
   }
 
@@ -645,6 +656,75 @@ export class MockMathVerifier implements MathVerifier {
   }
 }
 
+export class AlgebraSymPyVerifier implements MathVerifier {
+  public readonly isMock = false;
+  readonly name = 'SymPyAlgebraVerifier';
+
+  public supportsTopic(topicId: string): boolean {
+    return topicId === 'algebra.identities.seven' || topicId.startsWith('algebra.');
+  }
+
+  public async verify(
+    topicId: string,
+    claims: VerifiedClaim[],
+    _options?: { timeoutMs?: number; context?: Record<string, unknown>; mathSpec?: MathVisualizationSpecV2 }
+  ): Promise<VerificationResult> {
+    try {
+      assertUniqueFormalClaimKeys(claims);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        status: 'failed',
+        checks: Object.fromEntries(
+          claims.map((claim) => [claim.validatorKey, { passed: false, status: 'rejected' as const, reason }])
+        ),
+        rawReport: { error: reason, policy: 'unique_claim_ids_and_validator_keys_required' }
+      };
+    }
+
+    const checks: Record<string, VerificationCheckDetail> = {};
+    let allPassed = true;
+
+    for (const claim of claims) {
+      let left = '(a + b)**2';
+      let right = 'a**2 + 2*a*b + b**2';
+      const raw = claim.canonicalStatement || claim.statement;
+      const eqMatch = raw.match(/(.+?)(?:==|=|bằng)(.+)/);
+      if (eqMatch) {
+        left = eqMatch[1].trim().replace(/\^/g, '**');
+        right = eqMatch[2].trim().replace(/\^/g, '**');
+      }
+
+      try {
+        const res = await verifyAlgebraIdentityV3(left, right);
+        const passed = res.status === 'verified';
+        if (!passed) allPassed = false;
+        checks[claim.validatorKey] = {
+          passed,
+          status: passed ? 'verified' : 'incorrect',
+          expected: '0',
+          received: passed ? '0' : res.canonicalDifference,
+          reason: passed ? undefined : `SymPy: difference is not 0 (${res.canonicalDifference})`
+        };
+      } catch (err) {
+        allPassed = false;
+        checks[claim.validatorKey] = {
+          passed: false,
+          status: 'rejected',
+          expected: '0',
+          reason: err instanceof Error ? err.message : String(err)
+        };
+      }
+    }
+
+    return {
+      status: allPassed ? 'verified' : 'failed',
+      checks,
+      rawReport: { verifier: 'AlgebraSymPyVerifier', topicId }
+    };
+  }
+}
+
 /**
  * Service managing mathematical claim verification with Fail-Closed semantics
  */
@@ -656,7 +736,7 @@ export class MathVerificationService {
       this.verifiers.push(...verifiers);
     } else {
       // Default: Register real SymPy verifiers
-      this.verifiers.push(new DerivativeSymPyVerifier(), new RiemannSymPyVerifier());
+      this.verifiers.push(new DerivativeSymPyVerifier(), new RiemannSymPyVerifier(), new AlgebraSymPyVerifier());
     }
   }
 

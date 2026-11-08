@@ -227,7 +227,53 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
     let scenes: EducationalStoryboardV3['scenes'] = [];
 
     // --- MATHEMATICS BENCHMARKS ---
-    if (capability.topicId === 'calculus.derivative.intuition') {
+    if (capability.topicId === 'algebra.identities.seven') {
+      const identities = [
+        ['square_sum', '(a+b)^2', 'a^2+2*a*b+b^2', 'Bình phương của một tổng'],
+        ['square_difference', '(a-b)^2', 'a^2-2*a*b+b^2', 'Bình phương của một hiệu'],
+        ['difference_squares', 'a^2-b^2', '(a-b)*(a+b)', 'Hiệu hai bình phương'],
+        ['cube_sum_expansion', '(a+b)^3', 'a^3+3*a^2*b+3*a*b^2+b^3', 'Lập phương của một tổng'],
+        ['cube_difference_expansion', '(a-b)^3', 'a^3-3*a^2*b+3*a*b^2-b^3', 'Lập phương của một hiệu'],
+        ['sum_cubes', 'a^3+b^3', '(a+b)*(a^2-a*b+b^2)', 'Tổng hai lập phương'],
+        ['difference_cubes', 'a^3-b^3', '(a-b)*(a^2+a*b+b^2)', 'Hiệu hai lập phương']
+      ] as const;
+      summary = 'Bảy hằng đẳng thức được kiểm chứng bằng biến đổi đại số, giúp khai triển và phân tích đa thức thành nhân tử.';
+      learningObjectives = ['Nhận dạng đúng bảy hằng đẳng thức', 'Hiểu các bước khai triển hoặc phân tích nhân tử thay vì chỉ ghi nhớ công thức'];
+      keyConcepts = ['Khai triển', 'Phân tích nhân tử', 'Hạng tử tương đương', 'Bình phương', 'Lập phương'];
+      claims = identities.map(([id, left, right, label], index) => ({
+        id: `claim_identity_${index + 1}`,
+        claimType: 'formal_mathematics' as const,
+        statement: `${label}: ${left} = ${right}`,
+        formalExpression: `${left}=${right}`,
+        validatorKey: `algebra_identity_${index + 1}`,
+        verificationStatus: 'unverified' as const
+      }));
+      const baseDuration = Math.max(5, Math.floor(targetDurationSeconds / identities.length));
+      scenes = identities.map(([id, left, right, label], index) => ({
+        sceneId: `sc_identity_${index + 1}`,
+        sceneType: 'algebra_identity' as const,
+        title: `${index + 1}. ${label}`,
+        pedagogicalGoal: index < 5 ? 'Khai triển theo quy tắc phân phối và gom các hạng tử đồng dạng' : 'Phân tích biểu thức thành tích của hai nhân tử',
+        durationSeconds: baseDuration,
+        boundClaimIds: [`claim_identity_${index + 1}`],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: {
+          vietnamese: `${label}. Ta biến đổi từng bước và đối chiếu hai vế để thấy chúng hoàn toàn tương đương.`,
+          subtitleVietnamese: `${left} bằng ${right}.`
+        },
+        visualPayload: {
+          sceneType: 'algebra_identity' as const,
+          identityId: id,
+          leftExpression: left,
+          rightExpression: right,
+          transformationSteps: [
+            { expression: left, explanationVietnamese: 'Giữ nguyên biểu thức ban đầu.', highlightTerms: [left] },
+            { expression: right, explanationVietnamese: index < 5 ? 'Khai triển và gom các hạng tử đồng dạng.' : 'Đặt nhân tử chung để phân tích thành tích.', highlightTerms: [right] }
+          ],
+          presentation: (index < 5 ? 'expansion' : 'factorization') as 'expansion' | 'factorization'
+        }
+      }));
+    } else if (capability.topicId === 'calculus.derivative.intuition') {
       summary = 'Bản chất hình học của đạo hàm là hệ số góc của tiếp tuyến khi cát tuyến co lại.';
       learningObjectives = [
         'Hiểu bản chất tiếp tuyến là giới hạn của cát tuyến',

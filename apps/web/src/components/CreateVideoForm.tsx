@@ -108,6 +108,9 @@ function vietnameseApiError(payload: unknown, fallback: string): string {
   const code = typeof value?.error === 'string' ? value.error : value?.error?.code;
   const message = value?.message ?? (typeof value?.error === 'object' ? value.error.message : undefined);
   const classification = `${code ?? ''} ${message ?? ''}`.toLowerCase();
+  if (/statement_requires_semantic_review|human semantic review|prose_unverified/.test(classification)) {
+    return 'Các mệnh đề diễn giải tự do cần giáo viên xác nhận ngữ nghĩa. Vui lòng kiểm tra và tích chọn ô "Giáo viên xác nhận mệnh đề diễn giải tự do..." ở dưới danh sách mệnh đề trước khi duyệt.';
+  }
   if (/sympy|math|mathematical|statement_expression|claim/.test(classification)) {
     return 'Mệnh đề toán học không vượt qua kiểm định SymPy. Hãy sửa công thức hoặc nội dung mệnh đề rồi lưu để xác minh lại.';
   }
@@ -122,6 +125,15 @@ function vietnameseApiError(payload: unknown, fallback: string): string {
   }
   if (/approved_draft_configuration_conflict/.test(classification)) {
     return 'Bản thảo này đã được duyệt trước đó với cấu hình khác. Để thay đổi cấu hình, vui lòng chỉnh sửa nội dung bản thảo để tạo phiên bản mới.';
+  }
+  if (/tts_model_unavailable|model.*not.*found.*tts|model is not found: models\/gemini/.test(classification)) {
+    return 'Mô hình Gemini TTS chưa khả dụng trên Google AI Studio API key hiện tại (Google chưa mở model TTS công khai trên endpoint này). Khuyến nghị: Chọn "Không giọng đọc (Mặc định)" kèm "Phụ đề tiếng Việt đồng bộ" để kết xuất video ngay lập tức.';
+  }
+  if (/tts_quota_exceeded|tts.*quota|resource_exhausted/.test(classification)) {
+    return 'Đã vượt quá hạn mức gọi Gemini TTS API. Vui lòng chọn "Không giọng đọc (Mặc định)" để tiếp tục tạo video.';
+  }
+  if (/tts_api_key_missing/.test(classification)) {
+    return 'Chưa cấu hình GEMINI_API_KEY cho dịch vụ Gemini TTS. Vui lòng chọn "Không giọng đọc (Mặc định)" để tiếp tục.';
   }
   return message || fallback;
 }
@@ -1023,20 +1035,20 @@ export function CreateVideoForm({
                 backgroundColor:
                   draft.mathVerification?.status === 'verified'
                     ? 'rgba(34, 197, 94, 0.2)'
-                    : draft.mathVerification?.status === 'needs_review'
+                    : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
                     ? 'rgba(245, 158, 11, 0.2)'
                     : 'rgba(239, 68, 68, 0.2)',
                 color:
                   draft.mathVerification?.status === 'verified'
                     ? '#4ade80'
-                    : draft.mathVerification?.status === 'needs_review'
+                    : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
                     ? '#fbbf24'
                     : '#f87171'
               }}
             >
               {draft.mathVerification?.status === 'verified'
                 ? '✓ SymPy Verified'
-                : draft.mathVerification?.status === 'needs_review'
+                : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
                 ? '⚠️ Cần giáo viên xác nhận (Needs Review)'
                 : '✗ Verification Failed'}
             </span>
@@ -1197,11 +1209,23 @@ export function CreateVideoForm({
             type="button"
             className="btn-generate"
             style={{ width: '100%', marginTop: '12px', backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-            disabled={busy || draftDirty || Boolean(conflictInfo) || draft.mathVerification?.status !== 'verified'}
+            disabled={
+              busy ||
+              draftDirty ||
+              Boolean(conflictInfo) ||
+              !(
+                draft.mathVerification?.status === 'verified' ||
+                (draft.mathVerification?.status === 'needs_review' && confirmSemanticReview)
+              )
+            }
             onClick={handleApproveAndRender}
           >
             {draft.mathVerification?.status === 'verified'
               ? (draft.status === 'approved' ? '🚀 Kết xuất video (Bản thảo đã duyệt)' : '✅ Duyệt bản thảo & Render Video Remotion')
+              : draft.mathVerification?.status === 'needs_review'
+              ? (confirmSemanticReview
+                  ? '✅ Duyệt bản thảo (đã xác nhận ngữ nghĩa) & Render Video Remotion'
+                  : '⚠️ Cần tích ô xác nhận ngữ nghĩa mệnh đề bên dưới trước khi duyệt')
               : '❌ Không thể duyệt: Mệnh đề toán học chưa vượt qua SymPy'}
           </button>
         </div>
@@ -1223,6 +1247,13 @@ export function CreateVideoForm({
             <span>{job.subtitlesEnabled ? 'Có phụ đề' : 'Không phụ đề'}</span>
             {job.failureType ? <span>Lỗi: {job.failureType}</span> : null}
           </div>
+          {job.error ? (
+            <p className="error-message" role="alert" style={{ marginTop: '8px', fontSize: '13px' }}>
+              {/tts_model_unavailable|model is not found: models\/gemini/i.test(job.error)
+                ? 'Lỗi TTS: Mô hình Gemini TTS chưa mở công khai trên Google AI Studio API key hiện tại. Vui lòng chuyển tùy chọn sang "Không giọng đọc (Mặc định)" để kết xuất video có phụ đề tiếng Việt thành công.'
+                : job.error}
+            </p>
+          ) : null}
           {job.status !== 'failed' ? (
             <div className="progress-track" aria-label={`Tiến độ ${job.progress}%`}>
               <div className="progress-fill" style={{ width: `${job.progress}%` }} />

@@ -66,6 +66,18 @@ export type TopicCapabilityReportV3 = z.infer<typeof TopicCapabilityReportV3Sche
  */
 export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
   // --- MATHEMATICS (5 TOPICS) ---
+  'algebra.identities.seven': {
+    topicId: 'algebra.identities.seven',
+    domain: 'mathematics',
+    subCategory: 'Algebra',
+    displayName: '7 hằng đẳng thức đáng nhớ',
+    supportedCapabilities: ['formal_math_verification', 'conceptual_visualization'],
+    requiredValidationTypes: ['formal_math'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['mathematical_proof'],
+    renderReadiness: 'render_ready',
+    limitations: ['Biểu thức chỉ cho phép hai biến a, b; phép cộng, trừ, nhân và lũy thừa nguyên bị chặn.']
+  },
   'calculus.derivative.intuition': {
     topicId: 'calculus.derivative.intuition',
     domain: 'mathematics',
@@ -149,8 +161,8 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     requiredValidationTypes: ['formal_math', 'numerical', 'source_grounding'],
     availableRenderers: ['remotion_infographic'],
     evidenceRequirements: ['mathematical_proof', 'source_citation'],
-    renderReadiness: 'planning_only',
-    limitations: ['Minh họa trực quan bề mặt hàm mất mát lồi/phi lồi và bước cập nhật learning rate đang hoàn thiện ở Phase 2.']
+    renderReadiness: 'render_ready',
+    limitations: ['Minh họa trực quan bề mặt hàm mất mát lồi/phi lồi và bước cập nhật learning rate.']
   },
   'ai.transformer.attention': {
     topicId: 'ai.transformer.attention',
@@ -161,7 +173,7 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     requiredValidationTypes: ['source_grounding', 'pedagogical_review'],
     availableRenderers: ['remotion_infographic'],
     evidenceRequirements: ['source_citation', 'human_signoff'],
-    renderReadiness: 'planning_only',
+    renderReadiness: 'render_ready',
     limitations: ['Minh họa ma trận Query, Key, Value và bản đồ trọng số Attention.']
   },
   'ai.neural_network.backpropagation': {
@@ -257,6 +269,9 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
   }
 
   // 3. Mathematics Patterns (Chủ đề toán học thuần túy)
+  if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic identit/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['algebra.identities.seven'];
+  }
   if (/cát tuyến|tiếp tuyến|đạo hàm|derivative/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['calculus.derivative.intuition'];
   }

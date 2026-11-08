@@ -82,6 +82,7 @@ export const EducationalSceneTypeSchema = z.enum([
   'neural_architecture',
   'loss_landscape',
   'attention_heatmap',
+  'algebra_identity',
   'flowchart_simulation',
   'comparison_table',
   'summary'
