@@ -242,6 +242,12 @@ export function createV2JobFromArtifact(
   if (!verifyArtifactIntegrity(artifact)) {
     throw new Error('artifact_tampered: Approved render artifact content hash does not match canonical payload');
   }
+  if (authorizeArtifact) {
+    const isAuthorized = authorizeArtifact(artifact);
+    if (isAuthorized === false) {
+      throw new SecurityError(403, 'artifact_unauthorized', 'Approved render artifact is not authorized for scheduling');
+    }
+  }
   if (artifact.renderConfig.renderMode === 'live' && !process.env.GEMINI_API_KEY) {
     throw new Error('live_mode_unavailable: GEMINI_API_KEY is not configured');
   }
@@ -277,6 +283,16 @@ export function createV2JobFromArtifact(
   store.queue.push({ jobId, v2Artifact: artifact, authorizeArtifact });
   pump();
   return publicJob(job);
+}
+
+export function getQueueStatus(): { active: number; queueLength: number; maxPending: number; isFull: boolean } {
+  const maxPending = getMaxPendingJobs();
+  return {
+    active: store.active,
+    queueLength: store.queue.length,
+    maxPending,
+    isFull: store.active + store.queue.length >= maxPending
+  };
 }
 
 export function getJob(jobId: string, callerOwnerId?: string): Omit<JobRecord, 'outputPath'> | undefined {

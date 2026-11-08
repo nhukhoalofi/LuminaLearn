@@ -63,12 +63,25 @@ export class DraftVersionConflictError extends Error {
   }
 }
 
+export class DraftApprovalConflictError extends Error {
+  public readonly code = 'approved_draft_configuration_conflict';
+
+  constructor(
+    public readonly draftId: string,
+    message: string
+  ) {
+    super(`Draft '${draftId}' approval conflict: ${message}`);
+    this.name = 'DraftApprovalConflictError';
+  }
+}
+
 export interface DraftMutationOptions {
   expectedVersion?: number;
 }
 
 export interface DraftApprovalOptions extends DraftMutationOptions {
   confirmSemanticReview?: boolean;
+  validateConsent?: (draft: LessonDraft) => void | Promise<void>;
 }
 
 export interface LessonDraftUpdateInput {
@@ -676,9 +689,17 @@ export class LessonDraftManager {
     return this.withDraftMutationLock(draftId, async () => {
       const before = this.requireDraft(draftId);
       this.assertExpectedVersion(before, options.expectedVersion);
-      if (before.status === 'approved' && before.approvedArtifact) return before;
+      if (before.status === 'approved' && before.approvedArtifact) {
+        if (options.validateConsent) {
+          await options.validateConsent(before);
+        }
+        return before;
+      }
       const snapshot = structuredClone(before);
       try {
+        if (options.validateConsent) {
+          await options.validateConsent(before);
+        }
         return await this.approveDraftUnlocked(draftId, note, options);
       } catch (error) {
         this.restoreDraftSnapshot(draftId, snapshot);
@@ -697,11 +718,57 @@ export class LessonDraftManager {
     return this.withDraftMutationLock(draftId, async () => {
       const before = this.requireDraft(draftId);
       this.assertExpectedVersion(before, options.expectedVersion);
-      if (before.status === 'approved' && before.approvedArtifact) return before;
+
+      if (before.status === 'approved' && before.approvedArtifact) {
+        const approvedConfig = before.approvedArtifact.renderConfig;
+        const conflicts: string[] = [];
+        if (updates.renderMode !== undefined && updates.renderMode !== approvedConfig.renderMode) {
+          conflicts.push(`renderMode (${updates.renderMode} vs approved ${approvedConfig.renderMode})`);
+        }
+        if (updates.narrationMode !== undefined && updates.narrationMode !== approvedConfig.narrationMode) {
+          conflicts.push(`narrationMode (${updates.narrationMode} vs approved ${approvedConfig.narrationMode})`);
+        }
+        if (updates.visualStyleId !== undefined && updates.visualStyleId !== (approvedConfig.visualStyleId ?? 'clean_educational_infographic')) {
+          conflicts.push(`visualStyleId (${updates.visualStyleId} vs approved ${approvedConfig.visualStyleId})`);
+        }
+        if (updates.subtitlesEnabled !== undefined && updates.subtitlesEnabled !== (approvedConfig.subtitlesEnabled ?? true)) {
+          conflicts.push(`subtitlesEnabled (${updates.subtitlesEnabled} vs approved ${approvedConfig.subtitlesEnabled})`);
+        }
+        if (updates.title !== undefined && updates.title !== before.context.lessonPlan?.title) {
+          conflicts.push('title');
+        }
+        if (updates.summary !== undefined && updates.summary !== before.context.lessonPlan?.summary) {
+          conflicts.push('summary');
+        }
+        if (updates.mathematicalClaims !== undefined) {
+          conflicts.push('mathematicalClaims');
+        }
+        if (updates.mathSpec !== undefined) {
+          conflicts.push('mathSpec');
+        }
+        if (updates.narrationTexts !== undefined) {
+          conflicts.push('narrationTexts');
+        }
+        if (conflicts.length > 0) {
+          throw new DraftApprovalConflictError(
+            draftId,
+            `Cannot modify already approved draft with different configuration or content: ${conflicts.join(', ')}. A new draft revision is required.`
+          );
+        }
+        if (options.validateConsent) {
+          await options.validateConsent(before);
+        }
+        return before;
+      }
+
       const snapshot = structuredClone(before);
       try {
         const hasUpdates = Object.values(updates).some((value) => value !== undefined);
         if (hasUpdates) await this.updateDraftUnlocked(draftId, updates, 'Approval configuration applied atomically');
+        const draftToApprove = this.requireDraft(draftId);
+        if (options.validateConsent) {
+          await options.validateConsent(draftToApprove);
+        }
         return await this.approveDraftUnlocked(draftId, note, options);
       } catch (error) {
         this.restoreDraftSnapshot(draftId, snapshot);

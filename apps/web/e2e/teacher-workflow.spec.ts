@@ -65,5 +65,30 @@ test('document workflow exposes grounded references and rejects unsupported evid
     return card?.querySelector('h3')?.textContent ?? '';
   });
   expect(draftId).toContain('Bản thảo bài học');
+});
 
+test('document file upload handles markdown and warns on scanned image PDF', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Document-to-Video/ }).click();
+
+  // 1. Upload Markdown file
+  const fileInput = page.locator('input[type="file"]');
+  await fileInput.setInputFiles({
+    name: 'giao-trinh-dao-ham.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# Đạo hàm\nĐạo hàm của x^2 là 2x.\n')
+  });
+  await page.getByRole('button', { name: /Phân tích.*Trích xuất/ }).click();
+  await expect(page.getByText(/Đã nạp:.*giao-trinh-dao-ham/)).toBeVisible();
+  await expect(page.getByText(/Cần OCR/)).not.toBeVisible();
+
+  // 2. Upload Scanned PDF without text layer -> shows OCR warning
+  await fileInput.setInputFiles({
+    name: 'tai-lieu-scan.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n')
+  });
+  await page.getByRole('button', { name: /Phân tích.*Trích xuất/ }).click();
+  await expect(page.getByText(/Cần OCR/)).toBeVisible();
+  await expect(page.locator('p[role="alert"]')).toContainText(/OCR|scan/i);
 });

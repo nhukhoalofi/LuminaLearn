@@ -34,6 +34,10 @@ interface LessonDraftInfo {
   draftId: string;
   version: number;
   status: string;
+  approvedArtifact?: {
+    artifactId: string;
+    renderConfig?: unknown;
+  };
   renderConfig?: {
     aspectRatio: '9:16' | '16:9' | '1:1';
     fps: number;
@@ -111,6 +115,12 @@ function vietnameseApiError(payload: unknown, fallback: string): string {
   }
   if (/version_conflict/.test(classification)) {
     return 'Bản thảo đã được thay đổi ở nơi khác. Hãy tải lại phiên bản mới nhất trước khi tiếp tục.';
+  }
+  if (/queue_full|job_queue_full/.test(classification)) {
+    return 'Bản thảo đã được duyệt thành công, nhưng hàng đợi kết xuất video hiện đang bận (tối đa 3 jobs). Bạn có thể nhấn Duyệt lại để thử lại khi hệ thống rảnh.';
+  }
+  if (/approved_draft_configuration_conflict/.test(classification)) {
+    return 'Bản thảo này đã được duyệt trước đó với cấu hình khác. Để thay đổi cấu hình, vui lòng chỉnh sửa nội dung bản thảo để tạo phiên bản mới.';
   }
   return message || fallback;
 }
@@ -350,7 +360,16 @@ export function CreateVideoForm({
         })
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(vietnameseApiError(payload, 'Không thể lưu và xác minh lại bản thảo.'));
+      if (!response.ok) {
+        if (response.status === 409 && payload.currentVersion) {
+          // Optimistic concurrency conflict: preserve teacher's edits, update version, and warn
+          setDraft((prev) => prev ? { ...prev, version: payload.currentVersion } : prev);
+          setError(`Xung đột phiên bản: Bản thảo đã được sửa đổi ở nơi khác (phiên bản máy chủ: v${payload.currentVersion}). Các chỉnh sửa chưa lưu của bạn vẫn được giữ nguyên. Hãy nhấn "Lưu chỉnh sửa" để cập nhật.`);
+          setUiState('reviewing');
+          return;
+        }
+        throw new Error(vietnameseApiError(payload, 'Không thể lưu và xác minh lại bản thảo.'));
+      }
       setDraft(payload);
       syncControlsFromDraft(payload);
       setDraftDirty(false);
@@ -398,6 +417,28 @@ export function CreateVideoForm({
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.approved && data.currentVersion) {
+          // Approval succeeded, but enqueueing failed (e.g. queue full 429)
+          setDraft((prev) => prev ? {
+            ...prev,
+            version: data.currentVersion,
+            status: 'approved',
+            approvedArtifact: data.artifactId ? {
+              artifactId: data.artifactId,
+              renderConfig: data.renderConfig
+            } as never : prev.approvedArtifact
+          } : prev);
+          setError(vietnameseApiError(data, 'Duyệt bản thảo thành công nhưng xếp hàng render thất bại.'));
+          setUiState('reviewing');
+          return;
+        }
+        if (res.status === 409 && data.currentVersion) {
+          // Version conflict on approval: update version and inform teacher
+          setDraft((prev) => prev ? { ...prev, version: data.currentVersion } : prev);
+          setError(`Xung đột phiên bản: Bản thảo đã được cập nhật ở nơi khác (phiên bản máy chủ: v${data.currentVersion}). Đã cập nhật phiên bản, vui lòng nhấn Duyệt lại.`);
+          setUiState('reviewing');
+          return;
+        }
         throw new Error(vietnameseApiError(data, 'Duyệt bản thảo thất bại'));
       }
 
@@ -926,7 +967,7 @@ export function CreateVideoForm({
             onClick={handleApproveAndRender}
           >
             {draft.mathVerification?.status === 'verified'
-              ? '✅ Duyệt bản thảo & Render Video Remotion'
+              ? (draft.status === 'approved' ? '🚀 Kết xuất video (Bản thảo đã duyệt)' : '✅ Duyệt bản thảo & Render Video Remotion')
               : '❌ Không thể duyệt: Mệnh đề toán học chưa vượt qua SymPy'}
           </button>
         </div>

@@ -38,5 +38,18 @@ export async function readApprovalRequest(req: Request): Promise<ApprovalRequest
   if (!parsed.success) {
     throw new SecurityError(400, 'invalid_approval_request', parsed.error.issues.map((issue) => issue.message).join('; '));
   }
-  return parsed.data;
+  const data = parsed.data;
+  const hasConfigUpdates =
+    data.renderMode !== undefined ||
+    data.narrationMode !== undefined ||
+    data.visualStyleId !== undefined ||
+    data.subtitlesEnabled !== undefined;
+  if (hasConfigUpdates && data.expectedVersion === undefined) {
+    throw new SecurityError(
+      400,
+      'missing_expected_version',
+      'expectedVersion is required when applying configuration updates during approval'
+    );
+  }
+  return data;
 }

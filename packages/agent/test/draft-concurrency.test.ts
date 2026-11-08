@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import test from 'node:test';
 import type { MathVisualizationSpecV2, VerifiedClaim } from '@luminalearn/scene-schema';
 import {
+  DraftApprovalConflictError,
   DraftVersionConflictError,
   LessonDraftManager,
   MathVerificationService
@@ -191,6 +192,166 @@ test('approval configuration is atomic and a failed approval restores the exact 
     assert.equal(approved.approvedArtifact?.renderConfig.visualStyleId, 'math_chalkboard');
     assert.equal(approved.approvedArtifact?.renderConfig.subtitlesEnabled, false);
     assert.equal(approved.approvedArtifact?.contentHash.length, 64);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('validateConsent callback executes inside the draft mutation lock and restores prior state on failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lumina-consent-lock-'));
+  try {
+    const manager = new LessonDraftManager({ artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
+    const draft = await manager.createDraft(request('req_consent_lock'));
+    const snapshot = structuredClone(manager.getDraft(draft.draftId)!);
+
+    // 1. Consent failure inside the lock rolls back state
+    await assert.rejects(
+      () => manager.approveDraftWithUpdates(
+        draft.draftId,
+        { narrationMode: 'gemini_tts' },
+        'Try approve with Gemini TTS without consent',
+        {
+          expectedVersion: draft.version,
+          validateConsent: (draftToApprove) => {
+            if (draftToApprove.context.request.narrationMode === 'gemini_tts') {
+              throw new Error('external_api_confirmation_required: Consent denied');
+            }
+          }
+        }
+      ),
+      /external_api_confirmation_required/
+    );
+
+    // Authoritative draft state is unchanged
+    const afterFailedConsent = manager.getDraft(draft.draftId)!;
+    assert.equal(afterFailedConsent.status, snapshot.status);
+    assert.equal(afterFailedConsent.version, snapshot.version);
+    assert.equal(afterFailedConsent.approvedArtifact, undefined);
+    assert.equal(afterFailedConsent.context.request.narrationMode, 'none');
+
+    // 2. Consent success commits approval
+    const approved = await manager.approveDraftWithUpdates(
+      draft.draftId,
+      { visualStyleId: 'math_chalkboard' },
+      'Approve with valid consent',
+      {
+        expectedVersion: draft.version,
+        validateConsent: (draftToApprove) => {
+          assert.equal(draftToApprove.context.request.visualStyleId, 'math_chalkboard');
+        }
+      }
+    );
+    assert.equal(approved.status, 'approved');
+    assert.ok(approved.approvedArtifact);
+    assert.equal(approved.approvedArtifact.renderConfig.visualStyleId, 'math_chalkboard');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('idempotent approval detects configuration conflicts and forbids in-place mutation of approved artifacts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lumina-idempotent-conflict-'));
+  try {
+    const manager = new LessonDraftManager({ artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
+    const draft = await manager.createDraft(request('req_idempotent_conflict'));
+    const approved = await manager.approveDraftWithUpdates(
+      draft.draftId,
+      { visualStyleId: 'clean_educational_infographic', narrationMode: 'none' },
+      'First approval',
+      { expectedVersion: draft.version }
+    );
+    assert.equal(approved.status, 'approved');
+    const firstArtifact = approved.approvedArtifact!;
+    const approvedVersion = approved.version;
+
+    // 1. Genuinely identical approval returns same approved draft
+    const identical = await manager.approveDraftWithUpdates(
+      draft.draftId,
+      { visualStyleId: 'clean_educational_infographic', narrationMode: 'none' },
+      'Repeated approval',
+      { expectedVersion: approvedVersion }
+    );
+    assert.equal(identical.approvedArtifact?.artifactId, firstArtifact.artifactId);
+    assert.equal(identical.approvedArtifact?.contentHash, firstArtifact.contentHash);
+
+    // 2. Repeated approval with different visual style receives DraftApprovalConflictError
+    await assert.rejects(
+      () => manager.approveDraftWithUpdates(
+        draft.draftId,
+        { visualStyleId: 'math_chalkboard' },
+        'Conflicting style',
+        { expectedVersion: approvedVersion }
+      ),
+      (err: unknown) => err instanceof DraftApprovalConflictError && err.code === 'approved_draft_configuration_conflict'
+    );
+
+    // 3. Repeated approval switching to Gemini TTS receives DraftApprovalConflictError
+    await assert.rejects(
+      () => manager.approveDraftWithUpdates(
+        draft.draftId,
+        { narrationMode: 'gemini_tts' },
+        'Conflicting TTS',
+        { expectedVersion: approvedVersion }
+      ),
+      (err: unknown) => err instanceof DraftApprovalConflictError && err.code === 'approved_draft_configuration_conflict'
+    );
+
+    // 4. Approved draft cannot be mutated in place: updateDraft invalidates approval and increments version
+    const updated = await manager.updateDraft(
+      draft.draftId,
+      { title: 'Tiêu đề đã được sửa sau khi duyệt' },
+      'Revise title',
+      { expectedVersion: approvedVersion }
+    );
+    assert.equal(updated.version, approvedVersion + 1);
+    assert.equal(updated.status, 'reviewing');
+    assert.equal(updated.approvedArtifact, undefined);
+    assert.equal(manager.isArtifactCurrentlyApproved(firstArtifact), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('simulates two browser tabs with optimistic concurrency version checking', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lumina-browser-tabs-'));
+  try {
+    const manager = new LessonDraftManager({ artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
+    const draft = await manager.createDraft(request('req_browser_tabs'));
+    const initialVersion = draft.version;
+
+    // Tab 1 edits title and saves with expectedVersion = 1
+    const tab1Update = await manager.updateDraft(
+      draft.draftId,
+      { title: 'Chỉnh sửa từ Tab 1' },
+      'Tab 1 save',
+      { expectedVersion: initialVersion }
+    );
+    assert.equal(tab1Update.version, initialVersion + 1);
+    assert.equal(tab1Update.context.lessonPlan?.title, 'Chỉnh sửa từ Tab 1');
+
+    // Tab 2 has stale view (expectedVersion = 1) and tries to edit summary
+    await assert.rejects(
+      () => manager.updateDraft(
+        draft.draftId,
+        { summary: 'Chỉnh sửa từ Tab 2 bị xung đột' },
+        'Tab 2 save',
+        { expectedVersion: initialVersion }
+      ),
+      (err: unknown) =>
+        err instanceof DraftVersionConflictError &&
+        err.expectedVersion === initialVersion &&
+        err.actualVersion === initialVersion + 1
+    );
+
+    // Tab 2 refreshes authoritative version (2) and saves successfully
+    const tab2Resolved = await manager.updateDraft(
+      draft.draftId,
+      { summary: 'Chỉnh sửa từ Tab 2 đã cập nhật version' },
+      'Tab 2 save after refresh',
+      { expectedVersion: tab1Update.version }
+    );
+    assert.equal(tab2Resolved.version, initialVersion + 2);
+    assert.equal(tab2Resolved.context.lessonPlan?.summary, 'Chỉnh sửa từ Tab 2 đã cập nhật version');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

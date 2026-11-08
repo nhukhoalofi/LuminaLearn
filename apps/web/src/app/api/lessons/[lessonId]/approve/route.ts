@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { DraftVersionConflictError } from '@luminalearn/agent';
+import { DraftApprovalConflictError, DraftVersionConflictError } from '@luminalearn/agent';
 import { draftManager } from '@/server/v2-services';
-import { createV2JobFromArtifact } from '@/server/job-store';
+import { createV2JobFromArtifact, type JobRecord } from '@/server/job-store';
 import {
   assertOwnerMatch,
   assertRequestAuthorized,
@@ -29,21 +29,13 @@ export async function POST(
     }
     assertOwnerMatch(existing.ownerId, callerOwnerId, `draft '${lessonId}'`);
 
-    // Consent is checked against the proposed effective configuration before any draft mutation.
-    assertApprovalExternalApiConsent(
-      {
-        renderMode: existing.context.request.renderMode,
-        narrationMode: existing.context.request.narrationMode
-      },
-      body,
-      req.headers.get('x-lumina-confirm-external-api') === 'true'
-    );
-
     const note =
       typeof body.note === 'string' && body.note
         ? body.note
         : 'User approved lesson draft from Web UI';
 
+    // Consent validation is executed strictly inside the draft mutation lock
+    // against the latest authoritative draft state (eliminates TOCTOU races).
     const draft = await draftManager.approveDraftWithUpdates(
       lessonId,
       {
@@ -55,18 +47,55 @@ export async function POST(
       note,
       {
         confirmSemanticReview: body.confirmSemanticReview === true,
-        expectedVersion: body.expectedVersion
+        expectedVersion: body.expectedVersion,
+        validateConsent: (draftToApprove) => {
+          assertApprovalExternalApiConsent(
+            {
+              renderMode: draftToApprove.context.request.renderMode,
+              narrationMode: draftToApprove.context.request.narrationMode
+            },
+            body,
+            req.headers.get('x-lumina-confirm-external-api') === 'true'
+          );
+        }
       }
     );
     if (!draft.approvedArtifact) {
       throw new Error('draft_approval_missing_artifact: Draft was approved but no immutable artifact was generated');
     }
 
-    const job = createV2JobFromArtifact(
-      draft.approvedArtifact,
-      (artifact) => draftManager.isArtifactCurrentlyApproved(artifact),
-      callerOwnerId
-    );
+    let job: Omit<JobRecord, 'outputPath'> | undefined;
+    let enqueueError: { code: string; message: string; status: number } | undefined;
+    try {
+      job = createV2JobFromArtifact(
+        draft.approvedArtifact,
+        (artifact) => draftManager.isArtifactCurrentlyApproved(artifact),
+        callerOwnerId
+      );
+    } catch (enqueueErr) {
+      const status = enqueueErr instanceof SecurityError ? enqueueErr.status : 400;
+      const code = enqueueErr instanceof SecurityError ? enqueueErr.code : 'job_enqueue_failed';
+      const message = enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr);
+      enqueueError = { code, message, status };
+    }
+
+    if (enqueueError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: enqueueError.code,
+          message: enqueueError.message,
+          draftId: draft.draftId,
+          artifactId: draft.approvedArtifact.artifactId,
+          status: draft.status,
+          approved: true,
+          currentVersion: draft.version,
+          renderConfig: draft.approvedArtifact.renderConfig,
+          enqueueFailed: true
+        },
+        { status: enqueueError.status }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -80,6 +109,12 @@ export async function POST(
     if (error instanceof DraftVersionConflictError) {
       return NextResponse.json(
         { error: error.code, message: error.message, currentVersion: error.actualVersion },
+        { status: 409 }
+      );
+    }
+    if (error instanceof DraftApprovalConflictError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
         { status: 409 }
       );
     }

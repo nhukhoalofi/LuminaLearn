@@ -28,9 +28,12 @@ test('complete approved topic workflow produces a playable MP4 and subtitles @re
   const videoResponse = await request.get(`/api/jobs/${approval.job.jobId}/video`, {
     headers: { Range: 'bytes=0-1023' }
   });
-  expect([200, 206]).toContain(videoResponse.status());
+  expect(videoResponse.status()).toBe(206);
   expect(videoResponse.headers()['content-type']).toContain('video/mp4');
-  expect((await videoResponse.body()).byteLength).toBeGreaterThan(0);
+  expect(videoResponse.headers()['content-range']).toMatch(/^bytes 0-1023\/\d+$/);
+  expect(videoResponse.headers()['content-length']).toBe('1024');
+  const videoBody = await videoResponse.body();
+  expect(videoBody.byteLength).toBe(1024);
 
   const subtitleResponse = await request.get(`/api/jobs/${approval.job.jobId}/subtitles`);
   expect(subtitleResponse.ok()).toBe(true);

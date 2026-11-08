@@ -59,6 +59,20 @@ export async function PATCH(
 
     const body = await readBoundedJson<Record<string, unknown>>(req);
 
+    if (body.expectedVersion === undefined) {
+      return NextResponse.json(
+        { error: 'missing_expected_version', message: 'expectedVersion is required when updating a draft' },
+        { status: 400 }
+      );
+    }
+
+    if (typeof body.expectedVersion !== 'number' || !Number.isInteger(body.expectedVersion) || body.expectedVersion <= 0) {
+      return NextResponse.json(
+        { error: 'invalid_expected_version', message: 'expectedVersion must be a positive integer' },
+        { status: 400 }
+      );
+    }
+
     const updated = await draftManager.updateDraft(
       lessonId,
       {
@@ -95,10 +109,7 @@ export async function PATCH(
       },
       typeof body.note === 'string' ? body.note : undefined,
       {
-        expectedVersion:
-          typeof body.expectedVersion === 'number' && Number.isInteger(body.expectedVersion) && body.expectedVersion > 0
-            ? body.expectedVersion
-            : undefined
+        expectedVersion: body.expectedVersion
       }
     );
 
