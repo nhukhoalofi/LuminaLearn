@@ -35,11 +35,20 @@ class FailOnceNarrationProvider implements AIProvider {
   readonly isMock = false;
   readonly requests: AIStructuredRequest<unknown>[] = [];
   private narrationAttempts = 0;
+  private retryStartedResolve!: () => void;
+  private retryReleaseResolve!: () => void;
+  readonly retryStarted = new Promise<void>((resolvePromise) => { this.retryStartedResolve = resolvePromise; });
+  private readonly retryRelease = new Promise<void>((resolvePromise) => { this.retryReleaseResolve = resolvePromise; });
   constructor(private readonly curriculum: unknown, private readonly narration: unknown) {}
+  releaseRetry(): void { this.retryReleaseResolve(); }
   async generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>> {
     this.requests.push(request as AIStructuredRequest<unknown>);
     if (request.purpose === 'narration_planning' && this.narrationAttempts++ === 0) {
       throw new Error('fake_narration_failure_after_request');
+    }
+    if (request.purpose === 'narration_planning' && this.narrationAttempts === 2) {
+      this.retryStartedResolve();
+      await this.retryRelease;
     }
     const data = request.purpose === 'curriculum_planning' ? this.curriculum : this.narration;
     return { data: request.validator(data), mode: 'ai_generated_live', model: 'fake-live-gemini' };
@@ -268,10 +277,12 @@ test('failed semantic-review provider attempts persist monotonically across rest
 
     const restarted = new LessonDraftManager({ orchestrator, artifactsDir: join(root, 'artifacts'), draftsDir: join(root, 'drafts') });
     assert.equal(restarted.getDraft(draft.draftId)?.context.requestBudget?.counts.totalTextRequests, 2);
-    const [firstRetry, concurrentRetry] = await Promise.all([
-      restarted.updateDraft(draft.draftId, { humanSemanticReviewConfirmed: true }),
-      restarted.updateDraft(draft.draftId, { humanSemanticReviewConfirmed: true })
-    ]);
+    const firstOperation = restarted.updateDraft(draft.draftId, { humanSemanticReviewConfirmed: true });
+    const secondOperation = restarted.updateDraft(draft.draftId, { humanSemanticReviewConfirmed: true });
+    await provider.retryStarted;
+    assert.equal(provider.requests.filter((request) => request.purpose === 'narration_planning').length, 2);
+    provider.releaseRetry();
+    const [firstRetry, concurrentRetry] = await Promise.all([firstOperation, secondOperation]);
     assert.equal(firstRetry.context.stage, 'ready_to_render');
     assert.equal(concurrentRetry.context.stage, 'ready_to_render');
     assert.equal(concurrentRetry.context.requestBudget?.counts.totalTextRequests, 3);

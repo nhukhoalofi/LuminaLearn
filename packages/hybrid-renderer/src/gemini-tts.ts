@@ -115,6 +115,10 @@ const SUPPORTED_GEMINI_TTS_MODELS = new Set([
   'gemini-2.5-pro-preview-tts'
 ]);
 
+export function isSupportedGeminiTtsModel(model: string): boolean {
+  return SUPPORTED_GEMINI_TTS_MODELS.has(model);
+}
+
 function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     execFile('ffmpeg', args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, _stdout, stderr) => {
@@ -191,7 +195,7 @@ export class GeminiTtsProvider implements TtsProvider {
     this.budget = options.requestBudget ?? new GeminiRequestBudget();
     this.randomFn = options.randomFn ?? Math.random;
 
-    if (!SUPPORTED_GEMINI_TTS_MODELS.has(this.model)) {
+    if (!isSupportedGeminiTtsModel(this.model)) {
       throw new Error(`tts_model_unsupported: '${this.model}' is not an approved Gemini TTS model`);
     }
     if (!options.client && !this.apiKey) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +38,8 @@ export interface DraftApprovalHistoryEntry {
 
 export interface LessonDraft {
   draftId: string;
+  /** External correlation identifier. It is never used as the internal draft identity or a file name. */
+  requestId: string;
   ownerId?: string;
   version: number;
   status: LessonDraftStatus;
@@ -46,6 +48,27 @@ export interface LessonDraft {
   context: OrchestrationContext;
   approvalHistory: DraftApprovalHistoryEntry[];
   approvedArtifact?: ApprovedRenderArtifactV2;
+}
+
+export class DraftVersionConflictError extends Error {
+  public readonly code = 'draft_version_conflict';
+
+  constructor(
+    public readonly draftId: string,
+    public readonly expectedVersion: number,
+    public readonly actualVersion: number
+  ) {
+    super(`Draft '${draftId}' version conflict: expected ${expectedVersion}, current version is ${actualVersion}`);
+    this.name = 'DraftVersionConflictError';
+  }
+}
+
+export interface DraftMutationOptions {
+  expectedVersion?: number;
+}
+
+export interface DraftApprovalOptions extends DraftMutationOptions {
+  confirmSemanticReview?: boolean;
 }
 
 export interface LessonDraftUpdateInput {
@@ -65,6 +88,7 @@ export interface LessonDraftUpdateInput {
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const defaultArtifactsDir = resolve(packageRoot, 'outputs/.artifacts');
 const defaultDraftsDir = resolve(packageRoot, 'outputs/.drafts');
+const DRAFT_ID_PATTERN = /^draft_[a-zA-Z0-9_-]{8,120}$/;
 
 /**
  * Tuần tự hóa JSON chuẩn tắc (Canonical JSON Stringifier)
@@ -256,8 +280,11 @@ export class LessonDraftManager {
       try {
         const candidate = JSON.parse(readFileSync(join(this.draftsDir, name), 'utf8')) as LessonDraft;
         if (!candidate || typeof candidate !== 'object' || typeof candidate.draftId !== 'string' ||
+            !DRAFT_ID_PATTERN.test(candidate.draftId) || name !== `${candidate.draftId}.json` ||
             !Number.isInteger(candidate.version) || candidate.version < 1 || !candidate.context ||
             !Array.isArray(candidate.approvalHistory)) continue;
+        candidate.requestId = candidate.requestId ?? candidate.context.request?.requestId;
+        if (typeof candidate.requestId !== 'string' || candidate.requestId.length === 0) continue;
         if (candidate.approvedArtifact) {
           const artifact = ApprovedRenderArtifactV2Schema.parse(candidate.approvedArtifact);
           if (!verifyArtifactIntegrity(artifact) || artifact.draftId !== candidate.draftId ||
@@ -271,18 +298,43 @@ export class LessonDraftManager {
     }
   }
 
-  private persistDraft(draft: LessonDraft): void {
+  private draftPath(draftId: string): string {
+    if (!DRAFT_ID_PATTERN.test(draftId)) throw new Error(`invalid_draft_id: '${draftId}'`);
+    return join(this.draftsDir, `${draftId}.json`);
+  }
+
+  private persistDraft(draft: LessonDraft, createOnly = false): void {
     mkdirSync(this.draftsDir, { recursive: true });
-    const safeId = draft.draftId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const target = join(this.draftsDir, `${safeId}.json`);
-    const temporary = join(this.draftsDir, `.${safeId}.${randomUUID()}.tmp`);
+    const target = this.draftPath(draft.draftId);
+    const temporary = join(this.draftsDir, `.${draft.draftId}.${randomUUID()}.tmp`);
     writeFileSync(temporary, JSON.stringify(draft, null, 2), { encoding: 'utf8', flag: 'wx' });
-    renameSync(temporary, target);
+    try {
+      if (createOnly) {
+        // Cross-process create-if-absent. A hard link cannot replace an existing draft.
+        linkSync(temporary, target);
+        unlinkSync(temporary);
+      } else {
+        renameSync(temporary, target);
+      }
+    } catch (error) {
+      try { unlinkSync(temporary); } catch { /* best-effort cleanup */ }
+      throw error;
+    }
+  }
+
+  private createInternalDraftId(): string {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const draftId = `draft_${randomUUID().replace(/-/g, '')}`;
+      if (!this.drafts.has(draftId) && !existsSync(this.draftPath(draftId))) return draftId;
+    }
+    throw new Error('draft_id_generation_failed: Unable to allocate a unique internal draft identifier');
   }
 
   public async createDraft(rawRequest: unknown, ownerId?: string): Promise<LessonDraft> {
     const context = await this.orchestrator.orchestrate(rawRequest);
-    const draftId = `draft_${context.request?.requestId ?? Date.now()}`;
+    const requestId = context.request?.requestId;
+    if (!requestId) throw new Error('draft_request_id_missing: Orchestration context has no external request identifier');
+    const draftId = this.createInternalDraftId();
     const now = new Date().toISOString();
 
     const initialStatus: LessonDraftStatus =
@@ -292,6 +344,7 @@ export class LessonDraftManager {
 
     const draft: LessonDraft = {
       draftId,
+      requestId,
       ownerId,
       version: 1,
       status: initialStatus,
@@ -307,8 +360,8 @@ export class LessonDraftManager {
       ]
     };
 
+    this.persistDraft(draft, true);
     this.drafts.set(draftId, draft);
-    this.persistDraft(draft);
     return draft;
   }
 
@@ -350,8 +403,23 @@ export class LessonDraftManager {
   public async updateDraft(
     draftId: string,
     updates: LessonDraftUpdateInput,
-    note?: string
+    note?: string,
+    options: DraftMutationOptions = {}
   ): Promise<LessonDraft> {
+    return this.withDraftMutationLock(draftId, async () => {
+      const before = this.requireDraft(draftId);
+      this.assertExpectedVersion(before, options.expectedVersion);
+      const snapshot = structuredClone(before);
+      try {
+        return await this.updateDraftUnlocked(draftId, updates, note);
+      } catch (error) {
+        this.restoreDraftSnapshot(draftId, snapshot);
+        throw error;
+      }
+    });
+  }
+
+  private async withDraftMutationLock<T>(draftId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.draftUpdateLocks.get(draftId) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
@@ -359,11 +427,39 @@ export class LessonDraftManager {
     this.draftUpdateLocks.set(draftId, queued);
     await previous;
     try {
-      return await this.updateDraftUnlocked(draftId, updates, note);
+      return await operation();
     } finally {
       release();
       if (this.draftUpdateLocks.get(draftId) === queued) this.draftUpdateLocks.delete(draftId);
     }
+  }
+
+  private requireDraft(draftId: string): LessonDraft {
+    if (!DRAFT_ID_PATTERN.test(draftId)) throw new Error(`invalid_draft_id: '${draftId}'`);
+    const draft = this.drafts.get(draftId);
+    if (!draft) throw new Error(`Lesson draft not found: ${draftId}`);
+    return draft;
+  }
+
+  private assertExpectedVersion(draft: LessonDraft, expectedVersion?: number): void {
+    if (expectedVersion !== undefined && draft.version !== expectedVersion) {
+      throw new DraftVersionConflictError(draft.draftId, expectedVersion, draft.version);
+    }
+  }
+
+  private restoreDraftSnapshot(draftId: string, snapshot: LessonDraft): void {
+    const current = this.drafts.get(draftId);
+    if (current) {
+      for (const key of Object.keys(current) as Array<keyof LessonDraft>) {
+        delete (current as unknown as Record<string, unknown>)[key];
+      }
+      Object.assign(current, snapshot);
+      this.drafts.set(draftId, current);
+      this.persistDraft(current);
+      return;
+    }
+    this.drafts.set(draftId, snapshot);
+    this.persistDraft(snapshot);
   }
 
   private async updateDraftUnlocked(
@@ -575,12 +671,51 @@ export class LessonDraftManager {
   public async approveDraft(
     draftId: string,
     note?: string,
-    options?: { confirmSemanticReview?: boolean }
+    options: DraftApprovalOptions = {}
   ): Promise<LessonDraft> {
-    const draft = this.drafts.get(draftId);
-    if (!draft) {
-      throw new Error(`Lesson draft not found: ${draftId}`);
-    }
+    return this.withDraftMutationLock(draftId, async () => {
+      const before = this.requireDraft(draftId);
+      this.assertExpectedVersion(before, options.expectedVersion);
+      if (before.status === 'approved' && before.approvedArtifact) return before;
+      const snapshot = structuredClone(before);
+      try {
+        return await this.approveDraftUnlocked(draftId, note, options);
+      } catch (error) {
+        this.restoreDraftSnapshot(draftId, snapshot);
+        throw error;
+      }
+    });
+  }
+
+  /** Atomically applies render configuration and approves one exact browser-visible version. */
+  public async approveDraftWithUpdates(
+    draftId: string,
+    updates: LessonDraftUpdateInput,
+    note?: string,
+    options: DraftApprovalOptions = {}
+  ): Promise<LessonDraft> {
+    return this.withDraftMutationLock(draftId, async () => {
+      const before = this.requireDraft(draftId);
+      this.assertExpectedVersion(before, options.expectedVersion);
+      if (before.status === 'approved' && before.approvedArtifact) return before;
+      const snapshot = structuredClone(before);
+      try {
+        const hasUpdates = Object.values(updates).some((value) => value !== undefined);
+        if (hasUpdates) await this.updateDraftUnlocked(draftId, updates, 'Approval configuration applied atomically');
+        return await this.approveDraftUnlocked(draftId, note, options);
+      } catch (error) {
+        this.restoreDraftSnapshot(draftId, snapshot);
+        throw error;
+      }
+    });
+  }
+
+  private async approveDraftUnlocked(
+    draftId: string,
+    note?: string,
+    options: DraftApprovalOptions = {}
+  ): Promise<LessonDraft> {
+    const draft = this.requireDraft(draftId);
 
     if (draft.status === 'rejected') {
       throw new Error(`Cannot approve rejected draft: ${draftId}`);
@@ -790,24 +925,28 @@ export class LessonDraftManager {
     return draft;
   }
 
-  public rejectDraft(draftId: string, reason: string): LessonDraft {
-    const draft = this.drafts.get(draftId);
-    if (!draft) {
-      throw new Error(`Lesson draft not found: ${draftId}`);
-    }
+  public async rejectDraft(
+    draftId: string,
+    reason: string,
+    options: DraftMutationOptions = {}
+  ): Promise<LessonDraft> {
+    return this.withDraftMutationLock(draftId, async () => {
+      const draft = this.requireDraft(draftId);
+      this.assertExpectedVersion(draft, options.expectedVersion);
 
-    draft.status = 'rejected';
-    draft.approvedArtifact = undefined;
-    const now = new Date().toISOString();
-    draft.updatedAt = now;
+      draft.status = 'rejected';
+      draft.approvedArtifact = undefined;
+      const now = new Date().toISOString();
+      draft.updatedAt = now;
 
-    draft.approvalHistory.push({
-      action: 'rejected',
-      timestamp: now,
-      note: reason
+      draft.approvalHistory.push({
+        action: 'rejected',
+        timestamp: now,
+        note: reason
+      });
+
+      this.persistDraft(draft);
+      return draft;
     });
-
-    this.persistDraft(draft);
-    return draft;
   }
 }

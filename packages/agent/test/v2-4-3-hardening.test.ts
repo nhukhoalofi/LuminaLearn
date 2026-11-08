@@ -61,6 +61,27 @@ function buildValidLivePlanJson(overrides: Partial<LessonPlanV2> = {}): LessonPl
 }
 
 describe('Phase 1 — Gemini Request Budget & Retry Safety', () => {
+  it('conservatively preserves an in-flight started attempt across restart hydration', () => {
+    const beforeRestart = new GeminiRequestBudget({
+      maxRequestsPerJob: 3,
+      maxCurriculumRequests: 2,
+      maxNarrationRequests: 2
+    });
+    const inFlightAttempt = beforeRestart.consume('narration_planning', 'fake-live-gemini');
+    const persisted = beforeRestart.getSummary();
+    assert.equal(persisted.attempts.find((attempt) => attempt.attemptId === inFlightAttempt)?.status, 'started');
+
+    const afterRestart = new GeminiRequestBudget({ initialSummary: persisted });
+    assert.equal(afterRestart.getSummary().counts.narrationPlanning, 1);
+    assert.equal(afterRestart.getSummary().attempts[0].status, 'started');
+    const retryAttempt = afterRestart.consume('narration_planning', 'fake-live-gemini');
+    afterRestart.completeAttempt(retryAttempt, 'succeeded');
+
+    const final = afterRestart.getSummary();
+    assert.equal(final.counts.narrationPlanning, 2);
+    assert.deepEqual(final.attempts.map((attempt) => attempt.status), ['started', 'succeeded']);
+  });
+
   it('fails immediately on 401 and 403 without retrying and redacts API keys', async () => {
     const secretKey = 'AIzaSyFakeSecretTestKey123456789';
     let calls401 = 0;

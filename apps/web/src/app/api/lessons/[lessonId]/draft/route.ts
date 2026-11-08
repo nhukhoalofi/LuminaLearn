@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { DraftVersionConflictError } from '@luminalearn/agent';
 import { draftManager, toLessonDraftResponse } from '@/server/v2-services';
 import {
   assertOwnerMatch,
@@ -92,11 +93,23 @@ export async function PATCH(
             ? body.humanSemanticReviewConfirmed
             : undefined
       },
-      typeof body.note === 'string' ? body.note : undefined
+      typeof body.note === 'string' ? body.note : undefined,
+      {
+        expectedVersion:
+          typeof body.expectedVersion === 'number' && Number.isInteger(body.expectedVersion) && body.expectedVersion > 0
+            ? body.expectedVersion
+            : undefined
+      }
     );
 
     return NextResponse.json(toLessonDraftResponse(updated));
   } catch (error) {
+    if (error instanceof DraftVersionConflictError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message, currentVersion: error.actualVersion },
+        { status: 409 }
+      );
+    }
     if (error instanceof SecurityError) {
       return NextResponse.json(
         { error: error.code, message: error.message },

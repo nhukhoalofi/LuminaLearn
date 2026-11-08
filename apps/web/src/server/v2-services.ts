@@ -86,6 +86,7 @@ export function toLessonDraftResponse(draft: LessonDraft) {
   };
   return {
     draftId: draft.draftId,
+    requestId: draft.requestId,
     version: draft.version,
     status: draft.status,
     stage: draft.context.stage,

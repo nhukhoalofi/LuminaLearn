@@ -98,6 +98,23 @@ const statusLabels: Record<JobStatus['status'], string> = {
   interrupted: 'Job bị gián đoạn khi server dừng'
 };
 
+function vietnameseApiError(payload: unknown, fallback: string): string {
+  const value = payload as { error?: string | { code?: string; message?: string }; message?: string } | undefined;
+  const code = typeof value?.error === 'string' ? value.error : value?.error?.code;
+  const message = value?.message ?? (typeof value?.error === 'object' ? value.error.message : undefined);
+  const classification = `${code ?? ''} ${message ?? ''}`.toLowerCase();
+  if (/sympy|math|mathematical|statement_expression|claim/.test(classification)) {
+    return 'Mệnh đề toán học không vượt qua kiểm định SymPy. Hãy sửa công thức hoặc nội dung mệnh đề rồi lưu để xác minh lại.';
+  }
+  if (/source|ground|evidence|citation|document/.test(classification)) {
+    return 'Tài liệu nguồn chưa cung cấp bằng chứng hợp lệ cho mọi mệnh đề toán học. Hãy bổ sung nguồn hoặc chỉnh lại nội dung bài học.';
+  }
+  if (/version_conflict/.test(classification)) {
+    return 'Bản thảo đã được thay đổi ở nơi khác. Hãy tải lại phiên bản mới nhất trước khi tiếp tục.';
+  }
+  return message || fallback;
+}
+
 export function CreateVideoForm({
   liveEnabled,
   geminiTtsEnabled,
@@ -127,6 +144,26 @@ export function CreateVideoForm({
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    const draftId = window.localStorage.getItem('lumina:lastDraftId');
+    if (!draftId) return;
+    let active = true;
+    void fetch(`/api/lessons/${encodeURIComponent(draftId)}/draft`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('saved_draft_unavailable');
+        return response.json() as Promise<LessonDraftInfo>;
+      })
+      .then((loaded) => {
+        if (!active) return;
+        setDraft(loaded);
+        syncControlsFromDraft(loaded);
+        setDraftDirty(false);
+        setUiState('reviewing');
+      })
+      .catch(() => window.localStorage.removeItem('lumina:lastDraftId'));
+    return () => { active = false; };
+  }, []);
 
   const requiresExternalApi =
     renderMode === 'live' || voiceoverMode === 'gemini_tts' || voiceoverMode === 'google_cloud_tts';
@@ -251,10 +288,11 @@ export function CreateVideoForm({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Tạo bản thảo bài học thất bại');
+        throw new Error(vietnameseApiError(data, 'Tạo bản thảo bài học thất bại'));
       }
 
       setDraft(data);
+      window.localStorage.setItem('lumina:lastDraftId', data.draftId);
       syncControlsFromDraft(data);
       setDraftDirty(false);
       if (data.stage === 'needs_review') {
@@ -307,16 +345,17 @@ export function CreateVideoForm({
           visualStyleId,
           subtitlesEnabled,
           humanSemanticReviewConfirmed: confirmSemanticReview ? true : undefined,
+          expectedVersion: draft.version,
           note: 'User revised the lesson draft from the LuminaLearn V2.4.3 web review'
         })
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || 'Không thể lưu và xác minh lại bản thảo.');
+      if (!response.ok) throw new Error(vietnameseApiError(payload, 'Không thể lưu và xác minh lại bản thảo.'));
       setDraft(payload);
       syncControlsFromDraft(payload);
       setDraftDirty(false);
       if (payload.mathVerification?.status === 'failed' || payload.error) {
-        setError(payload.error?.message || 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.');
+        setError(vietnameseApiError(payload, 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.'));
       }
       setUiState('reviewing');
     } catch (caught) {
@@ -352,13 +391,14 @@ export function CreateVideoForm({
           visualStyleId,
           subtitlesEnabled,
           confirmExternalApi,
-          confirmSemanticReview
+          confirmSemanticReview,
+          expectedVersion: draft.version
         })
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Duyệt bản thảo thất bại');
+        throw new Error(vietnameseApiError(data, 'Duyệt bản thảo thất bại'));
       }
 
       setJob(data.job);
@@ -396,6 +436,7 @@ export function CreateVideoForm({
           onClick={() => {
             setInputMode('topic_prompt');
             setDraft(null);
+            window.localStorage.removeItem('lumina:lastDraftId');
           }}
         >
           💡 Nhập chủ đề trực tiếp (Prompt)
@@ -412,6 +453,7 @@ export function CreateVideoForm({
           onClick={() => {
             setInputMode('source_document');
             setDraft(null);
+            window.localStorage.removeItem('lumina:lastDraftId');
           }}
         >
           📄 Tài liệu nguồn (Document-to-Video)

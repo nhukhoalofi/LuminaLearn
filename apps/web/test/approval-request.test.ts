@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { readApprovalRequest } from '../src/server/approval-request.ts';
+import { assertApprovalExternalApiConsent, readApprovalRequest } from '../src/server/approval-request.ts';
 import { SecurityError } from '../src/server/security.ts';
 
 describe('Approval API request validation', () => {
@@ -23,5 +23,15 @@ describe('Approval API request validation', () => {
       () => readApprovalRequest(invalid),
       (error: unknown) => error instanceof SecurityError && error.status === 400 && error.code === 'invalid_approval_request'
     );
+  });
+
+  it('rejects an unconfirmed Gemini TTS switch before mutating the current configuration', () => {
+    const current = { renderMode: 'mock' as const, narrationMode: 'none' as const };
+    const snapshot = structuredClone(current);
+    assert.throws(
+      () => assertApprovalExternalApiConsent(current, { narrationMode: 'gemini_tts', expectedVersion: 3 }, false),
+      (error: unknown) => error instanceof SecurityError && error.status === 400 && error.code === 'external_api_confirmation_required'
+    );
+    assert.deepEqual(current, snapshot);
   });
 });

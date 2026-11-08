@@ -37,6 +37,7 @@ export interface JobRecord {
   visualStyleId?: 'math_chalkboard' | 'clean_educational_infographic';
   subtitlesEnabled: boolean;
   failureType?: 'ai' | 'tts' | 'validation' | 'render' | 'interrupted';
+  artifactId?: string;
 }
 
 const progressByState: Record<JobState, number> = {
@@ -237,7 +238,6 @@ export function createV2JobFromArtifact(
   authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>,
   ownerId = 'local-default'
 ): Omit<JobRecord, 'outputPath'> {
-  assertQueueCapacity();
   const artifact = ApprovedRenderArtifactV2Schema.parse(input);
   if (!verifyArtifactIntegrity(artifact)) {
     throw new Error('artifact_tampered: Approved render artifact content hash does not match canonical payload');
@@ -248,6 +248,14 @@ export function createV2JobFromArtifact(
   if (artifact.renderConfig.narrationMode === 'gemini_tts' && !process.env.GEMINI_API_KEY) {
     throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   }
+  const existing = Array.from(store.jobs.values()).find((job) =>
+    job.artifactId === artifact.artifactId &&
+    job.ownerId === ownerId &&
+    job.status !== 'failed' &&
+    job.status !== 'interrupted'
+  );
+  if (existing) return publicJob(existing);
+  assertQueueCapacity();
   const jobId = createHybridJobId();
   const now = new Date().toISOString();
   const job: JobRecord = {
@@ -260,6 +268,7 @@ export function createV2JobFromArtifact(
     voiceoverMode: artifact.renderConfig.narrationMode,
     visualStyleId: artifact.renderConfig.visualStyleId ?? 'clean_educational_infographic',
     subtitlesEnabled: artifact.renderConfig.subtitlesEnabled ?? true,
+    artifactId: artifact.artifactId,
     createdAt: now,
     updatedAt: now
   };
