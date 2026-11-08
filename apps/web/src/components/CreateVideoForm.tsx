@@ -34,6 +34,19 @@ interface LessonDraftInfo {
   draftId: string;
   version: number;
   status: string;
+  renderConfig?: {
+    aspectRatio: '9:16' | '16:9' | '1:1';
+    fps: number;
+    renderMode: RenderMode;
+    narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
+    visualStyleId: VisualStyleId;
+    subtitlesEnabled: boolean;
+  };
+  estimatedApiBudget?: {
+    livePlanningCallsMax: number;
+    ttsCallsMax: number;
+    externalApiRequired: boolean;
+  };
   lessonPlan: {
     title: string;
     topicId: string;
@@ -49,9 +62,12 @@ interface LessonDraftInfo {
     mathematicalClaims: Array<{
       id: string;
       statement: string;
+      canonicalStatement?: string;
       validatorKey: string;
       expectedExpression: string;
       verificationStatus: 'verified' | 'unverified' | 'failed';
+      statementVerification?: 'formal_match' | 'prose_unverified' | 'conflict_detected';
+      humanSemanticReviewConfirmed?: boolean;
     }>;
   };
   mathVerification?: {
@@ -100,15 +116,34 @@ export function CreateVideoForm({
   const [draftDirty, setDraftDirty] = useState(false);
 
   const [renderMode, setRenderMode] = useState<RenderMode>('mock');
-  const [voiceoverMode, setVoiceoverMode] = useState<VoiceoverMode>(geminiTtsEnabled ? 'gemini_tts' : 'none');
+  const [voiceoverMode, setVoiceoverMode] = useState<VoiceoverMode>('none');
   const [visualStyleId, setVisualStyleId] = useState<VisualStyleId>('clean_educational_infographic');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [confirmExternalApi, setConfirmExternalApi] = useState(false);
+  const [confirmSemanticReview, setConfirmSemanticReview] = useState(false);
   const [uiState, setUiState] = useState<UiState>('idle');
   const [job, setJob] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
+
+  const requiresExternalApi =
+    renderMode === 'live' || voiceoverMode === 'gemini_tts' || voiceoverMode === 'google_cloud_tts';
+
+  function syncControlsFromDraft(loaded: LessonDraftInfo): void {
+    if (!loaded.renderConfig) return;
+    setRenderMode(loaded.renderConfig.renderMode);
+    if (
+      loaded.renderConfig.narrationMode === 'none' ||
+      loaded.renderConfig.narrationMode === 'gemini_tts' ||
+      loaded.renderConfig.narrationMode === 'google_cloud_tts'
+    ) {
+      setVoiceoverMode(loaded.renderConfig.narrationMode);
+    }
+    setVisualStyleId(loaded.renderConfig.visualStyleId ?? 'clean_educational_infographic');
+    setSubtitlesEnabled(loaded.renderConfig.subtitlesEnabled ?? true);
+  }
 
   async function pollJob(jobId: string, signal: AbortSignal): Promise<void> {
     for (let attempt = 0; attempt < 450 && !signal.aborted; attempt += 1) {
@@ -184,6 +219,10 @@ export function CreateVideoForm({
       setError('Vui lòng tải lên và phân tích tài liệu trước khi tạo bản thảo');
       return;
     }
+    if (renderMode === 'live' && !confirmExternalApi) {
+      setError('Vui lòng xác nhận sử dụng Gemini Live API trước khi tạo bản thảo ở chế độ Live.');
+      return;
+    }
 
     setError(null);
     setUiState('drafting');
@@ -199,6 +238,8 @@ export function CreateVideoForm({
         renderMode,
         narrationMode: voiceoverMode,
         visualStyleId,
+        subtitlesEnabled,
+        confirmExternalApi,
         aspectRatio: '9:16'
       };
 
@@ -214,11 +255,28 @@ export function CreateVideoForm({
       }
 
       setDraft(data);
+      syncControlsFromDraft(data);
       setDraftDirty(false);
       setUiState('reviewing');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setUiState('failed');
+    }
+  }
+
+  async function handleReloadDraft(): Promise<void> {
+    if (!draft) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/lessons/${draft.draftId}/draft`, { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || 'Không thể tải lại bản thảo.');
+      setDraft(payload);
+      syncControlsFromDraft(payload);
+      setDraftDirty(false);
+      setUiState('reviewing');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
     }
   }
 
@@ -241,12 +299,18 @@ export function CreateVideoForm({
           summary: draft.lessonPlan.summary,
           mathematicalClaims: draft.lessonPlan.mathematicalClaims,
           narrationTexts,
-          note: 'User revised the lesson draft from the LuminaLearn V2.4.2 web review'
+          renderMode,
+          narrationMode: voiceoverMode,
+          visualStyleId,
+          subtitlesEnabled,
+          humanSemanticReviewConfirmed: confirmSemanticReview ? true : undefined,
+          note: 'User revised the lesson draft from the LuminaLearn V2.4.3 web review'
         })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'Không thể lưu và xác minh lại bản thảo.');
       setDraft(payload);
+      syncControlsFromDraft(payload);
       setDraftDirty(false);
       if (payload.mathVerification?.status === 'failed' || payload.error) {
         setError(payload.error?.message || 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.');
@@ -261,20 +325,32 @@ export function CreateVideoForm({
   // Handle Draft Approval & Video Render
   async function handleApproveAndRender(): Promise<void> {
     if (!draft) return;
+    if (requiresExternalApi && !confirmExternalApi) {
+      setError('Vui lòng tích chọn xác nhận gọi API bên ngoài (Gemini Live / TTS) trước khi duyệt và render.');
+      return;
+    }
 
     const controller = new AbortController();
     controllerRef.current?.abort();
     controllerRef.current = controller;
 
     setError(null);
-      setUiState('submitting');
+    setUiState('submitting');
 
     try {
       const res = await fetch(`/api/lessons/${draft.draftId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ note: 'Duyệt bài học từ giao diện web LuminaLearn V2.4.2' })
+        body: JSON.stringify({
+          note: 'Duyệt bài học từ giao diện web LuminaLearn V2.4.3',
+          renderMode,
+          narrationMode: voiceoverMode,
+          visualStyleId,
+          subtitlesEnabled,
+          confirmExternalApi,
+          confirmSemanticReview
+        })
       });
 
       const data = await res.json();
@@ -449,7 +525,10 @@ export function CreateVideoForm({
             className="form-select"
             value={visualStyleId}
             disabled={busy}
-            onChange={(event) => setVisualStyleId(event.target.value as VisualStyleId)}
+            onChange={(event) => {
+              setVisualStyleId(event.target.value as VisualStyleId);
+              if (draft) setDraftDirty(true);
+            }}
           >
             <option value="clean_educational_infographic">Đồ họa giáo dục tinh gọn</option>
             <option value="math_chalkboard">Bảng phấn toán học</option>
@@ -466,11 +545,14 @@ export function CreateVideoForm({
               name="renderMode"
               checked={renderMode === 'mock'}
               disabled={busy}
-              onChange={() => setRenderMode('mock')}
+              onChange={() => {
+                setRenderMode('mock');
+                if (draft) setDraftDirty(true);
+              }}
             />
             <span>
-              <strong>Mock AI Engine</strong>
-              <small>Deterministic, xác minh SymPy offline</small>
+              <strong>Mock AI Engine (Mặc định an toàn)</strong>
+              <small>Deterministic, xác minh SymPy offline — 0 cuộc gọi API ngoài</small>
             </span>
           </label>
           <label className={`mode-option ${renderMode === 'live' ? 'selected' : ''} ${!liveEnabled ? 'disabled' : ''}`}>
@@ -479,11 +561,14 @@ export function CreateVideoForm({
               name="renderMode"
               checked={renderMode === 'live'}
               disabled={busy || !liveEnabled}
-              onChange={() => setRenderMode('live')}
+              onChange={() => {
+                setRenderMode('live');
+                if (draft) setDraftDirty(true);
+              }}
             />
             <span>
-              <strong>Gemini Live Multi-Agent</strong>
-              <small>{liveEnabled ? 'Structured Output via Gemini 2.5 Flash' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
+              <strong>Gemini Live Multi-Agent (Opt-in)</strong>
+              <small>{liveEnabled ? 'Structured Output (tối đa 4 request/job)' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
             </span>
           </label>
         </div>
@@ -498,11 +583,14 @@ export function CreateVideoForm({
               name="voiceoverMode"
               checked={voiceoverMode === 'none'}
               disabled={busy}
-              onChange={() => setVoiceoverMode('none')}
+              onChange={() => {
+                setVoiceoverMode('none');
+                if (draft) setDraftDirty(true);
+              }}
             />
             <span>
-              <strong>Không giọng đọc</strong>
-              <small>Video im tiếng, phụ đề đồng bộ</small>
+              <strong>Không giọng đọc (Mặc định)</strong>
+              <small>Video im tiếng, phụ đề đồng bộ — 0 cuộc gọi TTS</small>
             </span>
           </label>
           <label className={`mode-option ${voiceoverMode === 'gemini_tts' ? 'selected' : ''} ${!geminiTtsEnabled ? 'disabled' : ''}`}>
@@ -511,11 +599,14 @@ export function CreateVideoForm({
               name="voiceoverMode"
               checked={voiceoverMode === 'gemini_tts'}
               disabled={busy || !geminiTtsEnabled}
-              onChange={() => setVoiceoverMode('gemini_tts')}
+              onChange={() => {
+                setVoiceoverMode('gemini_tts');
+                if (draft) setDraftDirty(true);
+              }}
             />
             <span>
-              <strong>Gemini TTS</strong>
-              <small>{geminiTtsEnabled ? 'Giọng Kore tiếng Việt; có sử dụng mạng và quota' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
+              <strong>Gemini TTS (Opt-in)</strong>
+              <small>{geminiTtsEnabled ? 'Giọng Kore tiếng Việt (tối đa 5 request/job)' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
             </span>
           </label>
           <label className={`mode-option ${voiceoverMode === 'google_cloud_tts' ? 'selected' : ''} ${!googleTtsEnabled ? 'disabled' : ''}`}>
@@ -524,10 +615,13 @@ export function CreateVideoForm({
               name="voiceoverMode"
               checked={voiceoverMode === 'google_cloud_tts'}
               disabled={busy || !googleTtsEnabled}
-              onChange={() => setVoiceoverMode('google_cloud_tts')}
+              onChange={() => {
+                setVoiceoverMode('google_cloud_tts');
+                if (draft) setDraftDirty(true);
+              }}
             />
             <span>
-              <strong>Google Cloud TTS</strong>
+              <strong>Google Cloud TTS (Opt-in)</strong>
               <small>{googleTtsEnabled ? 'Neural2-A Tiếng Việt tự nhiên' : 'Chưa cấu hình Google Cloud'}</small>
             </span>
           </label>
@@ -539,13 +633,45 @@ export function CreateVideoForm({
           type="checkbox"
           checked={subtitlesEnabled}
           disabled={busy}
-          onChange={(event) => setSubtitlesEnabled(event.target.checked)}
+          onChange={(event) => {
+            setSubtitlesEnabled(event.target.checked);
+            if (draft) setDraftDirty(true);
+          }}
         />
         <span>
           <strong>Burned-in subtitles</strong>
           <small>Phụ đề tiếng Việt đồng bộ từng phân đoạn cảnh; kiểm định an toàn hiển thị.</small>
         </span>
       </label>
+
+      {requiresExternalApi ? (
+        <div
+          style={{
+            marginTop: '12px',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            border: '1px solid #f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            fontSize: '13px'
+          }}
+        >
+          <strong style={{ color: '#fbbf24' }}>⚠️ Xác nhận sử dụng API ngoài & Ngân sách Quota (Free Tier Safety):</strong>
+          <ul style={{ margin: '6px 0 8px 18px', color: 'var(--text-secondary)' }}>
+            <li>Gemini Live Planning/Narration: <strong>{renderMode === 'live' ? 'BẬT (tối đa 4 request/job)' : 'TẮT (0 request)'}</strong></li>
+            <li>Tổng hợp giọng đọc TTS: <strong>{voiceoverMode === 'gemini_tts' ? 'Gemini TTS (tối đa 5 request/job)' : voiceoverMode === 'google_cloud_tts' ? 'Google Cloud TTS' : 'TẮT'}</strong></li>
+            <li>Phong cách hình ảnh: <code>{visualStyleId}</code> | Phụ đề: <strong>{subtitlesEnabled ? 'BẬT' : 'TẮT'}</strong></li>
+          </ul>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={confirmExternalApi}
+              disabled={busy}
+              onChange={(e) => setConfirmExternalApi(e.target.checked)}
+            />
+            <span>Tôi xác nhận cho phép thực hiện các cuộc gọi API bên ngoài theo giới hạn ngân sách trên.</span>
+          </label>
+        </div>
+      ) : null}
 
       {/* Action Buttons: Draft Review or Direct Render */}
       <div style={{ display: 'flex', gap: '12px', marginTop: '1.5rem' }}>
@@ -649,9 +775,33 @@ export function CreateVideoForm({
                     }}
                   />
                   <strong style={{ color: claim.verificationStatus === 'verified' ? '#4ade80' : '#f87171' }}>{claim.verificationStatus}</strong>
+                  {claim.statementVerification ? (
+                    <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      [{claim.statementVerification}]
+                    </span>
+                  ) : null}
+                  {claim.canonicalStatement ? (
+                    <div style={{ fontSize: '11px', color: 'var(--accent-cyan)', marginTop: '2px' }}>
+                      Canonical (SymPy): <code>{claim.canonicalStatement}</code>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
+            {draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified') ? (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: '#fbbf24' }}>
+                <input
+                  type="checkbox"
+                  checked={confirmSemanticReview}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setConfirmSemanticReview(e.target.checked);
+                    setDraftDirty(true);
+                  }}
+                />
+                <span>Giáo viên xác nhận mệnh đề diễn giải tự do khớp ngữ nghĩa với biểu thức SymPy đã kiểm chứng.</span>
+              </label>
+            ) : null}
           </div>
 
           {draft.narrationPlan?.segments.length ? (
@@ -702,15 +852,26 @@ export function CreateVideoForm({
             </div>
           </div>
 
-          <button
-            type="button"
-            className="btn-generate"
-            style={{ width: '100%', marginTop: '12px' }}
-            disabled={busy || !draftDirty}
-            onClick={handleSaveDraft}
-          >
-            {uiState === 'saving' ? 'Đang lưu và xác minh lại…' : 'Lưu chỉnh sửa & chạy lại SymPy'}
-          </button>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+            <button
+              type="button"
+              className="btn-generate"
+              style={{ flex: 2 }}
+              disabled={busy || !draftDirty}
+              onClick={handleSaveDraft}
+            >
+              {uiState === 'saving' ? 'Đang lưu và xác minh lại…' : 'Lưu chỉnh sửa & chạy lại SymPy'}
+            </button>
+            <button
+              type="button"
+              className="quick-chip"
+              style={{ flex: 1 }}
+              disabled={busy}
+              onClick={handleReloadDraft}
+            >
+              ↻ Khôi phục từ bản thảo đã lưu
+            </button>
+          </div>
 
           <button
             type="button"

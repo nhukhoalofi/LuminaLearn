@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { LUMINA_VERTICAL_LAYOUT, type RenderManifestV2 } from '@luminalearn/scene-schema';
+import { probeAudioSignal, type AudioSignalClassification, type AudioSignalProbeResult } from './audio';
 import type { VerifiedVideoMetadata } from './ffprobe';
 
 export type VisualQaStatus = 'pass' | 'fail' | 'requires_manual_review';
@@ -13,6 +14,12 @@ export interface VisualQaReport {
   contactSheet: string;
   sampledFrames: number[];
   checks: VisualQaCheck[];
+  audioSignal?: {
+    meanVolumeDb: number;
+    maxVolumeDb: number;
+    isSilent: boolean;
+    audioClassification: AudioSignalClassification;
+  };
   passed: boolean;
   requiresManualReview: boolean;
 }
@@ -131,21 +138,107 @@ async function createContactSheet(videoPath: string, jobDirectory: string, manif
   return { path: outputPath, frames };
 }
 
+export function evaluateAudioTruthfulness(options: {
+  hasAudioStream: boolean;
+  ttsSelected: boolean;
+  ttsProviderId?: string;
+  signal?: AudioSignalProbeResult;
+  audioListeningConfirmed?: boolean;
+}): [VisualQaCheck, VisualQaCheck] {
+  const { hasAudioStream, ttsSelected, ttsProviderId, signal, audioListeningConfirmed = false } = options;
+  const presenceCheck: VisualQaCheck = {
+    id: 'audio_presence',
+    status: !ttsSelected || hasAudioStream ? 'pass' : 'fail',
+    evidence: ttsSelected
+      ? `Narration selected; FFprobe audio stream present=${hasAudioStream}.`
+      : `Narration not selected; audio stream is optional (present=${hasAudioStream}).`
+  };
+
+  if (!hasAudioStream) {
+    return [
+      presenceCheck,
+      {
+        id: 'audible_speech',
+        status: ttsSelected ? 'fail' : 'pass',
+        evidence: ttsSelected
+          ? 'Narration was selected, but no audio stream is present in the output MP4.'
+          : 'Narration was not selected; no audio stream expected.'
+      }
+    ];
+  }
+
+  const meanDb = signal?.meanVolumeDb ?? -91.0;
+  const maxDb = signal?.maxVolumeDb ?? -91.0;
+  const isSilent = signal ? signal.isSilent : true;
+
+  if (isSilent) {
+    const isLiveTtsProvider =
+      ttsProviderId === 'gemini_tts' || ttsProviderId === 'google_cloud_tts';
+    return [
+      presenceCheck,
+      {
+        id: 'audible_speech',
+        status: isLiveTtsProvider ? 'fail' : 'requires_manual_review',
+        evidence: isLiveTtsProvider
+          ? `silent_audio_error: Audio stream exists, but measured volume is silent (mean_volume=${meanDb.toFixed(1)} dB, max_volume=${maxDb.toFixed(1)} dB) despite live TTS provider '${ttsProviderId}'.`
+          : `silent_fixture: Audio stream exists (mean_volume=${meanDb.toFixed(1)} dB, max_volume=${maxDb.toFixed(1)} dB), but contains silent fixture audio rather than audible speech.`
+      }
+    ];
+  }
+
+  return [
+    presenceCheck,
+    {
+      id: 'audible_speech',
+      status: audioListeningConfirmed ? 'pass' : 'requires_manual_review',
+      evidence: audioListeningConfirmed
+        ? `audible_non_silent: Non-silent speech signal verified (mean_volume=${meanDb.toFixed(1)} dB, max_volume=${maxDb.toFixed(1)} dB) and human listening confirmed.`
+        : `audible_non_silent: Non-silent audio signal detected (mean_volume=${meanDb.toFixed(1)} dB, max_volume=${maxDb.toFixed(1)} dB); semantic speech quality requires human listening confirmation.`
+    }
+  ];
+}
+
 export async function createVisualQaReport(options: {
   videoPath: string;
   jobDirectory: string;
   manifest: RenderManifestV2;
   metadata: VerifiedVideoMetadata;
   ttsSelected: boolean;
+  ttsProviderId?: string;
   frameInspectionConfirmed?: boolean;
+  audioListeningConfirmed?: boolean;
 }): Promise<VisualQaReport> {
-  const { videoPath, jobDirectory, manifest, metadata, ttsSelected, frameInspectionConfirmed = false } = options;
+  const {
+    videoPath,
+    jobDirectory,
+    manifest,
+    metadata,
+    ttsSelected,
+    ttsProviderId,
+    frameInspectionConfirmed = false,
+    audioListeningConfirmed = false
+  } = options;
   const scan = await runFfmpeg(['-hide_banner', '-i', videoPath, '-vf', 'blackdetect=d=0.35:pix_th=0.02', '-an', '-f', 'null', '-']);
   const blackSegments = [...scan.matchAll(/black_start:([\d.]+) black_end:([\d.]+)/g)]
     .map((match) => ({ start: Number(match[1]), end: Number(match[2]) }))
     .filter((segment) => segment.start > 0.15 && segment.end < metadata.durationSeconds - 0.15);
   const durationDelta = Math.abs(metadata.durationSeconds - manifest.totalFrames / manifest.fps);
   const contactSheet = await createContactSheet(videoPath, jobDirectory, manifest);
+  const audioSignal = metadata.audio
+    ? await probeAudioSignal(videoPath).catch(() => ({
+        meanVolumeDb: -91.0,
+        maxVolumeDb: -91.0,
+        isSilent: true,
+        audioClassification: 'silent_fixture' as const
+      }))
+    : undefined;
+  const [audioPresenceCheck, audibleSpeechCheck] = evaluateAudioTruthfulness({
+    hasAudioStream: Boolean(metadata.audio),
+    ttsSelected,
+    ttsProviderId,
+    signal: audioSignal,
+    audioListeningConfirmed
+  });
   const checks: VisualQaCheck[] = [
     {
       id: 'sampled_frames',
@@ -157,7 +250,8 @@ export async function createVisualQaReport(options: {
     { id: 'black_frames', status: blackSegments.length === 0 ? 'pass' : 'fail', evidence: blackSegments.length === 0 ? 'FFmpeg blackdetect scanned all rendered frames; no unintended interior black segment >= 0.35s.' : `Interior black segments: ${JSON.stringify(blackSegments)}` },
     ...evaluateDeterministicVisualLayout(manifest),
     { id: 'dimensions_fps', status: metadata.width === manifest.dimensions.width && metadata.height === manifest.dimensions.height && metadata.fps === manifest.fps ? 'pass' : 'fail', evidence: `FFprobe=${metadata.width}x${metadata.height}@${metadata.fps}; manifest=${manifest.dimensions.width}x${manifest.dimensions.height}@${manifest.fps}.` },
-    { id: 'audio_presence', status: !ttsSelected || Boolean(metadata.audio) ? 'pass' : 'fail', evidence: ttsSelected ? `Narration selected; FFprobe audio stream present=${Boolean(metadata.audio)}.` : 'Narration not selected; audio stream is optional.' },
+    audioPresenceCheck,
+    audibleSpeechCheck,
     { id: 'duration_consistency', status: durationDelta <= Math.max(0.08, 1 / manifest.fps + 0.01) ? 'pass' : 'fail', evidence: `Rendered=${metadata.durationSeconds.toFixed(3)}s; timeline=${(manifest.totalFrames / manifest.fps).toFixed(3)}s; delta=${durationDelta.toFixed(3)}s.` }
   ];
   const hasFailures = checks.some((check) => check.status === 'fail');
@@ -165,6 +259,7 @@ export async function createVisualQaReport(options: {
   const report: VisualQaReport = {
     schemaVersion: 'visual-qa-v1', frameInspectionCompleted: frameInspectionConfirmed, inspectedMedia: basename(videoPath),
     contactSheet: basename(contactSheet.path), sampledFrames: contactSheet.frames, checks,
+    ...(audioSignal ? { audioSignal } : {}),
     passed: !hasFailures && !requiresManualReview, requiresManualReview
   };
   await writeFile(resolve(jobDirectory, 'visual-qa-report.json'), JSON.stringify(report, null, 2), 'utf8');

@@ -3,6 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { GoogleGenAI } from '@google/genai';
+import {
+  GeminiRequestBudget,
+  type GeminiRequestBudgetSummary,
+  classifyGeminiError as classifySharedGeminiError,
+  computeBackoffWithJitterMs
+} from '@luminalearn/scene-schema';
 import type { TtsProvider } from './audio';
 
 export interface GeminiSpeechRequest {
@@ -97,6 +103,8 @@ export interface GeminiTtsProviderOptions {
   timeoutMs?: number;
   maxAttempts?: number;
   retryBaseDelayMs?: number;
+  requestBudget?: GeminiRequestBudget;
+  randomFn?: () => number;
 }
 
 const SUPPORTED_GEMINI_TTS_MODELS = new Set([
@@ -116,33 +124,8 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   });
 }
 
-function statusFromError(error: unknown): number | undefined {
-  if (!error || typeof error !== 'object') return undefined;
-  const value = error as { status?: unknown; code?: unknown };
-  const status = Number(value.status ?? value.code);
-  return Number.isInteger(status) ? status : undefined;
-}
-
-function safeErrorMessage(error: unknown, apiKey?: string): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return apiKey ? raw.replaceAll(apiKey, '[REDACTED]') : raw;
-}
-
 function classifyGeminiError(error: unknown, apiKey?: string): Error {
-  const status = statusFromError(error);
-  const message = safeErrorMessage(error, apiKey);
-  if (status === 401 || status === 403) return new Error(`tts_authentication_failed: ${message}`);
-  if (status === 404) return new Error(`tts_model_unavailable: ${message}`);
-  if (status === 429) return new Error(`tts_quota_exceeded: ${message}`);
-  if (error instanceof DOMException && error.name === 'AbortError') return new Error('tts_timeout: Gemini TTS request timed out');
-  return new Error(`tts_provider_failed: ${message}`);
-}
-
-function isTransient(error: unknown): boolean {
-  const status = statusFromError(error);
-  if (status !== undefined) return status === 408 || status >= 500;
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return /timeout|timed out|econnreset|econnrefused|socket|network|fetch failed/.test(message);
+  return classifySharedGeminiError(error, 'tts', apiKey).error;
 }
 
 function decodeAudioPayload(data: string | Uint8Array): Buffer {
@@ -192,6 +175,8 @@ export class GeminiTtsProvider implements TtsProvider {
   private readonly timeoutMs: number;
   private readonly maxAttempts: number;
   private readonly retryBaseDelayMs: number;
+  private readonly budget: GeminiRequestBudget;
+  private readonly randomFn: () => number;
   private modelAvailability?: Promise<void>;
 
   constructor(options: GeminiTtsProviderOptions = {}) {
@@ -201,14 +186,20 @@ export class GeminiTtsProvider implements TtsProvider {
     const configuredLanguage = options.language ?? process.env.GEMINI_TTS_LANGUAGE ?? 'vi';
     this.languageCode = configuredLanguage === 'vi' ? 'vi-VN' : configuredLanguage;
     this.timeoutMs = options.timeoutMs ?? 45_000;
-    this.maxAttempts = options.maxAttempts ?? 3;
+    this.maxAttempts = options.maxAttempts ?? 2;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 300;
+    this.budget = options.requestBudget ?? new GeminiRequestBudget();
+    this.randomFn = options.randomFn ?? Math.random;
 
     if (!SUPPORTED_GEMINI_TTS_MODELS.has(this.model)) {
       throw new Error(`tts_model_unsupported: '${this.model}' is not an approved Gemini TTS model`);
     }
     if (!options.client && !this.apiKey) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
     this.client = options.client ?? new GoogleGenAiAudioClient(this.apiKey!);
+  }
+
+  public getBudgetSummary(): GeminiRequestBudgetSummary {
+    return this.budget.getSummary();
   }
 
   private async withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -238,8 +229,15 @@ export class GeminiTtsProvider implements TtsProvider {
     }
 
     let response: GeminiSpeechResponse | undefined;
-    let lastError: unknown;
+    let lastError: Error | undefined;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      let attemptId: number;
+      try {
+        attemptId = this.budget.consume('gemini_tts', this.model);
+      } catch (budgetErr) {
+        const msg = budgetErr instanceof Error ? budgetErr.message : String(budgetErr);
+        throw new Error(msg.replace(/^gemini_budget_exceeded/, 'tts_budget_exceeded'));
+      }
       try {
         response = await this.withTimeout((signal) => this.client.generateSpeech({
           model: this.model,
@@ -249,14 +247,23 @@ export class GeminiTtsProvider implements TtsProvider {
           styleInstruction: 'Giọng giáo viên Việt Nam tự nhiên, rõ ràng, tốc độ vừa phải. Đọc nguyên văn nội dung.',
           signal
         }));
+        this.budget.completeAttempt(attemptId, 'succeeded');
         break;
       } catch (error) {
-        lastError = error;
-        if (attempt >= this.maxAttempts || !isTransient(error)) break;
-        await new Promise((done) => setTimeout(done, this.retryBaseDelayMs * 2 ** (attempt - 1)));
+        const classified = classifySharedGeminiError(error, 'tts', this.apiKey);
+        this.budget.completeAttempt(attemptId, 'failed', classified.code);
+        lastError = classified.error;
+        if (attempt >= this.maxAttempts || !classified.retryable || !this.budget.canConsume('gemini_tts')) break;
+        const delayMs = computeBackoffWithJitterMs(
+          attempt,
+          this.retryBaseDelayMs,
+          classified.retryAfterMs,
+          this.randomFn
+        );
+        await new Promise((done) => setTimeout(done, delayMs));
       }
     }
-    if (!response) throw classifyGeminiError(lastError, this.apiKey);
+    if (!response) throw lastError ?? classifyGeminiError(new Error('Gemini TTS returned no response'), this.apiKey);
 
     const bytes = decodeAudioPayload(response.data);
     const format = parseAudioFormat(response, bytes);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RenderManifestV2Schema } from '@luminalearn/scene-schema';
-import { evaluateDeterministicVisualLayout } from '../src/visual-qa';
+import { evaluateAudioTruthfulness, evaluateDeterministicVisualLayout } from '../src/visual-qa';
 
 function manifest(subtitleText = 'Phụ đề ngắn, rõ ràng.') {
   return RenderManifestV2Schema.parse({
@@ -34,4 +34,53 @@ test('deterministic layout check catches unreadable font configuration and unsaf
   const checks = evaluateDeterministicVisualLayout(unsafe, { subtitleFontPx: 14 });
   assert.equal(checks.find((check) => check.id === 'safe_text_margins')?.status, 'fail');
   assert.equal(checks.find((check) => check.id === 'readable_font_size')?.status, 'fail');
+});
+
+test('evaluateAudioTruthfulness separates audio_presence from audible_speech and detects silent fixtures vs live TTS failure', () => {
+  // 1. Offline silent fixture (mock_tts) -> audio_presence: pass, audible_speech: requires_manual_review (silent_fixture)
+  const [presenceMock, audibleMock] = evaluateAudioTruthfulness({
+    hasAudioStream: true,
+    ttsSelected: false,
+    ttsProviderId: 'mock_tts',
+    signal: {
+      meanVolumeDb: -91.0,
+      maxVolumeDb: -91.0,
+      isSilent: true,
+      audioClassification: 'silent_fixture'
+    }
+  });
+  assert.equal(presenceMock.status, 'pass');
+  assert.equal(audibleMock.status, 'requires_manual_review');
+  assert.match(audibleMock.evidence, /silent_fixture/);
+
+  // 2. Live TTS (gemini_tts) returning silence -> audible_speech: fail
+  const [presenceLiveSilent, audibleLiveSilent] = evaluateAudioTruthfulness({
+    hasAudioStream: true,
+    ttsSelected: true,
+    ttsProviderId: 'gemini_tts',
+    signal: {
+      meanVolumeDb: -91.0,
+      maxVolumeDb: -91.0,
+      isSilent: true,
+      audioClassification: 'silent_fixture'
+    }
+  });
+  assert.equal(presenceLiveSilent.status, 'pass');
+  assert.equal(audibleLiveSilent.status, 'fail');
+  assert.match(audibleLiveSilent.evidence, /silent_audio_error/);
+
+  // 3. Non-silent audio signal -> audible_speech: requires_manual_review (or pass when confirmed)
+  const [, audibleNonSilent] = evaluateAudioTruthfulness({
+    hasAudioStream: true,
+    ttsSelected: true,
+    ttsProviderId: 'gemini_tts',
+    signal: {
+      meanVolumeDb: -18.4,
+      maxVolumeDb: -3.2,
+      isSilent: false,
+      audioClassification: 'audible_non_silent'
+    }
+  });
+  assert.equal(audibleNonSilent.status, 'requires_manual_review');
+  assert.match(audibleNonSilent.evidence, /audible_non_silent/);
 });

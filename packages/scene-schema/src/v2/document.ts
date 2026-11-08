@@ -32,6 +32,7 @@ export type DocumentChunk = z.infer<typeof DocumentChunkSchema>;
 export const SourceReferenceSchema = z.object({
   id: SafeIdString,
   documentId: SafeIdString,
+  chunkId: z.string().regex(/^[a-z0-9_-]{1,64}$/i).optional(),
   pageNumber: z.number().int().positive(),
   exactQuote: z.string().trim().min(3).max(1000),
   summary: z.string().trim().min(3).max(500).optional(),
@@ -40,10 +41,20 @@ export const SourceReferenceSchema = z.object({
 
 export type SourceReference = z.infer<typeof SourceReferenceSchema>;
 
+export const GroundingSupportStatusSchema = z.enum([
+  'supported',
+  'needs_review',
+  'unsupported'
+]);
+export type GroundingSupportStatus = z.infer<typeof GroundingSupportStatusSchema>;
+
 /**
  * Bằng chứng đối chiếu nguồn tài liệu (Grounding Evidence)
- * RẤT QUAN TRỌNG: Phân biệt rõ "evidence_found" (nội dung có trong tài liệu)
- * với "mathematically_verified" (nội dung đã qua kiểm định toán học hình thức).
+ * RẤT QUAN TRỌNG: Phân biệt rõ 4 trạng thái độc lập:
+ * 1. quoteExists (evidenceFound): trích dẫn có tồn tại nguyên văn trong tài liệu nguồn.
+ * 2. claimExtracted: có trích xuất được mệnh đề toán học cụ thể từ đoạn trích hay không.
+ * 3. supportStatus: đoạn trích có thực sự hỗ trợ ngữ nghĩa cho mệnh đề toán học đó hay không.
+ * 4. mathematical verification: chỉ do SymPy quyết định ở bước kiểm định độc lập.
  */
 export const GroundingEvidenceSchema = z.object({
   evidenceId: SafeIdString,
@@ -53,6 +64,10 @@ export const GroundingEvidenceSchema = z.object({
   evidenceMatchConfidence: z.number().min(0).max(1),
   matchType: z.enum(['exact', 'semantic', 'none']).default('exact'),
   isExactQuote: z.boolean().default(true),
+  quoteExists: z.boolean().optional(),
+  claimExtracted: z.boolean().optional(),
+  supportStatus: GroundingSupportStatusSchema.optional(),
+  verificationSeparationNote: z.string().max(300).optional(),
   notes: z.string().max(500).optional()
 }).strict();
 

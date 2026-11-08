@@ -15,6 +15,7 @@ import {
   type JobState,
   LocalJobRepository
 } from '@luminalearn/hybrid-renderer';
+import { assertOwnerMatch } from './security';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const documentsDir = resolve(repositoryRoot, 'outputs/.documents');
@@ -25,11 +26,29 @@ const globalServices = globalThis as typeof globalThis & {
   __luminaIngestionService?: DocumentIngestionService;
   __luminaDraftManager?: LessonDraftManager;
   __luminaMathVerifier?: MathVerificationService;
+  __luminaDocOwners?: Map<string, string>;
 };
 
 export const documentStore: DocumentStore =
   globalServices.__luminaDocStore ?? new DocumentStore();
 globalServices.__luminaDocStore = documentStore;
+
+export const documentOwners: Map<string, string> =
+  globalServices.__luminaDocOwners ?? new Map<string, string>();
+globalServices.__luminaDocOwners = documentOwners;
+
+export function registerDocumentOwner(documentId: string, ownerId: string): void {
+  documentOwners.set(documentId, ownerId);
+}
+
+export function assertDocumentsOwnedBy(documentIds: string[], callerOwnerId: string): void {
+  for (const docId of documentIds) {
+    const owner = documentOwners.get(docId);
+    if (owner) {
+      assertOwnerMatch(owner, callerOwnerId, `document '${docId}'`);
+    }
+  }
+}
 
 export const ingestionService: DocumentIngestionService =
   globalServices.__luminaIngestionService ??
@@ -60,6 +79,14 @@ export async function ensureDocumentsLoaded(documentIds: string[]): Promise<void
 }
 
 export function toLessonDraftResponse(draft: LessonDraft) {
+  const renderConfig = draft.approvedArtifact?.renderConfig ?? {
+    aspectRatio: draft.context.request.aspectRatio ?? '9:16',
+    fps: 24,
+    renderMode: draft.context.request.renderMode ?? 'mock',
+    narrationMode: draft.context.request.narrationMode ?? 'none',
+    visualStyleId: draft.context.request.visualStyleId ?? 'clean_educational_infographic',
+    subtitlesEnabled: draft.context.request.subtitlesEnabled ?? true
+  };
   return {
     draftId: draft.draftId,
     version: draft.version,
@@ -67,6 +94,16 @@ export function toLessonDraftResponse(draft: LessonDraft) {
     stage: draft.context.stage,
     error: draft.context.error,
     updatedAt: draft.updatedAt,
+    renderConfig,
+    requestBudget: draft.context.requestBudget,
+    estimatedApiBudget: {
+      livePlanningCallsMax: renderConfig.renderMode === 'live' ? 4 : 0,
+      ttsCallsMax: renderConfig.narrationMode === 'gemini_tts' ? 5 : 0,
+      externalApiRequired:
+        renderConfig.renderMode === 'live' ||
+        renderConfig.narrationMode === 'gemini_tts' ||
+        renderConfig.narrationMode === 'google_cloud_tts'
+    },
     lessonPlan: draft.context.lessonPlan,
     mathVerification: draft.context.mathVerification,
     narrationPlan: draft.context.narrationPlan,

@@ -1,7 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import type {
-  LessonPlanV2,
-  NarrationPlanV2
+import {
+  classifyGeminiError,
+  computeBackoffWithJitterMs,
+  GeminiRequestBudget,
+  redactSecrets,
+  type LessonPlanV2,
+  type NarrationPlanV2
 } from '@luminalearn/scene-schema';
 
 export type AIProviderMode = 'ai_generated_live' | 'deterministic_mock';
@@ -12,12 +16,14 @@ export interface AIStructuredRequest<T> {
   userPrompt: string;
   jsonSchema?: unknown;
   validator: (data: unknown) => T;
+  requestBudget?: GeminiRequestBudget;
 }
 
 export interface AIProviderResult<T> {
   data: T;
   mode: AIProviderMode;
   model: string;
+  attempts?: number;
   usage?: {
     promptTokens?: number;
     candidatesTokens?: number;
@@ -29,73 +35,169 @@ export interface AIProvider {
   generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>>;
 }
 
+export interface GeminiRawTransportResponse {
+  text?: string;
+  usage?: {
+    promptTokens?: number;
+    candidatesTokens?: number;
+  };
+}
+
+export type GeminiRawTransport = (
+  fullPrompt: string,
+  request: AIStructuredRequest<unknown>,
+  model: string
+) => Promise<GeminiRawTransportResponse>;
+
 export interface LiveGeminiAIProviderOptions {
   apiKey?: string;
   model?: string;
   timeoutMs?: number;
   maxRetries?: number;
+  retryBaseDelayMs?: number;
+  requestBudget?: GeminiRequestBudget;
+  transport?: GeminiRawTransport;
+  randomFn?: () => number;
 }
 
 export class LiveGeminiAIProvider implements AIProvider {
   public readonly isMock = false;
-  private readonly client: GoogleGenAI;
+  private readonly apiKey: string;
+  private readonly client?: GoogleGenAI;
   private readonly model: string;
   private readonly maxRetries: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly defaultBudget?: GeminiRequestBudget;
+  private readonly transport?: GeminiRawTransport;
+  private readonly randomFn: () => number;
 
   constructor(options: LiveGeminiAIProviderOptions = {}) {
     const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is required for LiveGeminiAIProvider. Live paid calls cannot be performed without valid credentials.');
+    if (!apiKey && !options.transport) {
+      throw new Error('gemini_api_key_missing: GEMINI_API_KEY is required for LiveGeminiAIProvider. Live paid calls cannot be performed without valid credentials.');
     }
+    this.apiKey = apiKey ?? '';
     this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
-    this.maxRetries = options.maxRetries ?? 2;
-    this.client = new GoogleGenAI({
-      apiKey,
-      httpOptions: { timeout: options.timeoutMs ?? 30_000 }
-    });
+    this.maxRetries = options.maxRetries ?? 1;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 250;
+    this.defaultBudget = options.requestBudget;
+    this.transport = options.transport;
+    this.randomFn = options.randomFn ?? Math.random;
+    if (!this.transport) {
+      this.client = new GoogleGenAI({
+        apiKey: this.apiKey,
+        httpOptions: { timeout: options.timeoutMs ?? 30_000 }
+      });
+    }
   }
 
   public async generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>> {
-    let lastError: unknown;
+    const budget = request.requestBudget ?? this.defaultBudget ?? new GeminiRequestBudget();
+    const category = request.purpose === 'narration_planning' ? 'narration_planning' : 'curriculum_planning';
+    const fullPrompt = request.systemPrompt
+      ? `${request.systemPrompt}\n\nUSER REQUEST:\n${request.userPrompt}`
+      : request.userPrompt;
+
+    let attempts = 0;
+    let lastError: Error | undefined;
+
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      const attemptId = budget.consume(category, this.model);
+      attempts += 1;
+
       try {
-        const fullPrompt = request.systemPrompt
-          ? `${request.systemPrompt}\n\nUSER REQUEST:\n${request.userPrompt}`
-          : request.userPrompt;
+        let responseText: string | undefined;
+        let promptTokens: number | undefined;
+        let candidatesTokens: number | undefined;
 
-        const response = await this.client.models.generateContent({
-          model: this.model,
-          contents: fullPrompt,
-          config: {
-            temperature: 0.2,
-            responseMimeType: 'application/json',
-            ...(request.jsonSchema ? { responseJsonSchema: request.jsonSchema } : {})
-          }
-        });
-
-        if (!response.text) {
-          throw new Error('Gemini API returned an empty text response for structured request');
+        if (this.transport) {
+          const customResponse = await this.transport(fullPrompt, request as AIStructuredRequest<unknown>, this.model);
+          responseText = customResponse.text;
+          promptTokens = customResponse.usage?.promptTokens;
+          candidatesTokens = customResponse.usage?.candidatesTokens;
+        } else {
+          const response = await this.client!.models.generateContent({
+            model: this.model,
+            contents: fullPrompt,
+            config: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+              ...(request.jsonSchema ? { responseJsonSchema: request.jsonSchema } : {})
+            }
+          });
+          responseText = response.text;
+          promptTokens = response.usageMetadata?.promptTokenCount;
+          candidatesTokens = response.usageMetadata?.candidatesTokenCount;
         }
 
-        const rawJson = JSON.parse(response.text);
-        const validated = request.validator(rawJson);
+        if (!responseText) {
+          const emptyErr = new Error('gemini_empty_response: Gemini API returned an empty text response for structured request');
+          budget.completeAttempt(attemptId, 'failed', 'gemini_empty_response');
+          throw emptyErr;
+        }
 
+        let rawJson: unknown;
+        try {
+          rawJson = JSON.parse(responseText);
+        } catch (parseErr) {
+          const syntaxErr = new Error(
+            `gemini_invalid_json: ${redactSecrets(parseErr instanceof Error ? parseErr.message : String(parseErr), this.apiKey)}`
+          );
+          budget.completeAttempt(attemptId, 'failed', 'gemini_invalid_json');
+          throw syntaxErr;
+        }
+
+        let validated: T;
+        try {
+          validated = request.validator(rawJson);
+        } catch (valErr) {
+          const schemaErr = new Error(
+            `gemini_schema_invalid: ${redactSecrets(valErr instanceof Error ? valErr.message : String(valErr), this.apiKey)}`
+          );
+          budget.completeAttempt(attemptId, 'failed', 'gemini_schema_invalid');
+          throw schemaErr;
+        }
+
+        budget.completeAttempt(attemptId, 'succeeded');
         return {
           data: validated,
           mode: 'ai_generated_live',
           model: this.model,
+          attempts,
           usage: {
-            promptTokens: response.usageMetadata?.promptTokenCount,
-            candidatesTokens: response.usageMetadata?.candidatesTokenCount
+            promptTokens,
+            candidatesTokens
           }
         };
       } catch (error) {
-        lastError = error;
-        if (attempt === this.maxRetries) break;
+        if (
+          error instanceof Error &&
+          /^(gemini_empty_response|gemini_invalid_json|gemini_schema_invalid|gemini_budget_exceeded)/.test(error.message)
+        ) {
+          // Schema / JSON errors are NOT retried inside LiveGeminiAIProvider to prevent nested retry amplification.
+          throw error;
+        }
+
+        const classified = classifyGeminiError(error, 'gemini', this.apiKey);
+        budget.completeAttempt(attemptId, 'failed', classified.code);
+        lastError = classified.error;
+
+        // Fail immediately on non-retryable errors (401, 403, 404, 429, timeout, etc.)
+        if (!classified.retryable || attempt >= this.maxRetries || !budget.canConsume(category)) {
+          throw classified.error;
+        }
+
+        const delayMs = computeBackoffWithJitterMs(
+          attempt + 1,
+          this.retryBaseDelayMs,
+          classified.retryAfterMs,
+          this.randomFn
+        );
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, delayMs));
       }
     }
 
-    throw new Error(`LiveGeminiAIProvider failed after ${this.maxRetries + 1} attempt(s)`, { cause: lastError });
+    throw lastError ?? new Error(`gemini_provider_failed: LiveGeminiAIProvider failed after ${attempts} attempt(s)`);
   }
 }
 
@@ -122,7 +224,8 @@ export class MockAIProvider implements AIProvider {
       return {
         data: validated,
         mode: 'deterministic_mock',
-        model: 'lumina-mock-agent-v2'
+        model: 'lumina-mock-agent-v2',
+        attempts: 1
       };
     }
 
@@ -206,7 +309,8 @@ export class MockAIProvider implements AIProvider {
       return {
         data: validated,
         mode: 'deterministic_mock',
-        model: 'lumina-mock-agent-v2'
+        model: 'lumina-mock-agent-v2',
+        attempts: 1
       };
     }
 
@@ -253,7 +357,8 @@ export class MockAIProvider implements AIProvider {
       return {
         data: validated,
         mode: 'deterministic_mock',
-        model: 'lumina-mock-agent-v2'
+        model: 'lumina-mock-agent-v2',
+        attempts: 1
       };
     }
 
@@ -262,8 +367,8 @@ export class MockAIProvider implements AIProvider {
     return {
       data: validated,
       mode: 'deterministic_mock',
-      model: 'lumina-mock-agent-v2'
+      model: 'lumina-mock-agent-v2',
+      attempts: 1
     };
   }
 }
-

@@ -1,29 +1,65 @@
 import { NextResponse } from 'next/server';
-import { draftManager, ensureDocumentsLoaded, toLessonDraftResponse } from '@/server/v2-services';
+import {
+  assertDocumentsOwnedBy,
+  draftManager,
+  ensureDocumentsLoaded,
+  toLessonDraftResponse
+} from '@/server/v2-services';
+import {
+  assertExternalApiConfirmed,
+  assertRequestAuthorized,
+  readBoundedJson,
+  resolveOwnerId,
+  SecurityError
+} from '@/server/security';
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const requestId = body.requestId || `req_${Date.now()}`;
-    const sourceDocumentIds = Array.isArray(body.sourceDocumentIds) ? body.sourceDocumentIds : [];
+    assertRequestAuthorized(req);
+    const ownerId = resolveOwnerId(req);
+    const body = await readBoundedJson<Record<string, unknown>>(req);
+    const requestId = typeof body.requestId === 'string' && body.requestId ? body.requestId : `req_${Date.now()}`;
+    const sourceDocumentIds = Array.isArray(body.sourceDocumentIds)
+      ? body.sourceDocumentIds.map((id) => String(id))
+      : [];
 
+    assertDocumentsOwnedBy(sourceDocumentIds, ownerId);
     await ensureDocumentsLoaded(sourceDocumentIds);
+
+    const renderMode = (body.renderMode === 'live' ? 'live' : 'mock') as 'mock' | 'live';
+    const narrationMode = (
+      typeof body.narrationMode === 'string' ? body.narrationMode : 'none'
+    ) as 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
+
+    assertExternalApiConfirmed({
+      renderMode,
+      narrationMode: 'none', // Draft creation only calls Gemini text planning/narration when renderMode === 'live'
+      confirmExternalApi: body.confirmExternalApi === true,
+      headerConfirmed: req.headers.get('x-lumina-confirm-external-api') === 'true'
+    });
 
     const requestPayload = {
       requestId,
-      inputMode: body.inputMode || (sourceDocumentIds.length ? 'source_document' : 'topic_prompt'),
-      topic: body.topic || 'Bản chất hình học của đạo hàm',
+      inputMode: (body.inputMode || (sourceDocumentIds.length ? 'source_document' : 'topic_prompt')) as
+        | 'topic_prompt'
+        | 'source_document',
+      topic: typeof body.topic === 'string' && body.topic ? body.topic : 'Bản chất hình học của đạo hàm',
       sourceDocumentIds,
-      audience: body.audience || 'Học sinh phổ thông',
-      language: body.language || 'vi',
-      targetDurationSeconds: body.targetDurationSeconds || 40,
-      renderMode: body.renderMode || 'mock',
-      narrationMode: body.narrationMode || 'none',
-      visualStyleId: body.visualStyleId || 'clean_educational_infographic',
-      aspectRatio: body.aspectRatio || '9:16'
+      audience: typeof body.audience === 'string' && body.audience ? body.audience : 'Học sinh phổ thông',
+      language: (body.language === 'en' ? 'en' : 'vi') as 'vi' | 'en',
+      targetDurationSeconds: typeof body.targetDurationSeconds === 'number' ? body.targetDurationSeconds : 40,
+      renderMode,
+      narrationMode,
+      visualStyleId: (
+        body.visualStyleId === 'math_chalkboard' ? 'math_chalkboard' : 'clean_educational_infographic'
+      ) as 'math_chalkboard' | 'clean_educational_infographic',
+      subtitlesEnabled: body.subtitlesEnabled !== undefined ? Boolean(body.subtitlesEnabled) : true,
+      aspectRatio: (
+        body.aspectRatio === '16:9' || body.aspectRatio === '1:1' ? body.aspectRatio : '9:16'
+      ) as '9:16' | '16:9' | '1:1'
     };
 
-    const draft = await draftManager.createDraft(requestPayload);
+    const draft = await draftManager.createDraft(requestPayload, ownerId);
     if (
       draft.status === 'rejected' ||
       draft.context.stage === 'failed' ||
@@ -40,6 +76,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json(toLessonDraftResponse(draft));
   } catch (error) {
+    if (error instanceof SecurityError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
+        { status: error.status }
+      );
+    }
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { error: 'draft_creation_failed', message },

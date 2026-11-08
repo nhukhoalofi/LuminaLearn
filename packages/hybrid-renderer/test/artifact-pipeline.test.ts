@@ -1,10 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   compileStoryboardV2,
+  RenderManifestV2Schema,
   type ApprovedRenderArtifactV2,
   type NarrationPlanV2,
   type StoryboardV2
@@ -12,10 +14,17 @@ import {
 import {
   computeArtifactContentHash,
   computeVerificationBindingHash,
+  DocumentIngestionService,
+  DocumentStore,
+  LessonDraftManager,
+  LessonOrchestrator,
+  MathVerificationService,
   verifyArtifactIntegrity
 } from '@luminalearn/agent';
 import { synthesizeNarrationV2, MockTtsProvider } from '../src/audio';
+import { probeFinalVideo } from '../src/ffprobe';
 import { runHybridPipelineV2 } from '../src/pipeline-v2';
+import { createVisualQaReport } from '../src/visual-qa';
 
 describe('Artifact-Driven Pipeline & Timeline Alignment (Phase 0)', () => {
   const root = mkdtempSync(join(tmpdir(), 'lumina-artifact-pipeline-'));
@@ -266,6 +275,123 @@ describe('Artifact-Driven Pipeline & Timeline Alignment (Phase 0)', () => {
     // Cue must end at audio duration (84 frames), NOT the scene end (192 frames)!
     assert.equal(cue1?.startFrame, 0);
     assert.equal(cue1?.endFrame, 84);
+  });
+
+  it('executes the V2.4.3 offline E2E user journey (Document -> Draft -> Invalid Edit -> SymPy Reject -> Fix -> Style/Subtitles -> Immutable Artifact -> Media/Audio QA)', async () => {
+    const e2eRoot = join(root, 'e2e_journey');
+    const docStore = new DocumentStore();
+    const ingestion = new DocumentIngestionService({ storageDir: join(e2eRoot, 'docs') });
+    const verifier = new MathVerificationService();
+    const orchestrator = new LessonOrchestrator({ documentStore: docStore, verifier });
+    const draftManager = new LessonDraftManager({
+      artifactsDir: join(e2eRoot, 'artifacts'),
+      draftsDir: join(e2eRoot, 'drafts'),
+      orchestrator,
+      verifier
+    });
+
+    // 1. Ingest Markdown source document
+    const mdText = [
+      '# Bài giảng Giải tích: Tổng Riemann và Tích phân xác định',
+      'Xét hàm số f(x) = x^2 trên đoạn [0, 1].',
+      'Khi chia đoạn [0, 1] thành n hình chữ nhật mỏng, giới hạn của tổng diện tích khi n tiến ra vô cực hội tụ về tích phân xác định của x^2 trên [0, 1] bằng 1/3.'
+    ].join('\n\n');
+    const ingested = await ingestion.ingestText(mdText, 'riemann-lesson.md');
+    docStore.addChunks(ingested.chunks);
+
+    // 2. Generate draft from source document (offline mock mode, 0 external API calls)
+    const draft = await draftManager.createDraft({
+      requestId: 'req_e2e_v243',
+      inputMode: 'source_document',
+      sourceDocumentIds: [ingested.documentId],
+      topic: 'Tổng Riemann và tích phân của x^2',
+      audience: 'Học sinh lớp 12',
+      language: 'vi',
+      targetDurationSeconds: 40,
+      renderMode: 'mock',
+      narrationMode: 'none',
+      visualStyleId: 'clean_educational_infographic',
+      subtitlesEnabled: true,
+      aspectRatio: '9:16'
+    }, 'teacher_demo_session');
+
+    assert.equal(draft.status, 'draft');
+    assert.equal(draft.context.mathVerification?.status, 'verified');
+    assert.equal(draft.context.requestBudget?.counts.totalAllRequests, 0, 'Offline mode must make 0 external API calls');
+
+    // 3. Teacher edits a mathematical claim to an invalid expression (1/2 instead of 1/3)
+    const badClaims = structuredClone(draft.context.lessonPlan!.mathematicalClaims);
+    badClaims[0].statement = 'Tích phân xác định của x^2 trên [0, 1] bằng 1/2';
+    badClaims[0].expectedExpression = '1/2';
+    await draftManager.updateDraft(draft.draftId, {
+      mathematicalClaims: badClaims
+    });
+
+    // 4. SymPy rejects it and blocks approval
+    assert.equal(draft.context.mathVerification?.status, 'failed');
+    assert.equal(draft.status, 'reviewing');
+    await assert.rejects(
+      async () => draftManager.approveDraft(draft.draftId),
+      /Cannot approve draft/
+    );
+
+    // 5. Teacher fixes the claim back to 1/3, selects math_chalkboard style and subtitlesEnabled=true
+    const fixedClaims = structuredClone(draft.context.lessonPlan!.mathematicalClaims);
+    fixedClaims[0].statement = 'Tích phân xác định của x^2 trên [0, 1] bằng 1/3';
+    fixedClaims[0].expectedExpression = '1/3';
+    await draftManager.updateDraft(draft.draftId, {
+      mathematicalClaims: fixedClaims,
+      visualStyleId: 'math_chalkboard',
+      subtitlesEnabled: true
+    });
+
+    // 6. SymPy re-verifies
+    assert.equal(draft.context.mathVerification?.status, 'verified');
+
+    // 7 & 8. Teacher approves draft -> immutable artifact is saved to disk
+    const approved = await draftManager.approveDraft(draft.draftId, 'Approved after fixing integral claim');
+    assert.equal(approved.status, 'approved');
+    assert.ok(approved.approvedArtifact);
+    assert.equal(approved.approvedArtifact.renderConfig.visualStyleId, 'math_chalkboard');
+    assert.equal(approved.approvedArtifact.renderConfig.subtitlesEnabled, true);
+    assert.equal(verifyArtifactIntegrity(approved.approvedArtifact), true);
+
+    const diskArtifact = await draftManager.loadArtifactFromDisk(approved.approvedArtifact.artifactId);
+    assert.ok(diskArtifact);
+    assert.equal(diskArtifact.contentHash, approved.approvedArtifact.contentHash);
+
+    // 9. Verify real rendered MP4 & Visual/Audio QA report on outputs/job-20261107171652-3cc5c0df
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+    const demoJobDir = resolve(repoRoot, 'outputs/job-20261107171652-3cc5c0df');
+    const demoMp4 = resolve(demoJobDir, 'final.mp4');
+    if (existsSync(demoMp4)) {
+      const demoManifest = RenderManifestV2Schema.parse(
+        JSON.parse(readFileSync(resolve(demoJobDir, 'video-manifest.json'), 'utf8'))
+      );
+      const metadata = await probeFinalVideo(demoMp4, {
+        timeoutMs: 30_000,
+        requireAudio: true,
+        expectedFrames: demoManifest.totalFrames,
+        expectedDurationSeconds: demoManifest.totalFrames / demoManifest.fps
+      });
+      const qaReport = await createVisualQaReport({
+        videoPath: demoMp4,
+        jobDirectory: demoJobDir,
+        manifest: demoManifest,
+        metadata,
+        ttsSelected: true,
+        ttsProviderId: 'mock_tts'
+      });
+
+      const presenceCheck = qaReport.checks.find((c) => c.id === 'audio_presence');
+      const audibleCheck = qaReport.checks.find((c) => c.id === 'audible_speech');
+      assert.equal(presenceCheck?.status, 'pass');
+      assert.equal(audibleCheck?.status, 'requires_manual_review');
+      assert.match(audibleCheck?.evidence ?? '', /silent_fixture/);
+      assert.equal(qaReport.audioSignal?.isSilent, true);
+      assert.equal(qaReport.audioSignal?.audioClassification, 'silent_fixture');
+      assert.ok(existsSync(resolve(demoJobDir, 'subtitles.srt')));
+    }
   });
 
   // Cleanup

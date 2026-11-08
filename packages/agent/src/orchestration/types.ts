@@ -1,4 +1,8 @@
 import type {
+  DocumentChunk,
+  GeminiRequestBudgetSummary,
+  GroundingEvidence,
+  GroundingSupportStatus,
   LessonPlanV2,
   LessonRequestV2,
   NarrationPlanV2,
@@ -7,7 +11,6 @@ import type {
   TeachingTreatmentV2,
   VerifiedClaim
 } from '@luminalearn/scene-schema';
-import type { DocumentChunk, GroundingEvidence } from '@luminalearn/scene-schema';
 
 export type OrchestrationStage =
   | 'normalized'
@@ -53,8 +56,11 @@ export interface DocumentAnalysisResult {
     quote: string;
     pageNumber: number;
     documentId: string;
+    chunkId?: string;
+    supportStatus?: GroundingSupportStatus;
   }>;
   evidence: GroundingEvidence[];
+  unverifiedClaimsReason?: string;
 }
 
 export interface SourceContextBundle {
@@ -74,6 +80,7 @@ export interface ProviderCallTrace {
   purpose: 'curriculum_planning' | 'narration_planning';
   mode: 'ai_generated_live' | 'deterministic_mock';
   model: string;
+  attempt?: number;
   promptTokens?: number;
   candidatesTokens?: number;
 }
@@ -83,6 +90,10 @@ export interface MathVerificationReportV2 {
   checkedClaims: VerifiedClaim[];
   verificationDetails: Record<string, {
     passed: boolean;
+    status?: 'verified' | 'incorrect' | 'needs_review' | 'rejected';
+    expected?: string;
+    received?: string;
+    reason?: string;
     computedExpression?: string;
     errorMessage?: string;
   }>;
@@ -95,6 +106,7 @@ export interface OrchestrationContext {
   documentAnalysis?: DocumentAnalysisResult;
   sourceContext?: SourceContextBundle;
   providerCalls?: ProviderCallTrace[];
+  requestBudget?: GeminiRequestBudgetSummary;
   lessonPlan?: LessonPlanV2;
   mathVerification?: MathVerificationReportV2;
   storyboard?: StoryboardV2;

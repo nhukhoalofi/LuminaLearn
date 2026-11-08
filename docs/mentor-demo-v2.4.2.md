@@ -128,8 +128,8 @@ Chi tiết truy vết tại [`docs/oss-adoption.md`](file:///d:/Hackathon/Lumina
    pnpm --filter @luminalearn/mcp-server demo:workflow -- job-20261107171652-3cc5c0df
    ```
 2. Mở trực tiếp các file kết quả thực tế trong `outputs/job-20261107171652-3cc5c0df/`:
-   - Phát video [`outputs/job-20261107171652-3cc5c0df/final.mp4`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/final.mp4) (`31.625s`, `720x1280`, 24fps, có âm thanh tiếng Việt và phụ đề).
-   - Mở [`outputs/job-20261107171652-3cc5c0df/contact-sheet.png`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/contact-sheet.png) và [`visual-qa-report.json`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/visual-qa-report.json) để chỉ rõ 7 cổng kiểm tra tự động và trạng thái `requires_manual_review` trung thực.
+   - Phát video [`outputs/job-20261107171652-3cc5c0df/final.mp4`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/final.mp4) (`31.625s`, `720x1280`, 24fps, có phụ đề tiếng Việt đồng bộ timeline và luồng âm thanh AAC `silent_fixture` `-91.0 dB` phục vụ kiểm thử offline không tốn quota; để phát giọng đọc có tín hiệu âm thanh thực tế (`audible_non_silent`), dùng `--provided-audio` hoặc bật Gemini TTS opt-in).
+   - Mở [`outputs/job-20261107171652-3cc5c0df/contact-sheet.png`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/contact-sheet.png) và [`visual-qa-report.json`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/visual-qa-report.json) để chỉ rõ các cổng kiểm tra tự động (phân biệt `audio_presence` với `audible_speech`) và trạng thái `requires_manual_review` trung thực.
    - Mở [`outputs/job-20261107171652-3cc5c0df/verification-report.json`](file:///d:/Hackathon/LuminaLearn/outputs/job-20261107171652-3cc5c0df/verification-report.json) để chỉ rõ SymPy đã chứng minh $\int_0^1 x^2 dx = 1/3$ và $\lim_{n\to\infty} S_n = 1/3$.
 
 ### Bước 2: Demo Luồng Web Tương Tác & Cổng Chặn SymPy (2 phút)

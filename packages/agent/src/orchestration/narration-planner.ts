@@ -1,4 +1,5 @@
 import {
+  GeminiRequestBudget,
   NarrationPlanV2Schema,
   type LessonPlanV2,
   type NarrationPlanV2,
@@ -7,6 +8,7 @@ import {
   type StoryboardV2
 } from '@luminalearn/scene-schema';
 import type { AIProvider } from './ai-provider';
+import { verifyNarrationAndStoryboardMathConsistency } from './math-verifier';
 import type { ProviderCallTrace } from './types';
 
 export class NarrationPlannerV2 {
@@ -17,9 +19,10 @@ export class NarrationPlannerV2 {
     language?: 'vi' | 'en';
     fps?: number;
     aiProvider?: AIProvider;
+    requestBudget?: GeminiRequestBudget;
     onProviderCall?: (trace: ProviderCallTrace) => void;
   }): Promise<NarrationPlanV2> {
-    const { planId, lessonPlan, storyboard, aiProvider } = options;
+    const { planId, lessonPlan, storyboard, aiProvider, requestBudget } = options;
     const language = options.language ?? 'vi';
     const fps = options.fps ?? 24;
 
@@ -36,9 +39,17 @@ export class NarrationPlannerV2 {
         purpose: 'narration_planning',
         systemPrompt: `You are an expert voiceover writer for LuminaLearn STEM lessons. Language: ${language}. Use only the independently verified claims and exact source references supplied. Preserve scene IDs exactly; do not invent citations or mathematical claims.`,
         userPrompt: `Generate NarrationPlanV2. Verified lesson plan: ${JSON.stringify(lessonPlan)}\nVerified claims: ${JSON.stringify(verifiedClaims)}\nExact source references: ${JSON.stringify(lessonPlan.sourceEvidence)}\nStoryboard scenes and goals: ${JSON.stringify(sceneContext)}`,
-        validator: (data) => NarrationPlanV2Schema.parse(data)
+        validator: (data) => NarrationPlanV2Schema.parse(data),
+        requestBudget
       });
-      options.onProviderCall?.({ purpose: 'narration_planning', mode: result.mode, model: result.model, promptTokens: result.usage?.promptTokens, candidatesTokens: result.usage?.candidatesTokens });
+      options.onProviderCall?.({
+        purpose: 'narration_planning',
+        mode: result.mode,
+        model: result.model,
+        ...(result.attempts !== undefined ? { attempt: result.attempts } : {}),
+        promptTokens: result.usage?.promptTokens,
+        candidatesTokens: result.usage?.candidatesTokens
+      });
       const expectedScenes = new Set(storyboard.scenes.map((scene) => scene.sceneId));
       const receivedScenes = new Set(result.data.segments.map((segment) => segment.sceneId));
       if (receivedScenes.size !== expectedScenes.size || [...receivedScenes].some((id) => !expectedScenes.has(id))) {
@@ -49,6 +60,14 @@ export class NarrationPlannerV2 {
       if (result.data.mathematicalReview.status !== 'verified' || reviewedIds.size !== verifiedIds.size ||
           [...reviewedIds].some((id) => !verifiedIds.has(id))) {
         throw new Error('narration_claim_mismatch: narration must reference the complete independently verified claim set and no others');
+      }
+      const mathConsistency = verifyNarrationAndStoryboardMathConsistency({
+        claims: lessonPlan.mathematicalClaims,
+        narrationPlan: result.data,
+        storyboard
+      });
+      if (!mathConsistency.valid) {
+        throw new Error(mathConsistency.conflicts.join('; '));
       }
       return result.data;
     }

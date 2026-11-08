@@ -3,7 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { MathVisualizationSpecV2, VerifiedClaim } from '@luminalearn/scene-schema';
+import type {
+  MathVisualizationSpecV2,
+  NarrationPlanV2,
+  StatementVerificationStatus,
+  StoryboardV2,
+  VerifiedClaim
+} from '@luminalearn/scene-schema';
 
 export interface VerificationCheckDetail {
   passed: boolean;
@@ -61,6 +67,266 @@ function runCommand(
       }
     );
   });
+}
+
+function formatPolynomialFromSpec(mathSpec?: MathVisualizationSpecV2): string {
+  const coeffs = mathSpec?.function.coefficients;
+  if (!coeffs || coeffs.length === 0) return 'x^2';
+  if (coeffs.length === 3 && coeffs[0] === 0 && coeffs[1] === 0 && coeffs[2] === 1) {
+    return 'x^2';
+  }
+  const terms: string[] = [];
+  for (let power = coeffs.length - 1; power >= 0; power -= 1) {
+    const c = coeffs[power];
+    if (c === 0) continue;
+    if (power === 0) terms.push(`${c}`);
+    else if (power === 1) terms.push(c === 1 ? 'x' : `${c}*x`);
+    else terms.push(c === 1 ? `x^${power}` : `${c}*x^${power}`);
+  }
+  return terms.length > 0 ? terms.join(' + ') : '0';
+}
+
+export function normalizeMathExpressionToken(raw: string): string {
+  let text = raw
+    .toLowerCase()
+    .trim()
+    .replace(/²/g, '^2')
+    .replace(/³/g, '^3')
+    .replace(/\*\*/g, '^')
+    .replace(/một phần ba/g, '1/3')
+    .replace(/một phần hai/g, '1/2')
+    .replace(/một phần tư/g, '1/4')
+    .replace(/hai x/g, '2*x')
+    .replace(/ba x/g, '3*x')
+    .replace(/bốn x/g, '4*x')
+    .replace(/\s+/g, '');
+
+  // Normalize implicit multiplication like 2x -> 2*x, 999x -> 999*x
+  text = text.replace(/(\d)([a-z])/g, '$1*$2');
+  // Normalize h+2 -> 2+h for commutative simple sum comparison
+  if (text === 'h+2') text = '2+h';
+  return text;
+}
+
+export function buildCanonicalClaimStatement(
+  claim: VerifiedClaim,
+  mathSpec?: MathVisualizationSpecV2
+): string {
+  const fnExpr = formatPolynomialFromSpec(mathSpec);
+  const pointX = mathSpec?.parameters.pointX ?? 1;
+  const interval = mathSpec?.parameters.interval ?? [0, 1];
+  const expected = claim.expectedExpression.trim();
+
+  switch (claim.validatorKey) {
+    case 'polynomial_derivative':
+      return `Với f(x) = ${fnExpr}, đạo hàm f'(x) = ${expected}`;
+    case 'secant_slope':
+      return `Trên f(x) = ${fnExpr} tại x = ${pointX}, hệ số góc cát tuyến m(h) = ${expected}`;
+    case 'limit_at_zero':
+      return `Giới hạn hệ số góc cát tuyến khi h -> 0 bằng ${expected}`;
+    case 'value_at_point':
+      return `Hệ số góc tiếp tuyến của f(x) = ${fnExpr} tại x = ${pointX} bằng ${expected}`;
+    case 'riemann_sum_limit':
+      return `Giới hạn tổng Riemann của f(x) = ${fnExpr} trên [${interval[0]}, ${interval[1]}] khi n -> ∞ bằng ${expected}`;
+    case 'definite_integral':
+      return `Tích phân xác định ∫_${interval[0]}^${interval[1]} ${fnExpr} dx = ${expected}`;
+    default:
+      return `${claim.validatorKey}: ${expected}`;
+  }
+}
+
+export interface StatementConsistencyEvaluation {
+  status: StatementVerificationStatus;
+  canonicalStatement: string;
+  extractedResults: string[];
+  reason?: string;
+}
+
+/**
+ * Deterministic analyzer separating formal SymPy verification of `expectedExpression`
+ * from the natural-language / formula display text in `claim.statement`.
+ */
+export function evaluateStatementConsistency(
+  claim: VerifiedClaim,
+  mathSpec?: MathVisualizationSpecV2
+): StatementConsistencyEvaluation {
+  const canonicalStatement = buildCanonicalClaimStatement(claim, mathSpec);
+  const normalizedExpected = normalizeMathExpressionToken(claim.expectedExpression);
+  const rawStmt = claim.statement.trim();
+
+  // Strip known input context patterns so they are not mistaken for claimed RHS values
+  const stripped = rawStmt
+    .replace(/f\s*\(\s*x\s*\)\s*=\s*x(?:\^2|²|\*\*2)/gi, ' ')
+    .replace(/y\s*=\s*x(?:\^2|²|\*\*2)/gi, ' ')
+    .replace(/∫[₀0][¹1]\s*x(?:\^2|²|\*\*2)\s*dx/gi, 'INTEGRAL_LHS')
+    .replace(/tích phân(?: xác định)? của\s*x(?:\^2|²|\*\*2)/gi, 'INTEGRAL_LHS')
+    .replace(/trên\s*(?:đoạn\s*)?\[\s*0\s*,\s*1\s*\]/gi, ' ')
+    .replace(/qua\s*\(\s*1\s*,\s*1\s*\)\s*và\s*\(\s*1\s*\+\s*h\s*,\s*\(\s*1\s*\+\s*h\s*\)(?:\^2|²)\s*\)/gi, ' ')
+    .replace(/tại\s*(?:điểm\s*)?x\s*=\s*1/gi, ' ')
+    .replace(/khi\s*h\s*(?:tiến về|->|→)\s*0/gi, ' ')
+    .replace(/lim_\{?h\s*(?:->|→)\s*0\}?/gi, ' ');
+
+  const candidateMatches: string[] = [];
+
+  // Look for explicit RHS after '=', 'là', 'bằng'
+  const rhsRegex = /(?:f'\s*\(\s*[x1]\s*\)\s*=|m\s*\(\s*h\s*\)\s*=|INTEGRAL_LHS\s*(?:=|bằng(?:\s+đúng)?|là)|(?:=|bằng(?:\s+đúng)?|là))\s*([0-9]+\s*\/\s*[0-9]+|[0-9]+(?:\.[0-9]+)?\s*\*?\s*x(?:\^[0-9]+|²|³)?|[0-9]+\s*[+\-]\s*h|h\s*[+\-]\s*[0-9]+|-?[0-9]+(?:\.[0-9]+)?|một phần ba|một phần hai|một phần tư|hai x|ba x|bốn x)/gi;
+
+  let match: RegExpExecArray | null;
+  while ((match = rhsRegex.exec(stripped)) !== null) {
+    const token = normalizeMathExpressionToken(match[1]);
+    if (token) candidateMatches.push(token);
+  }
+
+  if (candidateMatches.length > 0) {
+    // Compare the concluding claimed expression (last RHS in the statement)
+    const conflicts = candidateMatches.filter((candidate) => candidate !== normalizedExpected);
+    const hasExactMatch = candidateMatches.some((candidate) => candidate === normalizedExpected);
+
+    if (conflicts.length > 0 && (!hasExactMatch || candidateMatches[candidateMatches.length - 1] !== normalizedExpected)) {
+      const badValue = candidateMatches[candidateMatches.length - 1];
+      return {
+        status: 'conflict_detected',
+        canonicalStatement,
+        extractedResults: candidateMatches,
+        reason: `statement_expression_conflict: Mệnh đề hiển thị ('${claim.statement}') nêu kết quả '${badValue}' mâu thuẫn với biểu thức được SymPy kiểm định ('${claim.expectedExpression}')`
+      };
+    }
+
+    if (hasExactMatch) {
+      return {
+        status: 'formal_match',
+        canonicalStatement,
+        extractedResults: candidateMatches
+      };
+    }
+  }
+
+  // Fallback check: does the stripped statement directly contain a blatant conflicting coeff*x or fraction?
+  if (claim.validatorKey === 'polynomial_derivative') {
+    const polyTokens = [...stripped.matchAll(/\b(\d+\s*\*?\s*x(?:\^\d+|²|³)?|hai x|ba x|bốn x)\b/gi)]
+      .map((m) => normalizeMathExpressionToken(m[1]));
+    if (polyTokens.length > 0) {
+      if (polyTokens.some((t) => t !== normalizedExpected)) {
+        return {
+          status: 'conflict_detected',
+          canonicalStatement,
+          extractedResults: polyTokens,
+          reason: `statement_expression_conflict: Mệnh đề đạo hàm ('${claim.statement}') chứa biểu thức '${polyTokens.join(', ')}' không khớp với '${claim.expectedExpression}'`
+        };
+      }
+      return {
+        status: 'formal_match',
+        canonicalStatement,
+        extractedResults: polyTokens
+      };
+    }
+  }
+
+  if (claim.validatorKey === 'definite_integral' || claim.validatorKey === 'riemann_sum_limit') {
+    const fracTokens = [...stripped.matchAll(/(?:\b\d+\s*\/\s*\d+\b|một phần ba|một phần hai|một phần tư)/gi)]
+      .map((m) => normalizeMathExpressionToken(m[0]));
+    if (fracTokens.length > 0) {
+      if (fracTokens.some((t) => t !== normalizedExpected)) {
+        return {
+          status: 'conflict_detected',
+          canonicalStatement,
+          extractedResults: fracTokens,
+          reason: `statement_expression_conflict: Mệnh đề tích phân/giới hạn ('${claim.statement}') chứa giá trị '${fracTokens.join(', ')}' không khớp với '${claim.expectedExpression}'`
+        };
+      }
+      return {
+        status: 'formal_match',
+        canonicalStatement,
+        extractedResults: fracTokens
+      };
+    }
+  }
+
+  // Free-text prose without an extractable mathematical equality for the claim's result:
+  // SymPy only verified expectedExpression, not the natural-language prose semantics!
+  return {
+    status: 'prose_unverified',
+    canonicalStatement,
+    extractedResults: [],
+    reason: `statement_prose_unverified: Mệnh đề tự do ('${claim.statement}') không chứa đẳng thức toán học tường minh cho '${claim.expectedExpression}'; cần giáo viên xác nhận ngữ nghĩa (humanSemanticReviewConfirmed)`
+  };
+}
+
+/**
+ * Checks that narration text, subtitle text, and storyboard formulas/body do not silently
+ * change a SymPy-verified mathematical result into a different mathematical value.
+ */
+export function verifyNarrationAndStoryboardMathConsistency(options: {
+  claims: VerifiedClaim[];
+  narrationPlan?: NarrationPlanV2;
+  storyboard?: StoryboardV2;
+}): { valid: boolean; conflicts: string[] } {
+  const conflicts: string[] = [];
+  const verifiedClaims = options.claims.filter((c) => c.verificationStatus === 'verified');
+  if (verifiedClaims.length === 0) return { valid: true, conflicts };
+
+  const derivClaim = verifiedClaims.find((c) => c.validatorKey === 'polynomial_derivative');
+  const integralClaim = verifiedClaims.find(
+    (c) => c.validatorKey === 'definite_integral' || c.validatorKey === 'riemann_sum_limit'
+  );
+
+  const checkTextBlock = (label: string, text: string) => {
+    const cleaned = text
+      .replace(/f\s*\(\s*x\s*\)\s*=\s*x(?:\^2|²|\*\*2)/gi, ' ')
+      .replace(/y\s*=\s*x(?:\^2|²|\*\*2)/gi, ' ');
+
+    if (derivClaim) {
+      const expectedDeriv = normalizeMathExpressionToken(derivClaim.expectedExpression);
+      // Look for explicit derivative claims in narration/subtitles/formulas
+      const derivRegex = /(?:đạo hàm[^.;\n]{0,40}?(?:=|là|bằng)|f'\s*\(\s*x\s*\)\s*=)\s*([0-9]+\s*\*?\s*x(?:\^[0-9]+|²|³)?|hai x|ba x|bốn x)/gi;
+      let m: RegExpExecArray | null;
+      while ((m = derivRegex.exec(cleaned)) !== null) {
+        const found = normalizeMathExpressionToken(m[1]);
+        if (found && found !== expectedDeriv) {
+          conflicts.push(
+            `narration_math_conflict: ${label} nêu đạo hàm '${found}' nhưng kết quả đã xác minh SymPy là '${derivClaim.expectedExpression}'`
+          );
+        }
+      }
+    }
+
+    if (integralClaim) {
+      const expectedIntegral = normalizeMathExpressionToken(integralClaim.expectedExpression);
+      const integralRegex = /(?:(?:tích phân|tổng riemann|hội tụ về|giới hạn)[^.;\n]{0,60}?(?:=|là|bằng(?:\s+đúng)?|về)|∫[^=;,\n]{1,30}=)\s*(\d+\s*\/\s*\d+|một phần ba|một phần hai|một phần tư)/gi;
+      let m: RegExpExecArray | null;
+      while ((m = integralRegex.exec(cleaned)) !== null) {
+        const found = normalizeMathExpressionToken(m[1]);
+        if (found && found !== expectedIntegral) {
+          conflicts.push(
+            `narration_math_conflict: ${label} nêu giá trị tích phân/tổng Riemann '${found}' nhưng kết quả đã xác minh SymPy là '${integralClaim.expectedExpression}'`
+          );
+        }
+      }
+    }
+  };
+
+  if (options.narrationPlan) {
+    for (const seg of options.narrationPlan.segments) {
+      checkTextBlock(`segment '${seg.segmentId}' (text)`, seg.text);
+      checkTextBlock(`segment '${seg.segmentId}' (subtitleText)`, seg.subtitleText);
+    }
+  }
+
+  if (options.storyboard) {
+    for (const scene of options.storyboard.scenes) {
+      for (const formula of scene.mathematicalBinding.latexFormulas) {
+        checkTextBlock(`scene '${scene.sceneId}' (formula)`, formula);
+      }
+      if (typeof scene.parameters?.body === 'string') {
+        checkTextBlock(`scene '${scene.sceneId}' (body)`, scene.parameters.body);
+      }
+    }
+  }
+
+  return {
+    valid: conflicts.length === 0,
+    conflicts
+  };
 }
 
 /**
@@ -166,7 +432,7 @@ export class DerivativeSymPyVerifier extends BaseSymPyVerifier {
 
   protected buildSceneJson(
     topicId: string,
-    claims: VerifiedClaim[],
+    _claims: VerifiedClaim[],
     mathSpec?: MathVisualizationSpecV2
   ): Record<string, unknown> {
     if (mathSpec) {
@@ -225,7 +491,7 @@ export class RiemannSymPyVerifier extends BaseSymPyVerifier {
 
   protected buildSceneJson(
     topicId: string,
-    claims: VerifiedClaim[],
+    _claims: VerifiedClaim[],
     mathSpec?: MathVisualizationSpecV2
   ): Record<string, unknown> {
     if (mathSpec) {
@@ -405,30 +671,86 @@ export class MathVerificationService {
     }
 
     const result = await verifier.verify(topicId, claims, options);
+    let hasFailed = result.status === 'failed';
+    let hasNeedsReview = result.status === 'needs_review';
 
-    // Map verification results back to claims
+    // Map verification results back to claims AND enforce natural-language statement consistency
     const mappedClaims: VerifiedClaim[] = claims.map((claim) => {
       const check = result.checks[claim.validatorKey];
+      const consistency = evaluateStatementConsistency(claim, options?.mathSpec);
+
       if (!check) {
+        hasNeedsReview = true;
         return {
           ...claim,
+          canonicalStatement: consistency.canonicalStatement,
+          statementVerification: consistency.status,
           verificationStatus: 'unverified' as const
         };
       }
-      if (check.passed && check.status === 'verified') {
+
+      if (consistency.status === 'conflict_detected') {
+        hasFailed = true;
+        result.checks[claim.validatorKey] = {
+          passed: false,
+          status: 'incorrect',
+          expected: claim.expectedExpression,
+          received: consistency.extractedResults.join(', '),
+          reason: consistency.reason
+        };
         return {
           ...claim,
-          verificationStatus: 'verified' as const
+          canonicalStatement: consistency.canonicalStatement,
+          statementVerification: 'conflict_detected' as const,
+          verificationStatus: 'failed' as const
         };
       }
+
+      if (!check.passed || check.status !== 'verified') {
+        hasFailed = true;
+        return {
+          ...claim,
+          canonicalStatement: consistency.canonicalStatement,
+          statementVerification: consistency.status,
+          verificationStatus: 'failed' as const
+        };
+      }
+
+      // SymPy verified expectedExpression, but statement is free-text prose without a verifiable formula
+      if (consistency.status === 'prose_unverified' && !claim.humanSemanticReviewConfirmed && !verifier.isMock) {
+        hasNeedsReview = true;
+        result.checks[claim.validatorKey] = {
+          passed: false,
+          status: 'needs_review',
+          expected: claim.expectedExpression,
+          received: claim.expectedExpression,
+          reason: consistency.reason
+        };
+        return {
+          ...claim,
+          canonicalStatement: consistency.canonicalStatement,
+          statementVerification: 'prose_unverified' as const,
+          verificationStatus: 'unverified' as const
+        };
+      }
+
       return {
         ...claim,
-        verificationStatus: 'failed' as const
+        canonicalStatement: consistency.canonicalStatement,
+        statementVerification: consistency.status,
+        verificationStatus: 'verified' as const
       };
     });
 
+    const overallStatus: VerificationResult['status'] = hasFailed
+      ? 'failed'
+      : hasNeedsReview
+      ? 'needs_review'
+      : 'verified';
+    result.status = overallStatus;
+
     const allVerified =
-      result.status === 'verified' &&
+      overallStatus === 'verified' &&
       mappedClaims.every((c) => c.verificationStatus === 'verified');
 
     return {
@@ -438,4 +760,3 @@ export class MathVerificationService {
     };
   }
 }
-

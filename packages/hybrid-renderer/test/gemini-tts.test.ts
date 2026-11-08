@@ -11,7 +11,12 @@ import {
   type GeminiSpeechRequest,
   type GeminiSpeechResponse
 } from '../src';
-import { compileStoryboardV2, type NarrationPlanV2, type StoryboardV2 } from '@luminalearn/scene-schema';
+import {
+  compileStoryboardV2,
+  GeminiRequestBudget,
+  type NarrationPlanV2,
+  type StoryboardV2
+} from '@luminalearn/scene-schema';
 import { synthesizeNarrationV2 } from '../src/audio';
 
 function wavFixture(durationSeconds = 1, sampleRate = 24_000): Buffer {
@@ -193,6 +198,55 @@ describe('Gemini TTS provider (offline fake client)', () => {
       assert.deepEqual(manifest.subtitleTrack?.cues.map((cue) => cue.startFrame), [0, 48]);
       assert.deepEqual(manifest.subtitleTrack?.cues.map((cue) => cue.endFrame), [24, 72]);
       assert.equal(manifest.audioAssets.length, 2);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('fails immediately on 401/403/429 without retrying and enforces GEMINI_TTS_MAX_REQUESTS_PER_JOB', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'lumina-gemini-tts-budget-'));
+    try {
+      let calls429 = 0;
+      const budget429 = new GeminiRequestBudget({ maxTtsRequestsPerJob: 5 });
+      const client429: GeminiAudioClient = {
+        async assertModelAvailable() {},
+        async generateSpeech() {
+          calls429 += 1;
+          throw Object.assign(new Error('Resource exhausted'), { status: 429 });
+        }
+      };
+      const provider429 = new GeminiTtsProvider({
+        client: client429,
+        maxAttempts: 3,
+        retryBaseDelayMs: 1,
+        requestBudget: budget429
+      });
+      await assert.rejects(
+        () => provider429.synthesize('Nội dung quota', join(directory, 'quota.mp3')),
+        /tts_quota_exceeded/
+      );
+      assert.equal(calls429, 1, '429 must fail immediately without retrying');
+      assert.equal(budget429.getSummary().counts.geminiTts, 1);
+
+      let callsBudget = 0;
+      const smallBudget = new GeminiRequestBudget({ maxTtsRequestsPerJob: 1 });
+      const okClient: GeminiAudioClient = {
+        async assertModelAvailable() {},
+        async generateSpeech() {
+          callsBudget += 1;
+          return { data: wavFixture(0.5), mimeType: 'audio/wav' };
+        }
+      };
+      const cappedProvider = new GeminiTtsProvider({
+        client: okClient,
+        requestBudget: smallBudget
+      });
+      await cappedProvider.synthesize('Đoạn một', join(directory, 'seg1.mp3'));
+      await assert.rejects(
+        () => cappedProvider.synthesize('Đoạn hai vượt ngân sách', join(directory, 'seg2.mp3')),
+        /tts_budget_exceeded/
+      );
+      assert.equal(callsBudget, 1, 'Second synthesis call must be blocked before calling client');
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

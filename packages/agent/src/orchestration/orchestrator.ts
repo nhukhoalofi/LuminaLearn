@@ -1,6 +1,8 @@
 import {
   compileStoryboardV2,
   defaultTemplateRegistry,
+  GeminiRequestBudget,
+  type GeminiRequestBudgetOptions,
   LessonRequestV2Schema,
   type LessonRequestV2,
   type MathTemplateRegistry
@@ -8,7 +10,13 @@ import {
 import { CurriculumPlanner } from './curriculum-planner';
 import { DocumentAnalyst, DocumentGroundingService, DocumentStore } from './document-grounding';
 import { MathVerificationService } from './math-verifier';
-import { type AIProvider, MockAIProvider, LiveGeminiAIProvider } from './ai-provider';
+import {
+  type AIProvider,
+  type AIStructuredRequest,
+  type AIProviderResult,
+  MockAIProvider,
+  LiveGeminiAIProvider
+} from './ai-provider';
 import { NarrationPlannerV2 } from './narration-planner';
 import { QualityReviewer } from './quality-reviewer';
 import { TopicRouter } from './router';
@@ -22,6 +30,39 @@ export interface LessonOrchestratorOptions {
   verifier?: MathVerificationService;
   aiProvider?: AIProvider;
   maxRetries?: number;
+  requestBudget?: GeminiRequestBudget | GeminiRequestBudgetOptions;
+}
+
+class BudgetEnforcingProviderWrapper implements AIProvider {
+  public readonly isMock: boolean;
+  constructor(
+    private readonly inner: AIProvider,
+    private readonly budget: GeminiRequestBudget
+  ) {
+    this.isMock = inner.isMock;
+  }
+
+  public async generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>> {
+    if (this.inner.isMock || this.inner instanceof LiveGeminiAIProvider) {
+      return this.inner.generateStructured({ ...request, requestBudget: this.budget });
+    }
+    const category = request.purpose === 'narration_planning' ? 'narration_planning' : 'curriculum_planning';
+    const attemptId = this.budget.consume(category, 'custom-provider');
+    try {
+      const result = await this.inner.generateStructured({ ...request, requestBudget: this.budget });
+      this.budget.completeAttempt(attemptId, 'succeeded');
+      return result;
+    } catch (error) {
+      const code = error instanceof Error ? error.message.split(':', 1)[0] : 'provider_error';
+      this.budget.completeAttempt(attemptId, 'failed', code);
+      throw error;
+    }
+  }
+}
+
+function isNonRetryableProviderError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /^(gemini_authentication_failed|gemini_permission_denied|gemini_model_unavailable|gemini_quota_exceeded|gemini_budget_exceeded|gemini_timeout|gemini_transient_failed|gemini_api_key_missing|provider_self_verification_rejected)/.test(msg);
 }
 
 export class LessonOrchestrator {
@@ -38,6 +79,7 @@ export class LessonOrchestrator {
   private readonly qualityReviewer: QualityReviewer;
   private readonly registry: MathTemplateRegistry;
   private readonly maxRetries: number;
+  private readonly budgetOption?: GeminiRequestBudget | GeminiRequestBudgetOptions;
 
   constructor(options: LessonOrchestratorOptions = {}) {
     this.registry = options.registry ?? defaultTemplateRegistry;
@@ -52,12 +94,29 @@ export class LessonOrchestrator {
     this.filmDirector = new EducationalFilmDirector();
     this.narrationPlanner = new NarrationPlannerV2();
     this.qualityReviewer = new QualityReviewer(this.registry);
-    this.maxRetries = options.maxRetries ?? 2;
+    this.maxRetries = options.maxRetries ?? 1;
+    this.budgetOption = options.requestBudget;
+  }
+
+  private createJobBudget(): GeminiRequestBudget {
+    if (this.budgetOption instanceof GeminiRequestBudget) {
+      return this.budgetOption;
+    }
+    const defaultMaxCurriculum = Math.max(1, this.maxRetries + 1);
+    const defaultMaxNarration = Math.max(1, this.maxRetries + 1);
+    const defaultTotal = Math.max(4, defaultMaxCurriculum + defaultMaxNarration);
+    return new GeminiRequestBudget({
+      maxRequestsPerJob: this.budgetOption?.maxRequestsPerJob ?? (process.env.GEMINI_MAX_REQUESTS_PER_JOB ? undefined : defaultTotal),
+      maxCurriculumRequests: this.budgetOption?.maxCurriculumRequests ?? defaultMaxCurriculum,
+      maxNarrationRequests: this.budgetOption?.maxNarrationRequests ?? defaultMaxNarration,
+      maxTtsRequestsPerJob: this.budgetOption?.maxTtsRequestsPerJob
+    });
   }
 
   public async orchestrate(rawRequest: unknown): Promise<OrchestrationContext> {
     const startTime = Date.now();
     const logs: OrchestrationLogEntry[] = [];
+    const jobBudget = this.createJobBudget();
 
     const log = (step: string, stage: OrchestrationStage, status: 'success' | 'warning' | 'error', message: string, details?: Record<string, unknown>) => {
       logs.push({
@@ -84,6 +143,7 @@ export class LessonOrchestrator {
         logs,
         retryCount: 0,
         maxRetries: this.maxRetries,
+        requestBudget: jobBudget.getSummary(),
         error: { code: 'invalid_request', message: err instanceof Error ? err.message : String(err) }
       };
     }
@@ -94,7 +154,8 @@ export class LessonOrchestrator {
       logs,
       retryCount: 0,
       maxRetries: this.maxRetries,
-      providerCalls: []
+      providerCalls: [],
+      requestBudget: jobBudget.getSummary()
     };
 
     // Stage 2: Phân loại chủ đề (Topic Classification & Routing)
@@ -129,28 +190,60 @@ export class LessonOrchestrator {
         };
         return context;
       }
-      context.sourceContext = this.documentAnalyst.buildSourceContextBundle(request.sourceDocumentIds, docAnalysis);
+      const unsupportedEv = docAnalysis.evidence.filter((ev) => ev.supportStatus && ev.supportStatus !== 'supported');
+      if (unsupportedEv.length > 0 || docAnalysis.candidateClaims.length === 0) {
+        const msg = docAnalysis.unverifiedClaimsReason || 'Tài liệu nguồn không chứa mệnh đề toán học tường minh hỗ trợ chủ đề yêu cầu';
+        log('document_analysis', 'needs_review', 'warning', msg);
+        context.stage = 'needs_review';
+        context.error = {
+          code: 'source_claim_unsupported',
+          message: msg
+        };
+        return context;
+      }
+      context.sourceContext = this.documentAnalyst.buildSourceContextBundle(
+        request.sourceDocumentIds,
+        docAnalysis,
+        { topicQuery: request.topic }
+      );
       log('document_analysis', 'analyzed', 'success', `Đã phân tích ${docAnalysis.totalChunks} đoạn tài liệu, trích xuất ${docAnalysis.extractedConcepts.length} khái niệm`);
     }
 
     // Stage 4: Lập kế hoạch sư phạm (Curriculum Planning)
-    let effectiveAiProvider = this.aiProvider;
-    if (request.renderMode === 'live' && effectiveAiProvider.isMock) {
+    let rawProvider = this.aiProvider;
+    if (request.renderMode === 'live' && rawProvider.isMock) {
       if (!process.env.GEMINI_API_KEY) {
         log('curriculum_planning', 'failed', 'error', 'live_mode_unavailable: GEMINI_API_KEY is not configured');
         context.stage = 'failed';
         context.error = { code: 'live_mode_unavailable', message: 'GEMINI_API_KEY is required for live renderMode' };
         return context;
       }
-      effectiveAiProvider = new LiveGeminiAIProvider();
+      rawProvider = new LiveGeminiAIProvider({ requestBudget: jobBudget });
     }
+    const effectiveAiProvider: AIProvider = rawProvider.isMock
+      ? rawProvider
+      : new BudgetEnforcingProviderWrapper(rawProvider, jobBudget);
 
-    const runWithBoundedRevision = async <T>(step: string, operation: () => Promise<T>): Promise<T> => {
+    const runWithBoundedRevision = async <T>(
+      step: string,
+      category: 'curriculum_planning' | 'narration_planning',
+      operation: () => Promise<T>
+    ): Promise<T> => {
       while (true) {
         try {
-          return await operation();
+          const res = await operation();
+          context.requestBudget = jobBudget.getSummary();
+          return res;
         } catch (error) {
-          if (effectiveAiProvider.isMock || context.retryCount >= context.maxRetries) throw error;
+          context.requestBudget = jobBudget.getSummary();
+          if (
+            effectiveAiProvider.isMock ||
+            isNonRetryableProviderError(error) ||
+            context.retryCount >= context.maxRetries ||
+            !jobBudget.canConsume(category)
+          ) {
+            throw error;
+          }
           context.retryCount += 1;
           log(step, context.stage, 'warning', `Provider output không hợp lệ; yêu cầu sửa lần ${context.retryCount}/${context.maxRetries}`, {
             error: error instanceof Error ? error.message : String(error)
@@ -160,7 +253,7 @@ export class LessonOrchestrator {
     };
 
     try {
-      const plan = await runWithBoundedRevision('curriculum_revision', async () => {
+      const plan = await runWithBoundedRevision('curriculum_revision', 'curriculum_planning', async () => {
         const candidate = await this.curriculumPlanner.plan({
           lessonId: `lesson_${request.requestId}`,
           topicInfo,
@@ -169,6 +262,7 @@ export class LessonOrchestrator {
           documentAnalysis: context.documentAnalysis,
           sourceContext: context.sourceContext,
           aiProvider: effectiveAiProvider,
+          requestBudget: jobBudget,
           onProviderCall: (trace) => context.providerCalls?.push(trace)
         });
         if (!candidate.mathSpec) throw new Error('math_spec_missing: provider must return the exact mathematical specification');
@@ -185,6 +279,30 @@ export class LessonOrchestrator {
             if (!request.sourceDocumentIds.includes(reference.documentId)) throw new Error(`fabricated_source_reference: ${reference.documentId}`);
             const match = this.groundingService.verifyQuoteInDocument(reference.documentId, reference.pageNumber, reference.exactQuote);
             if (!match.found || match.matchType !== 'exact') throw new Error(`fabricated_source_reference: ${reference.id}`);
+            reference.chunkId = match.matchedChunkId;
+            evidence.quoteExists = true;
+
+            const linkedClaim = candidate.mathematicalClaims.find((c) => c.id === evidence.claimId) ?? candidate.mathematicalClaims[0];
+            if (linkedClaim) {
+              const support = this.groundingService.verifyClaimSupportInQuote(
+                linkedClaim.validatorKey,
+                linkedClaim.expectedExpression,
+                reference.exactQuote
+              );
+              evidence.claimExtracted = support.claimExtracted;
+              evidence.supportStatus = support.supportStatus;
+              if (!support.claimExtracted) {
+                throw new Error(`unsupported_source_claim: ${support.reason}`);
+              }
+              if (
+                support.supportStatus !== 'supported' &&
+                support.extractedExpression &&
+                !linkedClaim.statement.replace(/\s+/g, '').includes(support.extractedExpression.replace(/\*/g, ''))
+              ) {
+                throw new Error(`unsupported_source_claim: ${support.reason}`);
+              }
+              linkedClaim.sourceReferenceId = reference.id;
+            }
           }
         }
         return candidate;
@@ -193,14 +311,23 @@ export class LessonOrchestrator {
       context.lessonPlan = plan;
       log('curriculum_planning', 'planned', 'success', `Đã lập kế hoạch bài học với ${plan.pedagogicalSequence.length} bước sư phạm`, { aiMode, providerCall: context.providerCalls?.at(-1) });
     } catch (err) {
-      log('curriculum_planning', 'failed', 'error', `Lập kế hoạch bài học thất bại: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith('gemini_quota_exceeded')
+        ? 'gemini_quota_exceeded'
+        : message.startsWith('gemini_budget_exceeded')
+        ? 'gemini_budget_exceeded'
+        : message.startsWith('gemini_authentication_failed') || message.startsWith('gemini_permission_denied')
+        ? 'gemini_authentication_failed'
+        : message.startsWith('unsupported_source_claim')
+        ? 'source_claim_unsupported'
+        : 'planning_failed';
+      log('curriculum_planning', 'failed', 'error', `Lập kế hoạch bài học thất bại: ${message}`);
       context.stage = 'failed';
-      context.error = { code: 'planning_failed', message: err instanceof Error ? err.message : String(err) };
+      context.error = { code, message };
       return context;
     }
 
     // Stage 5: Xác minh toán học hình thức (Mathematical Validation Gate)
-    // Quy tắc fail-closed: Gọi MathVerificationService thực thụ (SymPy / injected verifier)
     try {
       const verifyReport = await this.verifier.verifyClaims(
         topicInfo.topicId,
@@ -209,10 +336,24 @@ export class LessonOrchestrator {
       );
       context.lessonPlan.mathematicalClaims = verifyReport.claims;
       context.mathVerification = {
-        status: verifyReport.allVerified ? 'verified' : 'failed',
+        status: verifyReport.result.status,
         checkedClaims: verifyReport.claims,
         verificationDetails: verifyReport.result.checks
       };
+
+      if (verifyReport.result.status === 'needs_review') {
+        const reviewClaims = verifyReport.claims
+          .filter((c) => c.verificationStatus !== 'verified')
+          .map((c) => `${c.id} (${c.statementVerification ?? c.verificationStatus})`)
+          .join(', ');
+        log('mathematical_validation', 'needs_review', 'warning', `Mệnh đề cần giáo viên xác nhận ngữ nghĩa: ${reviewClaims}`);
+        context.stage = 'needs_review';
+        context.error = {
+          code: 'statement_requires_semantic_review',
+          message: `Mathematical claims require explicit human semantic review: ${reviewClaims}`
+        };
+        return context;
+      }
 
       if (!verifyReport.allVerified) {
         const failedClaims = verifyReport.claims
@@ -247,6 +388,7 @@ export class LessonOrchestrator {
         aspectRatio: request.aspectRatio,
         visualStyleId: request.visualStyleId
       });
+      storyboard.sourceReferences = context.lessonPlan.sourceEvidence.map((ev) => ev.sourceReference.id);
       context.storyboard = storyboard;
       context.teachingTreatment = this.filmDirector.createTreatment({
         lessonPlan: context.lessonPlan,
@@ -266,21 +408,28 @@ export class LessonOrchestrator {
       const verifiedLessonPlan = context.lessonPlan;
       const directedStoryboard = context.storyboard;
       if (!verifiedLessonPlan || !directedStoryboard) throw new Error('narration_context_missing: verified lesson plan or storyboard is absent');
-      const narrationPlan = await runWithBoundedRevision('narration_revision', () => this.narrationPlanner.plan({
+      const narrationPlan = await runWithBoundedRevision('narration_revision', 'narration_planning', () => this.narrationPlanner.plan({
         planId: `narr_${request.requestId}`,
         lessonPlan: verifiedLessonPlan,
         storyboard: directedStoryboard,
         language: request.language,
         aiProvider: effectiveAiProvider,
+        requestBudget: jobBudget,
         onProviderCall: (trace) => context.providerCalls?.push(trace)
       }));
       const aiMode = effectiveAiProvider.isMock ? 'deterministic_mock' : 'ai_generated_live';
       context.narrationPlan = narrationPlan;
       log('narration_planning', 'narrated', 'success', `Đã tạo kế hoạch lời dẫn gồm ${narrationPlan.segments.length} phân đoạn (${narrationPlan.totalWords} từ)`, { aiMode, providerCall: context.providerCalls?.at(-1) });
     } catch (err) {
-      log('narration_planning', 'failed', 'error', `Sinh lời dẫn thất bại: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      const code = message.startsWith('gemini_quota_exceeded')
+        ? 'gemini_quota_exceeded'
+        : message.startsWith('gemini_budget_exceeded')
+        ? 'gemini_budget_exceeded'
+        : 'narration_failed';
+      log('narration_planning', 'failed', 'error', `Sinh lời dẫn thất bại: ${message}`);
       context.stage = 'failed';
-      context.error = { code: 'narration_failed', message: err instanceof Error ? err.message : String(err) };
+      context.error = { code, message };
       return context;
     }
 
@@ -302,10 +451,14 @@ export class LessonOrchestrator {
         topicId: context.lessonPlan.topicId,
         fps: 24,
         aspectRatio: request.aspectRatio,
-        verifiedClaims: context.lessonPlan.mathematicalClaims
+        visualStyleId: request.visualStyleId,
+        subtitlesEnabled: request.subtitlesEnabled ?? true,
+        verifiedClaims: context.lessonPlan.mathematicalClaims,
+        sourceReferences: context.lessonPlan.sourceEvidence.map((ev) => ev.sourceReference)
       });
       context.manifest = manifest;
       context.stage = 'ready_to_render';
+      context.requestBudget = jobBudget.getSummary();
       log('manifest_compilation', 'ready_to_render', 'success', `Bản kê RenderManifestV2 đã hoàn tất (${manifest.totalFrames} frames, sẵn sàng render)`);
     } catch (err) {
       log('manifest_compilation', 'failed', 'error', `Biên dịch manifest thất bại: ${err instanceof Error ? err.message : String(err)}`);
@@ -317,4 +470,3 @@ export class LessonOrchestrator {
     return context;
   }
 }
-

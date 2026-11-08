@@ -11,6 +11,7 @@ import {
 import {
   ApprovedRenderArtifactV2Schema,
   compileStoryboardV2,
+  GeminiRequestBudget,
   LessonRequestV2Schema,
   RenderManifestV2Schema,
   type ApprovedRenderArtifactV2,
@@ -22,7 +23,8 @@ import {
   type SourceReference,
   type StoryboardV2,
   type SubtitleCueV2,
-  type VerifiedClaim
+  type VerifiedClaim,
+  type VisualStyleId
 } from '@luminalearn/scene-schema';
 import { loadEnvironmentConfig } from './config';
 import { probeAndVerifyVideoAsset, probeFinalVideo, type VerifiedVideoMetadata } from './ffprobe';
@@ -109,8 +111,11 @@ export async function runHybridPipelineV2(
   let renderMode: 'mock' | 'live';
   let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
   let aspectRatio: '9:16' | '16:9' | '1:1';
+  let visualStyleId: VisualStyleId = 'clean_educational_infographic';
+  let subtitlesEnabled = true;
   let providedAudioPath: string | undefined;
   let sourceReferences: SourceReference[] = [];
+  const jobBudget = new GeminiRequestBudget();
 
   const assertArtifactAuthorized = async (): Promise<void> => {
     if (artifact && options.authorizeArtifact && !(await options.authorizeArtifact(artifact))) {
@@ -134,12 +139,16 @@ export async function runHybridPipelineV2(
     renderMode = artifact.renderConfig.renderMode;
     narrationMode = artifact.renderConfig.narrationMode;
     aspectRatio = artifact.renderConfig.aspectRatio;
+    visualStyleId = artifact.renderConfig.visualStyleId ?? 'clean_educational_infographic';
+    subtitlesEnabled = artifact.renderConfig.subtitlesEnabled ?? true;
     providedAudioPath = artifact.renderConfig.providedAudioPath;
   } else {
     request = LessonRequestV2Schema.parse(input);
     renderMode = request.renderMode;
     narrationMode = request.narrationMode;
     aspectRatio = request.aspectRatio;
+    visualStyleId = request.visualStyleId ?? 'clean_educational_infographic';
+    subtitlesEnabled = request.subtitlesEnabled ?? true;
     providedAudioPath = request.providedAudioPath;
   }
 
@@ -207,7 +216,8 @@ export async function runHybridPipelineV2(
       });
     } else if (request) {
       const orchestrator = new LessonOrchestrator({
-        documentStore: options.documentStore
+        documentStore: options.documentStore,
+        requestBudget: jobBudget
       });
       const context = await orchestrator.orchestrate(request);
 
@@ -336,6 +346,8 @@ export async function runHybridPipelineV2(
       topicId: lessonPlan.topicId,
       fps: 24,
       aspectRatio,
+      visualStyleId,
+      subtitlesEnabled,
       verifiedClaims,
       sourceReferences,
       assets: [{
@@ -367,12 +379,14 @@ export async function runHybridPipelineV2(
     // Stage 3: Narration & Audio
     await stage('narrating');
     let audioAssets: Array<{ id: string; path: string; durationSeconds: number; codec: 'mp3'; startFrame?: number }> = [];
+    let activeTtsProviderId: string | undefined;
 
     if (narrationMode === 'google_cloud_tts' || narrationMode === 'gemini_tts') {
       await stage('synthesizing_audio');
       const provider = options.ttsProvider ?? (
-        narrationMode === 'gemini_tts' ? new GeminiTtsProvider() : new GoogleCloudTtsProvider()
+        narrationMode === 'gemini_tts' ? new GeminiTtsProvider({ requestBudget: jobBudget }) : new GoogleCloudTtsProvider()
       );
+      activeTtsProviderId = provider.id;
       audioAssets = await synthesizeNarrationV2({
         provider,
         narrationPlan,
@@ -388,6 +402,7 @@ export async function runHybridPipelineV2(
       });
     } else if (narrationMode === 'provided_audio' && providedAudioPath) {
       await stage('synthesizing_audio');
+      activeTtsProviderId = 'provided_audio';
       const prepared = await prepareProvidedAudio({
         sourcePath: providedAudioPath,
         jobId,
@@ -411,6 +426,8 @@ export async function runHybridPipelineV2(
       topicId: lessonPlan.topicId,
       fps: 24,
       aspectRatio,
+      visualStyleId,
+      subtitlesEnabled,
       verifiedClaims: lessonPlan.mathematicalClaims,
       sourceReferences,
       assets: [
@@ -430,8 +447,8 @@ export async function runHybridPipelineV2(
       assetAlignmentPolicy: 'strict'
     });
 
-    // Subtitle export
-    if (compiledManifest.subtitleTrack?.cues?.length) {
+    // Subtitle export (only when subtitlesEnabled is true)
+    if (subtitlesEnabled && compiledManifest.subtitleTrack?.cues?.length) {
       const srtContent = exportSrtFromV2Cues(compiledManifest.subtitleTrack.cues, 24);
       await writeFile(resolve(jobDirectory, 'subtitles.srt'), srtContent, 'utf8');
       await writeJson(resolve(jobDirectory, 'subtitles.json'), compiledManifest.subtitleTrack);
@@ -486,7 +503,8 @@ export async function runHybridPipelineV2(
       jobDirectory,
       manifest,
       metadata,
-      ttsSelected: narrationMode === 'gemini_tts' || narrationMode === 'google_cloud_tts'
+      ttsSelected: narrationMode === 'gemini_tts' || narrationMode === 'google_cloud_tts',
+      ttsProviderId: activeTtsProviderId
     });
 
     await stage('completed');

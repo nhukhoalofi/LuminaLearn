@@ -10,6 +10,7 @@ import {
   VerifiedClaimSchema
 } from './contracts';
 import { MathVisualizationSpecV2Schema } from './math-spec';
+import { VisualStyleIdSchema } from './visual-style';
 
 export const ARTIFACT_SCHEMA_VERSION_V2 = 'artifact-v2' as const;
 
@@ -21,6 +22,8 @@ export const ApprovedRenderConfigV2Schema = z.object({
   fps: z.number().int().min(12).max(60).default(24),
   renderMode: SupportedRenderModeSchema,
   narrationMode: SupportedNarrationModeSchema,
+  visualStyleId: VisualStyleIdSchema.optional(),
+  subtitlesEnabled: z.boolean().optional(),
   providedAudioPath: z.string().trim().min(1).max(1024).optional()
 }).strict().superRefine((cfg, ctx) => {
   if (cfg.narrationMode === 'provided_audio' && !cfg.providedAudioPath) {

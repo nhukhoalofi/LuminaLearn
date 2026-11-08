@@ -28,6 +28,7 @@ export const LessonRequestV2Schema = z.object({
   narrationMode: SupportedNarrationModeSchema.default('none'),
   aspectRatio: SupportedAspectRatioSchema.default('9:16'),
   visualStyleId: VisualStyleIdSchema.default('clean_educational_infographic'),
+  subtitlesEnabled: z.boolean().default(true),
   providedAudioPath: z.string().trim().min(1).max(1024).optional()
 }).strict().superRefine((req, ctx) => {
   if (req.inputMode === 'source_document' && req.sourceDocumentIds.length === 0) {
@@ -47,22 +48,32 @@ export const LessonRequestV2Schema = z.object({
 });
 
 type ParsedLessonRequestV2 = z.infer<typeof LessonRequestV2Schema>;
-/** Input-compatible type keeps the V2.3 request surface source-compatible; parsing supplies the default style. */
-export type LessonRequestV2 = Omit<ParsedLessonRequestV2, 'visualStyleId'> & {
+/** Input-compatible type keeps the V2.3 request surface source-compatible; parsing supplies defaults. */
+export type LessonRequestV2 = Omit<ParsedLessonRequestV2, 'visualStyleId' | 'subtitlesEnabled'> & {
   visualStyleId?: ParsedLessonRequestV2['visualStyleId'];
+  subtitlesEnabled?: ParsedLessonRequestV2['subtitlesEnabled'];
 };
 
 /**
  * Mệnh đề toán học đã/chưa kiểm định (VerifiedClaim)
  */
 export const MathVerificationStatusSchema = z.enum(['verified', 'unverified', 'failed']);
+export const StatementVerificationStatusSchema = z.enum([
+  'formal_match',
+  'prose_unverified',
+  'conflict_detected'
+]);
+export type StatementVerificationStatus = z.infer<typeof StatementVerificationStatusSchema>;
 
 export const VerifiedClaimSchema = z.object({
   id: SafeIdString,
   statement: NoExecutableString,
+  canonicalStatement: NoExecutableString.optional(),
   validatorKey: z.string().regex(/^[a-z0-9_]{3,64}$/),
   expectedExpression: z.string().regex(/^[0-9a-zA-Z\s+\-*^()./\\=><_{}\[\]]+$/, 'Mathematical expression contains forbidden characters'),
   verificationStatus: MathVerificationStatusSchema,
+  statementVerification: StatementVerificationStatusSchema.optional(),
+  humanSemanticReviewConfirmed: z.boolean().optional(),
   sourceReferenceId: SafeIdString.optional()
 }).strict();
 

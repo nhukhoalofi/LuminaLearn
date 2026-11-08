@@ -14,9 +14,11 @@ import {
   type NarrationPlanV2,
   type RenderManifestV2,
   type StoryboardV2,
-  type VerifiedClaim
+  type VerifiedClaim,
+  type VisualStyleId
 } from '@luminalearn/scene-schema';
-import { MathVerificationService } from './math-verifier';
+import { EducationalFilmDirector } from './educational-film-director';
+import { MathVerificationService, verifyNarrationAndStoryboardMathConsistency } from './math-verifier';
 import { LessonOrchestrator } from './orchestrator';
 import type { OrchestrationContext } from './types';
 
@@ -36,6 +38,7 @@ export interface DraftApprovalHistoryEntry {
 
 export interface LessonDraft {
   draftId: string;
+  ownerId?: string;
   version: number;
   status: LessonDraftStatus;
   createdAt: string;
@@ -52,6 +55,11 @@ export interface LessonDraftUpdateInput {
   mathematicalClaims?: VerifiedClaim[];
   narrationTexts?: Record<string, { text?: string; subtitleText?: string }>;
   mathSpec?: MathVisualizationSpecV2;
+  renderMode?: 'mock' | 'live';
+  narrationMode?: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
+  visualStyleId?: VisualStyleId;
+  subtitlesEnabled?: boolean;
+  humanSemanticReviewConfirmed?: boolean;
 }
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -210,6 +218,7 @@ export class LessonDraftManager {
   private readonly drafts: Map<string, LessonDraft> = new Map();
   private readonly orchestrator: LessonOrchestrator;
   private readonly verifier: MathVerificationService;
+  private readonly filmDirector = new EducationalFilmDirector();
   private readonly artifactsDir: string;
   private readonly draftsDir: string;
 
@@ -265,7 +274,7 @@ export class LessonDraftManager {
     renameSync(temporary, target);
   }
 
-  public async createDraft(rawRequest: unknown): Promise<LessonDraft> {
+  public async createDraft(rawRequest: unknown, ownerId?: string): Promise<LessonDraft> {
     const context = await this.orchestrator.orchestrate(rawRequest);
     const draftId = `draft_${context.request?.requestId ?? Date.now()}`;
     const now = new Date().toISOString();
@@ -277,6 +286,7 @@ export class LessonDraftManager {
 
     const draft: LessonDraft = {
       draftId,
+      ownerId,
       version: 1,
       status: initialStatus,
       createdAt: now,
@@ -363,14 +373,20 @@ export class LessonDraftManager {
       draft.status = 'reviewing';
     }
 
-    // Reverify the complete claim set whenever either the claims or MathSpec changes.
+    // Reverify the complete claim set whenever either the claims, MathSpec, or semantic confirmation changes.
     // This happens before the candidate MathSpec is accepted, so stale verification
     // can never survive a specification-only edit.
-    if (updates.mathematicalClaims || updates.mathSpec) {
+    if (updates.mathematicalClaims || updates.mathSpec || updates.humanSemanticReviewConfirmed !== undefined) {
       if (!draft.context.topicInfo || !draft.context.lessonPlan) {
         throw new Error('Cannot update mathematical content on an incomplete draft');
       }
-      const candidateClaims = updates.mathematicalClaims ?? draft.context.lessonPlan.mathematicalClaims;
+      const rawCandidateClaims = updates.mathematicalClaims ?? draft.context.lessonPlan.mathematicalClaims;
+      const candidateClaims = rawCandidateClaims.map((claim) => ({
+        ...claim,
+        ...(updates.humanSemanticReviewConfirmed !== undefined
+          ? { humanSemanticReviewConfirmed: updates.humanSemanticReviewConfirmed }
+          : {})
+      }));
       const existingMathSpec = draft.context.lessonPlan.mathSpec;
       const candidateMathSpec = updates.mathSpec ?? (existingMathSpec
         ? { ...existingMathSpec, boundClaimIds: candidateClaims.map((claim) => claim.id) }
@@ -391,7 +407,7 @@ export class LessonDraftManager {
         { mathSpec: candidateMathSpec }
       );
       draft.context.mathVerification = {
-        status: verifyReport.allVerified ? 'verified' : 'failed',
+        status: verifyReport.result.status,
         checkedClaims: verifyReport.claims,
         verificationDetails: verifyReport.result.checks
       };
@@ -402,16 +418,28 @@ export class LessonDraftManager {
         timestamp: now,
         note: verifyReport.allVerified
           ? 'Complete claim set reverified against the exact candidate MathSpec'
-          : 'Mathematical verification FAILED against the exact candidate MathSpec',
-        details: { allVerified: verifyReport.allVerified }
+          : `Mathematical verification status: ${verifyReport.result.status}`,
+        details: { allVerified: verifyReport.allVerified, status: verifyReport.result.status }
       });
 
       if (!verifyReport.allVerified) {
         draft.status = 'reviewing';
-        draft.context.stage = 'failed';
+        draft.context.stage = verifyReport.result.status === 'needs_review' ? 'needs_review' : 'failed';
+        const hasConflict = verifyReport.claims.some((c) => c.statementVerification === 'conflict_detected');
+        const needsProseReview = verifyReport.claims.some(
+          (c) => c.statementVerification === 'prose_unverified' && !c.humanSemanticReviewConfirmed
+        );
         draft.context.error = {
-          code: 'math_spec_verification_failed',
-          message: 'Mathematical claims are inconsistent with the candidate MathSpec'
+          code: hasConflict
+            ? 'statement_expression_conflict'
+            : needsProseReview
+            ? 'statement_requires_semantic_review'
+            : 'math_spec_verification_failed',
+          message: hasConflict
+            ? 'Displayed mathematical statement conflicts with the formally verified expression'
+            : needsProseReview
+            ? 'Free-text mathematical statement requires explicit human semantic review confirmation'
+            : 'Mathematical claims are inconsistent with the candidate MathSpec'
         };
         this.persistDraft(draft);
         return draft;
@@ -439,6 +467,55 @@ export class LessonDraftManager {
       }
     }
 
+    // 3. Update render configuration options (renderMode, narrationMode, visualStyleId, subtitlesEnabled)
+    if (updates.renderMode) {
+      draft.context.request.renderMode = updates.renderMode;
+    }
+    if (updates.narrationMode) {
+      draft.context.request.narrationMode = updates.narrationMode;
+    }
+    if (updates.subtitlesEnabled !== undefined) {
+      draft.context.request.subtitlesEnabled = updates.subtitlesEnabled;
+    }
+    if (updates.visualStyleId) {
+      draft.context.request.visualStyleId = updates.visualStyleId;
+      if (draft.context.storyboard) {
+        for (const scene of draft.context.storyboard.scenes) {
+          scene.visualStyleId = updates.visualStyleId;
+          scene.parameters = { ...scene.parameters, visualStyleId: updates.visualStyleId };
+        }
+        if (draft.context.lessonPlan && draft.context.mathVerification?.status === 'verified') {
+          draft.context.teachingTreatment = this.filmDirector.createTreatment({
+            lessonPlan: draft.context.lessonPlan,
+            storyboard: draft.context.storyboard,
+            visualStyleId: updates.visualStyleId
+          });
+        }
+      }
+    }
+
+    // 4. Verify mathematical consistency across narration, subtitles, and storyboard
+    if (draft.context.lessonPlan && (draft.context.narrationPlan || draft.context.storyboard)) {
+      const narrationCheck = verifyNarrationAndStoryboardMathConsistency({
+        claims: draft.context.lessonPlan.mathematicalClaims,
+        narrationPlan: draft.context.narrationPlan,
+        storyboard: draft.context.storyboard
+      });
+      if (!narrationCheck.valid) {
+        draft.status = 'reviewing';
+        draft.context.stage = 'failed';
+        draft.context.error = {
+          code: 'narration_math_conflict',
+          message: narrationCheck.conflicts.join('; ')
+        };
+      } else if (draft.context.error?.code === 'narration_math_conflict') {
+        draft.context.error = undefined;
+        if (draft.context.mathVerification?.status === 'verified') {
+          draft.context.stage = draft.context.manifest ? 'ready_to_render' : 'verified';
+        }
+      }
+    }
+
     draft.approvalHistory.push({
       action: 'updated',
       timestamp: now,
@@ -449,7 +526,11 @@ export class LessonDraftManager {
     return draft;
   }
 
-  public async approveDraft(draftId: string, note?: string): Promise<LessonDraft> {
+  public async approveDraft(
+    draftId: string,
+    note?: string,
+    options?: { confirmSemanticReview?: boolean }
+  ): Promise<LessonDraft> {
     const draft = this.drafts.get(draftId);
     if (!draft) {
       throw new Error(`Lesson draft not found: ${draftId}`);
@@ -457,6 +538,25 @@ export class LessonDraftManager {
 
     if (draft.status === 'rejected') {
       throw new Error(`Cannot approve rejected draft: ${draftId}`);
+    }
+
+    if (options?.confirmSemanticReview && draft.context.lessonPlan) {
+      for (const claim of draft.context.lessonPlan.mathematicalClaims) {
+        if (claim.statementVerification === 'prose_unverified') {
+          claim.humanSemanticReviewConfirmed = true;
+        }
+      }
+      const reverify = await this.verifier.verifyClaims(
+        draft.context.lessonPlan.topicId,
+        draft.context.lessonPlan.mathematicalClaims,
+        { mathSpec: draft.context.lessonPlan.mathSpec }
+      );
+      draft.context.lessonPlan.mathematicalClaims = reverify.claims;
+      draft.context.mathVerification = {
+        status: reverify.result.status,
+        checkedClaims: reverify.claims,
+        verificationDetails: reverify.result.checks
+      };
     }
 
     // STRICT GATE: Verify formal mathematical validity
@@ -509,7 +609,24 @@ export class LessonDraftManager {
       verificationDetails: approvalVerification.result.checks
     };
 
-    // Recompile manifest to ensure total consistency with any edited narration/title
+    const narrationConsistency = verifyNarrationAndStoryboardMathConsistency({
+      claims: draft.context.lessonPlan.mathematicalClaims,
+      narrationPlan: draft.context.narrationPlan,
+      storyboard: draft.context.storyboard
+    });
+    if (!narrationConsistency.valid) {
+      throw new Error(`Cannot approve draft: ${narrationConsistency.conflicts.join('; ')}`);
+    }
+
+    const activeVisualStyleId = draft.context.request.visualStyleId ?? 'clean_educational_infographic';
+    const activeSubtitlesEnabled = draft.context.request.subtitlesEnabled ?? true;
+    for (const scene of draft.context.storyboard.scenes) {
+      scene.visualStyleId = activeVisualStyleId;
+      scene.parameters = { ...scene.parameters, visualStyleId: activeVisualStyleId };
+    }
+    const authoritativeSourceReferences = draft.context.lessonPlan.sourceEvidence.map((ev) => ev.sourceReference);
+
+    // Recompile manifest to ensure total consistency with any edited narration/title/style/subtitles
     const manifest = compileStoryboardV2(
       draft.context.storyboard,
       draft.context.narrationPlan,
@@ -519,7 +636,10 @@ export class LessonDraftManager {
         topicId: draft.context.lessonPlan.topicId,
         fps: 24,
         aspectRatio: draft.context.request.aspectRatio,
-        verifiedClaims: draft.context.lessonPlan.mathematicalClaims
+        visualStyleId: activeVisualStyleId,
+        subtitlesEnabled: activeSubtitlesEnabled,
+        verifiedClaims: draft.context.lessonPlan.mathematicalClaims,
+        sourceReferences: authoritativeSourceReferences
       }
     );
 
@@ -534,6 +654,8 @@ export class LessonDraftManager {
       fps: 24,
       renderMode: draft.context.request.renderMode,
       narrationMode: draft.context.request.narrationMode,
+      visualStyleId: activeVisualStyleId,
+      subtitlesEnabled: activeSubtitlesEnabled,
       providedAudioPath: draft.context.request.providedAudioPath
     };
 

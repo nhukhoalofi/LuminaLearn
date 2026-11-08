@@ -8,6 +8,7 @@ import {
   type VerifiedClaim
 } from './contracts';
 import { type SourceReference } from './document';
+import { type VisualStyleId } from './visual-style';
 
 export type AssetAlignmentPolicy = 'adjust_timeline' | 'hold_last_frame' | 'strict';
 
@@ -17,6 +18,8 @@ export interface StoryboardCompilerOptions {
   topicId: string;
   fps?: number;
   aspectRatio?: SupportedAspectRatio;
+  visualStyleId?: VisualStyleId;
+  subtitlesEnabled?: boolean;
   verifiedClaims?: VerifiedClaim[];
   sourceReferences?: SourceReference[];
   assetAlignmentPolicy?: AssetAlignmentPolicy;
@@ -110,8 +113,9 @@ export function compileStoryboardV2(
     const endFrame = startFrame + durationFrames;
 
     // Gắn narration tương ứng và xác thực biên phụ đề (Subtitle boundary validation)
+    const subtitlesEnabled = options.subtitlesEnabled ?? true;
     const narration = narrationMap.get(sceneSpec.sceneId);
-    if (narration) {
+    if (subtitlesEnabled && narration) {
       const audioAsset = options.audioAssets?.find(
         (a) => a.id === `audio_${narration.segmentId}` || a.path.includes(narration.segmentId)
       );
@@ -130,12 +134,13 @@ export function compileStoryboardV2(
     const formulas = sceneSpec.mathematicalBinding?.latexFormulas ?? [];
     const contentTitle = (sceneSpec.parameters?.title as string) || `Phân đoạn ${index + 1}: ${sceneSpec.templateId}`;
     const contentBody = (sceneSpec.parameters?.description as string) || (sceneSpec.parameters?.body as string) || '';
+    const effectiveVisualStyleId = options.visualStyleId ?? sceneSpec.visualStyleId ?? 'clean_educational_infographic';
 
     timeline.push({
       id: sceneSpec.sceneId,
       sceneType: sceneSpec.sceneType,
       templateId: sceneSpec.templateId,
-      visualStyleId: sceneSpec.visualStyleId,
+      visualStyleId: effectiveVisualStyleId,
       startFrame,
       durationFrames,
       assetId: asset?.id,
@@ -147,7 +152,7 @@ export function compileStoryboardV2(
       },
       parameters: {
         ...sceneSpec.parameters,
-        visualStyleId: sceneSpec.visualStyleId ?? 'clean_educational_infographic',
+        visualStyleId: effectiveVisualStyleId,
         safeAreaPadding: sceneSpec.layout.safeAreaPadding
       }
     });

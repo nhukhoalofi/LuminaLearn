@@ -13,16 +13,30 @@ import {
 } from '@luminalearn/scene-schema';
 import { assertPathInside } from './paths';
 
+export type AudioSignalClassification = 'audible_non_silent' | 'silent_fixture';
+
+export interface AudioSignalProbeResult {
+  meanVolumeDb: number;
+  maxVolumeDb: number;
+  isSilent: boolean;
+  audioClassification: AudioSignalClassification;
+}
+
 export interface AudioMetadata {
   codec: 'mp3' | 'pcm_s16le' | 'aac';
   durationSeconds: number;
   sampleRate: number;
   channels: number;
   sizeBytes: number;
+  meanVolumeDb?: number;
+  maxVolumeDb?: number;
+  isSilent?: boolean;
+  audioClassification?: AudioSignalClassification;
 }
 
 export interface TtsProvider {
   readonly id: string;
+  readonly isSilentFixture?: boolean;
   synthesize(text: string, outputPath: string): Promise<void>;
 }
 
@@ -81,6 +95,7 @@ export class GoogleCloudTtsProvider implements TtsProvider {
 
 export class MockTtsProvider implements TtsProvider {
   readonly id = 'mock_tts';
+  readonly isSilentFixture = true;
   constructor(private readonly defaultDurationSeconds?: number) {}
 
   async synthesize(text: string, outputPath: string): Promise<void> {
@@ -127,6 +142,33 @@ export function validateAudioProbe(raw: unknown, maxDurationSeconds = 40.1): Aud
   if (!Number.isInteger(channels) || channels < 1 || channels > 2) throw new Error('audio_validation_failed: invalid channel count');
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) throw new Error('audio_validation_failed: empty file');
   return { codec, durationSeconds, sampleRate, channels, sizeBytes };
+}
+
+export async function probeAudioSignal(filePath: string, timeoutMs = 30_000): Promise<AudioSignalProbeResult> {
+  const output = await new Promise<string>((resolvePromise, reject) => {
+    execFile(
+      'ffmpeg',
+      ['-hide_banner', '-i', filePath, '-af', 'volumedetect', '-vn', '-f', 'null', '-'],
+      { windowsHide: true, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(`audio_signal_probe_failed: ${stderr || stdout || error.message}`));
+        resolvePromise(`${stdout}\n${stderr}`);
+      }
+    );
+  });
+
+  const meanMatch = /mean_volume:\s*(-?[\d.]+)\s*dB/i.exec(output);
+  const maxMatch = /max_volume:\s*(-?[\d.]+)\s*dB/i.exec(output);
+  const meanVolumeDb = meanMatch ? Number(meanMatch[1]) : -91.0;
+  const maxVolumeDb = maxMatch ? Number(maxMatch[1]) : -91.0;
+  const isSilent = !Number.isFinite(maxVolumeDb) || maxVolumeDb <= -55.0;
+
+  return {
+    meanVolumeDb,
+    maxVolumeDb,
+    isSilent,
+    audioClassification: isSilent ? 'silent_fixture' : 'audible_non_silent'
+  };
 }
 
 export async function probeAudio(filePath: string, maxDurationSeconds = 40.1): Promise<AudioMetadata> {
@@ -201,6 +243,9 @@ export interface V2AudioOutputAsset {
   durationSeconds: number;
   codec: 'mp3';
   startFrame: number;
+  audioClassification?: AudioSignalClassification;
+  meanVolumeDb?: number;
+  maxVolumeDb?: number;
 }
 
 export async function synthesizeNarrationV2(options: {
@@ -213,13 +258,16 @@ export async function synthesizeNarrationV2(options: {
   fps?: number;
   alignmentPolicy?: 'adjust_timeline' | 'hold_last_frame' | 'strict';
   lockedSceneIds?: ReadonlySet<string>;
+  rejectSilentAudio?: boolean;
 }): Promise<V2AudioOutputAsset[]> {
+  if (options.narrationPlan.segments.length > 5) {
+    throw new Error('tts_call_limit_exceeded: maximum five synthesis calls per job');
+  }
   const fps = options.fps ?? 24;
   const alignmentPolicy = options.alignmentPolicy ?? 'strict';
   await mkdir(options.jobDirectory, { recursive: true });
   await mkdir(options.stagedDirectory, { recursive: true });
 
-  const sceneMap = new Map(options.storyboard.scenes.map((s) => [s.sceneId, s]));
   const assets: V2AudioOutputAsset[] = [];
 
   let currentStartFrame = 0;
@@ -245,6 +293,26 @@ export async function synthesizeNarrationV2(options: {
       metadata = await probeAudio(jobPath, 300);
     }
 
+    const signal = await probeAudioSignal(jobPath).catch(() => ({
+      meanVolumeDb: -91.0,
+      maxVolumeDb: -91.0,
+      isSilent: true,
+      audioClassification: 'silent_fixture' as const
+    }));
+    metadata.meanVolumeDb = signal.meanVolumeDb;
+    metadata.maxVolumeDb = signal.maxVolumeDb;
+    metadata.isSilent = signal.isSilent;
+    metadata.audioClassification =
+      options.provider.id === 'mock_tts' || options.provider.isSilentFixture || signal.isSilent
+        ? 'silent_fixture'
+        : 'audible_non_silent';
+
+    if (options.rejectSilentAudio && signal.isSilent) {
+      throw new Error(
+        `tts_silent_audio: Phân đoạn âm thanh ${segment.segmentId} không có tín hiệu tiếng nói (max_volume=${signal.maxVolumeDb} dB)`
+      );
+    }
+
     const sceneDurationSeconds = scene.durationFrames / fps;
     if (metadata.durationSeconds > sceneDurationSeconds) {
       if (alignmentPolicy === 'strict' || options.lockedSceneIds?.has(scene.sceneId)) {
@@ -260,6 +328,14 @@ export async function synthesizeNarrationV2(options: {
           `audio_hold_policy_unavailable: Phân đoạn ${segment.segmentId} cần giữ khung hình cuối, nhưng chưa có xác nhận cảnh ${scene.sceneId} an toàn để hold; hãy rút ngắn lời dẫn hoặc dùng adjust_timeline cho cảnh không khóa`
         );
       }
+    } else if (
+      alignmentPolicy === 'adjust_timeline' &&
+      !options.lockedSceneIds?.has(scene.sceneId) &&
+      metadata.durationSeconds + 0.15 > sceneDurationSeconds
+    ) {
+      // Ensure speech has at least 0.15s breathing room at scene boundary so it is not clipped
+      const neededFrames = Math.ceil((metadata.durationSeconds + 0.25) * fps);
+      scene.durationFrames = Math.max(scene.durationFrames, neededFrames);
     }
 
     await copyFile(jobPath, resolve(options.stagedDirectory, fileName));
@@ -274,7 +350,10 @@ export async function synthesizeNarrationV2(options: {
       path: `generated/${options.jobId}/${fileName}`,
       durationSeconds: metadata.durationSeconds,
       codec: 'mp3',
-      startFrame: currentStartFrame
+      startFrame: currentStartFrame,
+      audioClassification: metadata.audioClassification,
+      meanVolumeDb: metadata.meanVolumeDb,
+      maxVolumeDb: metadata.maxVolumeDb
     });
 
     currentStartFrame += scene.durationFrames;
