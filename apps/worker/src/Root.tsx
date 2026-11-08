@@ -4,14 +4,19 @@ import {
   HybridVideoManifestSchema,
   simpsonFixture,
   LessonStoryboardSchema,
-  RenderManifestV2Schema
+  RenderManifestV2Schema,
+  EducationalStoryboardV3Schema
 } from '@luminalearn/scene-schema';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
 import { LuminaDynamicV2, type LuminaDynamicV2Props } from './compositions/LuminaDynamicV2';
+import { LuminaSceneV3, type LuminaSceneV3Props } from './compositions/LuminaSceneV3';
 import { hybridDefaultManifest } from './fixtures/hybrid-default';
 import { dynamicV2DefaultManifest } from './fixtures/dynamic-v2-default';
+import { perceptronStoryboardV3 } from './fixtures/v3/perceptron-v3';
+import { gradientDescentStoryboardV3 } from './fixtures/v3/gradient-descent-v3';
+import { attentionStoryboardV3 } from './fixtures/v3/attention-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -19,6 +24,7 @@ const LuminaVideoSchema = z.object({
 
 const LuminaMathHybridSchema = z.object({ manifest: HybridVideoManifestSchema });
 const LuminaDynamicV2Schema = z.object({ manifest: RenderManifestV2Schema });
+const LuminaSceneV3Schema = z.object({ storyboard: EducationalStoryboardV3Schema });
 
 export const Root: React.FC = () => {
   return (
@@ -54,6 +60,36 @@ export const Root: React.FC = () => {
         height={dynamicV2DefaultManifest.dimensions.height}
         schema={LuminaDynamicV2Schema}
         defaultProps={{ manifest: dynamicV2DefaultManifest }}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="LuminaSceneV3Perceptron"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(perceptronStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: perceptronStoryboardV3 }}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="LuminaSceneV3GradientDescent"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(gradientDescentStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: gradientDescentStoryboardV3 }}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="LuminaSceneV3Attention"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(attentionStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: attentionStoryboardV3 }}
       />
     </>
   );

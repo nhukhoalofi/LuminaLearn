@@ -124,6 +124,10 @@ importers:
         version: 5.9.3
 
   packages/animation:
+    dependencies:
+      '@luminalearn/scene-schema':
+        specifier: workspace:*
+        version: link:../scene-schema
     devDependencies:
       '@types/node':
         specifier: ^22.13.1

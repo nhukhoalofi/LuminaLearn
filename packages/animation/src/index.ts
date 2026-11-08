@@ -13,4 +13,5 @@ export * from './motion';
 export * from './ConceptTitleReveal';
 export * from './StepFormulaReveal';
 export * from './BeforeAfterComparison';
+export * from './educational';
 

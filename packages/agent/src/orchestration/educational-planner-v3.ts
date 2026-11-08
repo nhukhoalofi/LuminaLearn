@@ -4,14 +4,18 @@ import {
   type EducationalLessonPlanV3,
   type EducationalStoryboardV3,
   EducationalLessonPlanV3Schema,
+  GeminiRequestBudget,
   REGISTERED_TOPICS_V3,
   type TopicCapabilityReportV3
 } from '@luminalearn/scene-schema';
 import type { AIProvider } from './ai-provider';
 import type { DocumentAnalysisResult } from './types';
+import { KnowledgeValidationServiceV3 } from './knowledge-validation-v3';
 
 export interface EducationalPlannerV3Options {
   aiProvider?: AIProvider;
+  validationService?: KnowledgeValidationServiceV3;
+  requestBudget?: GeminiRequestBudget;
 }
 
 export interface PlanLessonV3Input {
@@ -27,15 +31,20 @@ export interface PlanLessonV3Input {
  * EducationalPlannerV3: Bộ lập kế hoạch giáo dục thế hệ mới V3.
  * Hỗ trợ hai lĩnh vực trọng tâm: TOÁN HỌC và TRÍ TUỆ NHÂN TẠO / HỌC MÁY.
  * Đảm bảo:
- * 1. Không ép buộc phương trình đạo hàm đa thức cho các chủ đề AI định tính.
- * 2. Phân loại rành mạch giữa mệnh đề chứng minh hình thức và khái niệm trực quan.
- * 3. Báo cáo năng lực render trung thực (render_ready vs planning_only).
+ * 1. CHECKPOINT A: Tuyệt đối không tự phong "formally_verified" cho các mệnh đề ứng cử viên.
+ * 2. CHECKPOINT B: Real Source Grounding - chỉ gán source_grounded khi có trích dẫn tài liệu thật.
+ * 3. CHECKPOINT D: Hỗ trợ cả đường dẫn AIProvider có kiểm soát budget và đường dẫn deterministic mock.
+ * 4. CHECKPOINT E: Strict Visual DSL cho tất cả các scene visualPayload.
  */
 export class EducationalPlannerV3 {
   private readonly aiProvider?: AIProvider;
+  private readonly validationService: KnowledgeValidationServiceV3;
+  private readonly requestBudget?: GeminiRequestBudget;
 
   constructor(options?: EducationalPlannerV3Options) {
     this.aiProvider = options?.aiProvider;
+    this.validationService = options?.validationService ?? new KnowledgeValidationServiceV3();
+    this.requestBudget = options?.requestBudget;
   }
 
   public async planLesson(input: PlanLessonV3Input): Promise<EducationalLessonPlanV3> {
@@ -51,13 +60,136 @@ export class EducationalPlannerV3 {
     // Bước 1: Phân loại lĩnh vực và năng lực xác định (fail-closed cho chủ đề ngoài phạm vi)
     const capabilityReport = classifyEducationalTopic(topic);
 
-    // Bước 2: Tạo kế hoạch bài học dựa trên lĩnh vực và năng lực thực tế
-    const plan = this.buildDeterministicPlan(lessonId, topic, capabilityReport, targetDurationSeconds, documentAnalysis);
+    // Bước 2: Tạo kế hoạch bài học ứng cử viên (Candidate Plan)
+    // Phân tách rõ ràng giữa Live AI Provider và Deterministic Mock Fixture
+    let candidatePlan: EducationalLessonPlanV3;
 
-    // Bước 3: Xác thực qua Zod Schema V3
-    return EducationalLessonPlanV3Schema.parse(plan);
+    if (this.aiProvider && !this.aiProvider.isMock) {
+      try {
+        candidatePlan = await this.planLessonWithAI(input, capabilityReport);
+      } catch (_err) {
+        // Fallback an toàn về deterministic plan nếu AI thất bại
+        candidatePlan = this.buildDeterministicPlan(
+          lessonId,
+          topic,
+          capabilityReport,
+          targetDurationSeconds,
+          documentAnalysis
+        );
+      }
+    } else {
+      candidatePlan = this.buildDeterministicPlan(
+        lessonId,
+        topic,
+        capabilityReport,
+        targetDurationSeconds,
+        documentAnalysis
+      );
+    }
+
+    // Bước 3: RÀNG BUỘC TOÀN VẸN TRI THỨC (CHECKPOINTS A & B)
+    // Độc lập kiểm định mọi mệnh đề qua KnowledgeValidationServiceV3
+    const validationResult = await this.validationService.validateClaims({
+      lessonId,
+      topicId: capabilityReport.topicId,
+      domain: capabilityReport.domain,
+      claims: candidatePlan.educationalClaims,
+      sourceEvidence: documentAnalysis?.evidence || candidatePlan.sourceEvidence
+    });
+
+    candidatePlan.educationalClaims = validationResult.validatedClaims;
+    candidatePlan.validationReport = validationResult.report;
+
+    // Bước 4: Xác thực qua Zod Schema V3 chặt chẽ
+    return EducationalLessonPlanV3Schema.parse(candidatePlan);
   }
 
+  /**
+   * CHECKPOINT D: Schema-constrained Gemini-backed educational planner.
+   * Xử lý structured output từ AIProvider, ép buộc candidate status unverified.
+   */
+  private async planLessonWithAI(
+    input: PlanLessonV3Input,
+    capability: TopicCapabilityReportV3
+  ): Promise<EducationalLessonPlanV3> {
+    if (!this.aiProvider) {
+      throw new Error('ai_provider_missing: No AI provider configured for live planning.');
+    }
+
+    const budget = this.requestBudget ?? new GeminiRequestBudget();
+
+    const systemPrompt = `Bạn là Chuyên gia Thiết kế Giáo trình Toán học & AI LuminaLearn V3.
+Nhiệm vụ: Lập kế hoạch bài học sư phạm video ngắn (3-4 phân cảnh) cho chủ đề: "${input.topic}".
+Lĩnh vực: ${capability.domain}. Ngôn ngữ: ${input.language === 'en' ? 'en' : 'vi'}.
+Quy tắc toàn vẹn tri thức:
+- KHÔNG tự nhận định bất kỳ mệnh đề nào là "formally_verified".
+- Mọi mệnh đề toán học phải nêu rõ biểu thức formalExpression và validatorKey thích hợp nếu có.
+- Trả về JSON theo đúng định dạng cấu trúc bài học sư phạm V3.`;
+
+    const userPrompt = `Hãy tạo kế hoạch bài học cho chủ đề "${input.topic}" (ID: ${capability.topicId}).
+Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
+
+    const response = await this.aiProvider.generateStructured<EducationalLessonPlanV3>({
+      purpose: 'curriculum_planning',
+      systemPrompt,
+      userPrompt,
+      requestBudget: budget,
+      validator: (raw: unknown) => {
+        const obj = raw as Record<string, unknown>;
+        // Ép buộc các mệnh đề từ AI luôn là unverified ứng cử viên
+        const rawClaims = Array.isArray(obj.educationalClaims) ? obj.educationalClaims : [];
+        const candidateClaims: EducationalClaimV3[] = rawClaims.map((c: any, idx: number) => ({
+          id: typeof c.id === 'string' && c.id.trim() ? c.id.trim() : `claim_ai_${idx + 1}`,
+          claimType: c.claimType ?? (capability.domain === 'mathematics' ? 'formal_mathematics' : 'ai_concept'),
+          statement: String(c.statement ?? 'Mệnh đề sư phạm'),
+          formalExpression: typeof c.formalExpression === 'string' ? c.formalExpression : undefined,
+          validatorKey: typeof c.validatorKey === 'string' ? c.validatorKey : undefined,
+          // Bắt buộc candidate status: unverified (Checkpoint A: không bao giờ tin tưởng AI tự cấp chứng nhận)
+          verificationStatus: 'unverified',
+          formalProofSummary: undefined,
+          humanReviewComment: typeof c.humanReviewComment === 'string' ? c.humanReviewComment : undefined
+        }));
+
+        // Khởi tạo storyboard an toàn từ AI
+        const rawScenes = (obj.storyboard as any)?.scenes;
+        const fallbackScenes = this.getDefaultScenesForTopic(capability, input.targetDurationSeconds ?? 40);
+        const scenes = Array.isArray(rawScenes) && rawScenes.length >= 2 ? rawScenes : fallbackScenes;
+        const totalDuration = scenes.reduce((acc: number, s: any) => acc + (Number(s.durationSeconds) || 10), 0);
+
+        return {
+          schemaVersion: 'lesson-v3',
+          lessonId: input.lessonId,
+          domain: capability.domain,
+          topicId: capability.topicId,
+          title: String(obj.title ?? capability.displayName),
+          summary: String(obj.summary ?? `Kế hoạch bài học về ${capability.displayName}`),
+          learningObjectives: Array.isArray(obj.learningObjectives) && obj.learningObjectives.length > 0
+            ? obj.learningObjectives.map(String)
+            : [`Nắm vững các khái niệm cơ bản về ${capability.displayName}`],
+          prerequisites: Array.isArray(obj.prerequisites) ? obj.prerequisites.map(String) : [],
+          keyConcepts: Array.isArray(obj.keyConcepts) && obj.keyConcepts.length > 0
+            ? obj.keyConcepts.map(String)
+            : [capability.displayName],
+          educationalClaims: candidateClaims.length > 0 ? candidateClaims : this.getDefaultClaimsForTopic(capability),
+          capabilityReport: capability,
+          sourceEvidence: input.documentAnalysis?.evidence || [],
+          storyboard: {
+            storyboardId: `sb_${input.lessonId}`,
+            lessonId: input.lessonId,
+            scenes,
+            totalDurationSeconds: totalDuration
+          }
+        };
+      }
+    });
+
+    return response.data;
+  }
+
+  /**
+   * CHECKPOINT A & E: Deterministic offline fixture planner.
+   * Toàn bộ candidate claims khởi tạo ở trạng thái 'unverified' và visualPayload có strict typing.
+   */
   private buildDeterministicPlan(
     lessonId: string,
     topic: string,
@@ -66,8 +198,7 @@ export class EducationalPlannerV3 {
     documentAnalysis?: DocumentAnalysisResult
   ): EducationalLessonPlanV3 {
     const isMath = capability.domain === 'mathematics';
-
-    let title = capability.displayName;
+    const title = capability.displayName;
     let summary = '';
     let learningObjectives: string[] = [];
     let keyConcepts: string[] = [];
@@ -82,6 +213,7 @@ export class EducationalPlannerV3 {
         'Nắm vững mối liên hệ giữa đạo hàm và tốc độ thay đổi tức thời'
       ];
       keyConcepts = ['Cát tuyến', 'Tiếp tuyến', 'Khoảng cách h', 'Hệ số góc', 'Đạo hàm'];
+      // CHECKPOINT A: Mọi candidate claim ban đầu ĐỀU LÀ unverified
       claims = [
         {
           id: 'claim_poly_deriv',
@@ -89,8 +221,7 @@ export class EducationalPlannerV3 {
           statement: 'Đạo hàm của hàm đa thức f(x) = x^2 là f\'(x) = 2*x',
           formalExpression: '2*x',
           validatorKey: 'polynomial_derivative',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'SymPy verified: diff(x**2, x) == 2*x'
+          verificationStatus: 'unverified'
         },
         {
           id: 'claim_secant_limit',
@@ -98,8 +229,7 @@ export class EducationalPlannerV3 {
           statement: 'Hệ số góc cát tuyến qua x=1 là m(h) = 2 + h, có giới hạn bằng 2 khi h tiến về 0',
           formalExpression: '2',
           validatorKey: 'limit_at_zero',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'SymPy verified: limit((2+h), h, 0) == 2'
+          verificationStatus: 'unverified'
         }
       ];
       scenes = [
@@ -115,7 +245,14 @@ export class EducationalPlannerV3 {
             vietnamese: 'Chào mừng các bạn. Ta xét đường cát tuyến nối hai điểm phân biệt trên đường cong parabol.',
             subtitleVietnamese: 'Xét cát tuyến nối hai điểm phân biệt trên parabol.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: 'Làm thế nào để xác định hệ số góc tiếp tuyến tại một điểm duy nhất?',
+            keyConcept: 'Cát tuyến và Tiếp tuyến',
+            accentColor: '#22D3EE',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         },
         {
           sceneId: 'sc_limit',
@@ -129,7 +266,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Khi cho khoảng cách h co dần về 0, đường cát tuyến xoay dần và trở thành tiếp tuyến duy nhất.',
             subtitleVietnamese: 'Khi h co về 0, cát tuyến trở thành tiếp tuyến duy nhất.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'formula_derivation',
+            headline: 'Giới hạn tỉ số biến thiên',
+            formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h} = 2x",
+            notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0'
+          }
         },
         {
           sceneId: 'sc_summary',
@@ -143,10 +285,24 @@ export class EducationalPlannerV3 {
             vietnamese: 'Như vậy, đạo hàm tại một điểm chính là tốc độ biến thiên tức thời và là hệ số góc tiếp tuyến.',
             subtitleVietnamese: 'Đạo hàm là hệ số góc tiếp tuyến và tốc độ biến thiên tức thời.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'summary',
+            title: 'Ý nghĩa hình học của đạo hàm',
+            takeaways: [
+              'Cát tuyến nối 2 điểm tiến tới tiếp tuyến khi h co về 0',
+              'Đạo hàm là hệ số góc tiếp tuyến tại điểm xét',
+              'f\'(x) = 2x cho hàm số f(x) = x^2'
+            ],
+            verifiedFacts: ['diff(x^2, x) = 2x'],
+            reviewNotes: [],
+            finalCallout: 'Đạo hàm là nền tảng của các thuật toán tối ưu hóa trong học máy.'
+          }
         }
       ];
-    } else if (capability.topicId === 'calculus.riemann_integral.intuition') {
+    } else if (
+      capability.topicId === 'calculus.riemann_integral.intuition' ||
+      capability.topicId === 'calculus.integral.riemann_sum'
+    ) {
       summary = 'Tích phân xác định là giới hạn của tổng diện tích các hình chữ nhật siêu mỏng xấp xỉ hình thang cong.';
       learningObjectives = [
         'Hiểu bản chất tổng Riemann là xấp xỉ diện tích dưới đường cong',
@@ -160,8 +316,7 @@ export class EducationalPlannerV3 {
           statement: 'Tích phân xác định của x^2 trên đoạn [0, 1] có giá trị đúng bằng 1/3',
           formalExpression: '1/3',
           validatorKey: 'riemann_integral',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'SymPy verified: integrate(x**2, (x, 0, 1)) == 1/3'
+          verificationStatus: 'unverified'
         }
       ];
       scenes = [
@@ -177,13 +332,20 @@ export class EducationalPlannerV3 {
             vietnamese: 'Làm thế nào để tính chính xác diện tích phần hình cong dưới parabol từ 0 đến 1?',
             subtitleVietnamese: 'Tính diện tích hình thang cong dưới parabol.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: 'Làm thế nào để tính diện tích hình cong bằng các hình chữ nhật?',
+            keyConcept: 'Xấp xỉ tổng Riemann',
+            accentColor: '#10B981',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         },
         {
           sceneId: 'sc_rectangles',
           sceneType: 'graph_plot',
           title: 'Chia nhỏ thành các dải chữ nhật',
-          pedagogicalGoal: 'Mô phỏng tổng Riemann với phân hoạch 4, 8, 16 hình chữ nhật',
+          pedagogicalGoal: 'Mô phỏng tổng Riemann với phân hoạch các hình chữ nhật',
           durationSeconds: 16,
           boundClaimIds: ['claim_riemann_int'],
           rendererTarget: 'manim_hybrid',
@@ -191,7 +353,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Ta chia đoạn thành các dải chữ nhật nhỏ. Càng chia mịn, tổng diện tích càng sát giá trị tích phân 1/3.',
             subtitleVietnamese: 'Càng chia mịn hình chữ nhật, sai số càng triệt tiêu về 0.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'graph_plot',
+            headline: 'Tổng Riemann xấp xỉ diện tích',
+            formulaTex: '\\int_0^1 x^2 dx = \\lim_{n \\to \\infty} \\sum_{i=1}^n f(x_i) \\Delta x = \\frac{1}{3}',
+            notes: 'Phân hoạch đều n khoảng trên [0, 1]'
+          }
         },
         {
           sceneId: 'sc_summary',
@@ -205,7 +372,18 @@ export class EducationalPlannerV3 {
             vietnamese: 'Tích phân xác định chính là tổng vô hạn các diện tích vi phân vô cùng bé.',
             subtitleVietnamese: 'Tích phân xác định là tổng vô hạn các vi phân diện tích.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'summary',
+            title: 'Bản chất tích phân Riemann',
+            takeaways: [
+              'Chia nhỏ miền tính thành các hình chữ nhật bề rộng dx',
+              'Khi số hình chữ nhật ra vô cùng, tổng xấp xỉ hội tụ về diện tích đúng',
+              'Tích phân của x^2 trên [0, 1] bằng chính xác 1/3'
+            ],
+            verifiedFacts: ['integrate(x^2, (x, 0, 1)) = 1/3'],
+            reviewNotes: [],
+            finalCallout: 'Tích phân xác định là công cụ nền tảng để tính diện tích và kỳ vọng xác suất.'
+          }
         }
       ];
     } else if (capability.topicId === 'linear_algebra.matrix_transform') {
@@ -222,8 +400,7 @@ export class EducationalPlannerV3 {
           statement: 'Phép biến đổi tuyến tính được xác định hoàn toàn bởi tọa độ ảnh của các vector cơ sở.',
           formalExpression: 'T(v) = A * v',
           validatorKey: 'matrix_transform',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'Matrix linear mapping verified: T(c1*v1 + c2*v2) = c1*T(v1) + c2*T(v2)'
+          verificationStatus: 'unverified'
         }
       ];
       scenes = [
@@ -239,7 +416,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Trong không gian hai chiều, mọi vector đều biểu diễn qua tổ hợp của hai vector cơ sở.',
             subtitleVietnamese: 'Mọi vector đều biểu diễn qua hai vector cơ sở.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'graph_plot',
+            headline: 'Không gian vector và hệ cơ sở',
+            formulaTex: 'v = x \\cdot \\hat{i} + y \\cdot \\hat{j}',
+            notes: 'Vector cơ sở i-hat=(1,0), j-hat=(0,1)'
+          }
         },
         {
           sceneId: 'sc_warp',
@@ -253,52 +435,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Nhân vector với ma trận chính là di chuyển lưới không gian tới vị trí mới.',
             subtitleVietnamese: 'Phép nhân ma trận chính là biến đổi hình học không gian.'
           },
-          visualPayload: {}
-        }
-      ];
-    } else if (capability.topicId === 'calculus.limits.epsilon_delta') {
-      summary = 'Định nghĩa giới hạn Epsilon - Delta định lượng hóa sự tiệm cận chính xác của hàm số.';
-      learningObjectives = ['Nắm được vai trò của khoảng dung sai epsilon và lân cận delta'];
-      keyConcepts = ['Giới hạn', 'Epsilon', 'Delta', 'Lân cận'];
-      claims = [
-        {
-          id: 'claim_eps_delta',
-          claimType: 'formal_mathematics',
-          statement: 'Với mọi epsilon dương, luôn tồn tại delta dương sao cho khi 0 < |x - c| < delta thì |f(x) - L| < epsilon.',
-          formalExpression: 'forall eps > 0, exists delta > 0: 0 < |x - c| < delta => |f(x) - L| < eps',
-          validatorKey: 'epsilon_delta_definition',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'Cauchy limit definition formal correspondence checked'
-        }
-      ];
-      scenes = [
-        {
-          sceneId: 'sc_eps_intro',
-          sceneType: 'concept_intro',
-          title: 'Thách thức dung sai Epsilon',
-          pedagogicalGoal: 'Giải thích dải dung sai quanh giá trị đích L',
-          durationSeconds: 20,
-          boundClaimIds: ['claim_eps_delta'],
-          rendererTarget: 'remotion_infographic',
-          narration: {
-            vietnamese: 'Epsilon là khoảng dung sai cho phép quanh giá trị giới hạn L mà ta muốn đạt tới.',
-            subtitleVietnamese: 'Epsilon đại diện cho dung sai quanh giá trị L.'
-          },
-          visualPayload: {}
-        },
-        {
-          sceneId: 'sc_delta_response',
-          sceneType: 'formula_derivation',
-          title: 'Đáp ứng bằng khoảng Delta',
-          pedagogicalGoal: 'Tìm khoảng đầu vào delta để đảm bảo đầu ra nằm trọn trong epsilon',
-          durationSeconds: 20,
-          boundClaimIds: ['claim_eps_delta'],
-          rendererTarget: 'remotion_infographic',
-          narration: {
-            vietnamese: 'Nhiệm vụ của ta là tìm ra một bán kính delta đầu vào đủ nhỏ để đồ thị không vượt khỏi dải epsilon.',
-            subtitleVietnamese: 'Tìm delta đầu vào để đầu ra không vượt khỏi dải epsilon.'
-          },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'flowchart_simulation',
+            headline: 'Biến đổi tuyến tính của lưới tọa độ',
+            formulaTex: 'A \\begin{bmatrix} x \\\\ y \\end{bmatrix} = x A\\hat{i} + y A\\hat{j}',
+            notes: 'Các đường thẳng song song vẫn giữ nguyên tính song song'
+          }
         }
       ];
     } else if (capability.topicId === 'probability.bayes_theorem') {
@@ -312,8 +454,7 @@ export class EducationalPlannerV3 {
           statement: 'Xác suất hậu nghiệm P(A|B) bằng P(B|A) nhân P(A) chia cho P(B).',
           formalExpression: 'P(A|B) = P(B|A) * P(A) / P(B)',
           validatorKey: 'bayes_theorem',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'Bayes rule identity formally verified: P(A,B) / P(B) == P(B|A)*P(A) / P(B)'
+          verificationStatus: 'unverified'
         }
       ];
       scenes = [
@@ -329,7 +470,14 @@ export class EducationalPlannerV3 {
             vietnamese: 'Trước khi có bằng chứng mới, ta có một ước lượng xác suất ban đầu gọi là tiên nghiệm.',
             subtitleVietnamese: 'Ước lượng niềm tin ban đầu gọi là tiên nghiệm.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: 'Làm thế nào để cập nhật niềm tin khi xuất hiện bằng chứng mới?',
+            keyConcept: 'Xác suất Tiên nghiệm và Hậu nghiệm',
+            accentColor: '#F59E0B',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         },
         {
           sceneId: 'sc_bayes_update',
@@ -343,7 +491,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Khi bằng chứng xuất hiện, công thức Bayes cân chỉnh lại niềm tin thành xác suất hậu nghiệm.',
             subtitleVietnamese: 'Bằng chứng mới cân chỉnh niềm tin thành xác suất hậu nghiệm.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'formula_derivation',
+            headline: 'Công thức định lý Bayes',
+            formulaTex: 'P(A|B) = \\frac{P(B|A) P(A)}{P(B)}',
+            notes: 'Cập nhật phân phối xác suất dựa trên Likelihood'
+          }
         }
       ];
     }
@@ -355,21 +508,21 @@ export class EducationalPlannerV3 {
         'Hiểu cấu tạo của một nơ-ron nhân tạo: đầu vào, trọng số, bias và hàm kích hoạt',
         'Giải thích lý do cần tính phi tuyến từ hàm Sigmoid và ReLU'
       ];
-      keyConcepts = ['Đầu vào (Inputs)', 'Trọng số (Weights)', 'Độ chệch (Bias)', 'Hàm kích hoạt (Activation Function)', 'ReLU & Sigmoid'];
+      keyConcepts = ['Đầu vào (Inputs)', 'Trọng số (Weights)', 'Độ chệch (Bias)', 'Hàm kích hoạt', 'ReLU & Sigmoid'];
       claims = [
         {
           id: 'claim_perceptron_structure',
           claimType: 'ai_concept',
           statement: 'Perceptron tính tổng có trọng số của các đầu vào, cộng bias rồi truyền qua hàm kích hoạt phi tuyến.',
-          verificationStatus: 'source_grounded',
-          humanReviewComment: 'Định nghĩa chuẩn nơ-ron nhân tạo của Rosenblatt và cấu trúc mạng truyền thẳng.'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Định nghĩa nơ-ron nhân tạo của Rosenblatt và cấu trúc mạng truyền thẳng.'
         },
         {
           id: 'claim_non_linearity',
           claimType: 'algorithmic_property',
           statement: 'Nếu không có hàm kích hoạt phi tuyến, mạng neural nhiều lớp sẽ suy biến thành một phép biến đổi tuyến tính đơn lẻ.',
-          verificationStatus: 'human_review_required',
-          humanReviewComment: 'Giáo viên xác nhận tính chất xếp chồng ma trận tuyến tính luôn cho ra một ma trận tuyến tính.'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Xếp chồng nhiều ma trận tuyến tính luôn tương đương với một ma trận tuyến tính duy nhất.'
         }
       ];
       scenes = [
@@ -385,7 +538,21 @@ export class EducationalPlannerV3 {
             vietnamese: 'Một nơ-ron nhân tạo nhận các tín hiệu đầu vào, nhân với trọng số riêng biệt rồi cộng thêm độ chệch bias.',
             subtitleVietnamese: 'Nơ-ron nhận đầu vào, nhân trọng số và cộng độ chệch bias.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'neural_architecture',
+            networkType: 'perceptron',
+            layers: [
+              { layerId: 'l_in', name: 'Đầu vào (Inputs)', nodeCount: 2, activation: 'linear' },
+              { layerId: 'l_out', name: 'Đầu ra (Output)', nodeCount: 1, activation: 'sigmoid' }
+            ],
+            weights: [
+              { fromLayer: 0, fromNode: 0, toLayer: 1, toNode: 0, weightValue: 0.8 },
+              { fromLayer: 0, fromNode: 1, toLayer: 1, toNode: 0, weightValue: -0.5 }
+            ],
+            inputValues: [1.0, 0.5],
+            highlightActiveSignal: true,
+            outputLabels: ['Dự đoán (y)']
+          }
         },
         {
           sceneId: 'sc_activation_curves',
@@ -399,7 +566,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Hàm kích hoạt như ReLU hoặc Sigmoid bẻ cong không gian, giúp mạng học được các bài toán phi tuyến.',
             subtitleVietnamese: 'Hàm kích hoạt phi tuyến giúp mạng học bài toán phức tạp.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'graph_plot',
+            headline: 'Hàm kích hoạt phi tuyến',
+            formulaTex: '\\sigma(z) = \\frac{1}{1 + e^{-z}}, \\quad \\text{ReLU}(z) = \\max(0, z)',
+            notes: 'Phi tuyến tính phá vỡ giới hạn biến đổi affine'
+          }
         }
       ];
     } else if (capability.topicId === 'ai.gradient_descent.optimization') {
@@ -416,14 +588,14 @@ export class EducationalPlannerV3 {
           statement: 'Quy tắc cập nhật tham số w: w_mới = w_cũ - eta * nabla L(w)',
           formalExpression: 'w_next = w - eta * grad_L(w)',
           validatorKey: 'gradient_descent_formula',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'First-order iterative optimization step formally validated'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Công thức cập nhật bậc một trong giải thuật tối ưu hóa gradient descent.'
         },
         {
           id: 'claim_lr_intuition',
           claimType: 'ai_concept',
           statement: 'Tốc độ học quá lớn gây phân kỳ vượt khỏi cực tiểu, trong khi quá nhỏ khiến quá trình hội tụ rất chậm.',
-          verificationStatus: 'source_grounded',
+          verificationStatus: 'unverified',
           humanReviewComment: 'Hành vi hội tụ của learning rate trong tối ưu hóa học máy.'
         }
       ];
@@ -440,7 +612,20 @@ export class EducationalPlannerV3 {
             vietnamese: 'Hãy hình dung hàm mất mát như một thung lũng, mục tiêu của ta là đưa quả bóng lăn xuống đáy sâu nhất.',
             subtitleVietnamese: 'Hàm mất mát như thung lũng, mô hình cần lăn xuống đáy sâu nhất.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'loss_landscape',
+            functionType: 'convex_quadratic',
+            minimumPoint: { w: 0.0, loss: 0.0 },
+            curvature: 1.0,
+            currentParam: 2.0,
+            learningRate: 0.3,
+            steps: [
+              { stepNumber: 1, w: 2.0, loss: 4.0, gradient: 4.0 },
+              { stepNumber: 2, w: 0.8, loss: 0.64, gradient: 1.6 },
+              { stepNumber: 3, w: 0.32, loss: 0.1024, gradient: 0.64 }
+            ],
+            showGradientTangent: true
+          }
         },
         {
           sceneId: 'sc_descent_steps',
@@ -454,7 +639,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Ở mỗi bước, gradient chỉ hướng lên dốc. Ta bước theo hướng ngược lại một đoạn bằng tốc độ học.',
             subtitleVietnamese: 'Bước ngược hướng gradient một đoạn tỉ lệ với tốc độ học.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'flowchart_simulation',
+            headline: 'Bước lặp cập nhật tham số',
+            formulaTex: 'w_{t+1} = w_t - \\eta \\cdot \\nabla L(w_t)',
+            notes: 'Hội tụ ổn định về cực tiểu cục bộ'
+          }
         }
       ];
     } else if (capability.topicId === 'ai.transformer.attention') {
@@ -469,8 +659,8 @@ export class EducationalPlannerV3 {
           id: 'claim_attention_mechanism',
           claimType: 'ai_concept',
           statement: 'Self-Attention tính toán độ tương đồng giữa vector Query và các Key để tạo phân phối trọng số mềm cho các Value.',
-          verificationStatus: 'source_grounded',
-          humanReviewComment: 'Được trích xuất từ nghiên cứu kiến trúc Transformer chuẩn Vaswani et al., 2017.'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Kiến trúc Transformer trong Vaswani et al., 2017.'
         },
         {
           id: 'claim_attention_formula',
@@ -478,8 +668,8 @@ export class EducationalPlannerV3 {
           statement: 'Công thức tính ma trận Attention: Attention(Q, K, V) = softmax(Q * K^T / sqrt(d_k)) * V',
           formalExpression: 'softmax(Q * K^T / sqrt(d_k)) * V',
           validatorKey: 'scaled_dot_product',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'Scaled dot-product attention algebraic identity verified'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Công thức tích vô hướng có tỉ lệ trong kiến trúc Transformer.'
         }
       ];
       scenes = [
@@ -495,13 +685,20 @@ export class EducationalPlannerV3 {
             vietnamese: 'Một từ như "ngân hàng" có thể là bờ sông hay tổ chức tài chính tùy thuộc vào ngữ cảnh xung quanh.',
             subtitleVietnamese: 'Nghĩa của từ phụ thuộc hoàn toàn vào ngữ cảnh xung quanh.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: 'Làm thế nào để mô hình liên kết các từ có quan hệ ngữ nghĩa ở xa nhau?',
+            keyConcept: 'Cơ chế Self-Attention',
+            accentColor: '#38BDF8',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         },
         {
-          sceneId: 'sc_qkv_interaction',
-          sceneType: 'neural_architecture',
-          title: 'Cơ chế tích vô hướng Scaled Dot-Product',
-          pedagogicalGoal: 'Trực quan hóa ma trận liên kết giữa Query và Key',
+          sceneId: 'sc_attention_matrix',
+          sceneType: 'attention_heatmap',
+          title: 'Ma trận chú ý tương tác từ vựng',
+          pedagogicalGoal: 'Trực quan hóa ma trận liên kết giữa các từ trong câu',
           durationSeconds: 24,
           boundClaimIds: ['claim_attention_formula'],
           rendererTarget: 'remotion_infographic',
@@ -509,7 +706,18 @@ export class EducationalPlannerV3 {
             vietnamese: 'Từng từ gửi câu hỏi Query tới các Key của mọi từ khác để thu về trọng số tương tác chính xác.',
             subtitleVietnamese: 'Query so khớp với Key để lấy trọng số tập trung cho Value.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'attention_heatmap',
+            tokens: ['Ngân', 'hàng', 'bên', 'sông'],
+            matrix: [
+              [0.45, 0.40, 0.08, 0.07],
+              [0.35, 0.45, 0.10, 0.10],
+              [0.08, 0.12, 0.40, 0.40],
+              [0.06, 0.10, 0.39, 0.45]
+            ],
+            highlightTokenIndex: 0,
+            isIllustrative: true
+          }
         }
       ];
     } else if (capability.topicId === 'ai.neural_network.backpropagation') {
@@ -526,14 +734,14 @@ export class EducationalPlannerV3 {
           statement: 'Theo quy tắc chuỗi vi phân: dL/dw = (dL/dy) * (dy/dz) * (dz/dw)',
           formalExpression: 'dL/dw = (dL/dy) * (dy/dz) * (dz/dw)',
           validatorKey: 'chain_rule_formula',
-          verificationStatus: 'formally_verified',
-          formalProofSummary: 'Calculus multivariable chain rule application verified'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Ứng dụng quy tắc chuỗi vi phân nhiều biến trong lan truyền ngược.'
         },
         {
           id: 'claim_error_blame',
           claimType: 'ai_concept',
           statement: 'Mỗi trọng số được điều chỉnh tỉ lệ thuận với mức độ nó đóng góp vào sai số chung của mô hình.',
-          verificationStatus: 'source_grounded',
+          verificationStatus: 'unverified',
           humanReviewComment: 'Nguyên lý gán trách nhiệm sai số trong huấn luyện mạng nơ-ron học sâu.'
         }
       ];
@@ -550,7 +758,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Dữ liệu chảy xuôi để đưa ra dự đoán, còn sai số chảy ngược lại để sửa chữa từng trọng số.',
             subtitleVietnamese: 'Dữ liệu đi tới để dự đoán, sai số đi lùi để cập nhật trọng số.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'flowchart_simulation',
+            headline: 'Luồng thuận Forward và luồng nghịch Backward',
+            formulaTex: 'x \\to z \\to \\hat{y} \\to L \\quad \\text{và} \\quad \\frac{\\partial L}{\\partial w}',
+            notes: 'Lan truyền sai số ngược từ tầng ra về tầng vào'
+          }
         },
         {
           sceneId: 'sc_chain_rule_math',
@@ -564,7 +777,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Quy tắc chuỗi vi phân cho phép ta nhân các đạo hàm thành phần để tính chính xác sai số của từng tham số.',
             subtitleVietnamese: 'Quy tắc chuỗi nhân các đạo hàm thành phần để tính sai số tham số.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'formula_derivation',
+            headline: 'Quy tắc chuỗi Chain Rule',
+            formulaTex: '\\frac{\\partial L}{\\partial w} = \\frac{\\partial L}{\\partial y} \\cdot \\frac{\\partial y}{\\partial z} \\cdot \\frac{\\partial z}{\\partial w}',
+            notes: 'Tích các ma trận Jacobian thành phần'
+          }
         }
       ];
     } else if (capability.topicId === 'ai.embeddings.vector_space') {
@@ -579,15 +797,15 @@ export class EducationalPlannerV3 {
           id: 'claim_vector_similarity',
           claimType: 'ai_concept',
           statement: 'Các từ có ngữ cảnh sử dụng tương đồng sẽ có vector nhúng với độ tương đồng Cosine cao.',
-          verificationStatus: 'source_grounded',
+          verificationStatus: 'unverified',
           humanReviewComment: 'Giả thuyết phân phối ngữ nghĩa của Harris và mô hình Word2Vec.'
         },
         {
           id: 'claim_vector_arithmetic',
           claimType: 'algorithmic_property',
           statement: 'Không gian nhúng cho phép các phép toán đại số biểu thị quan hệ ngữ nghĩa.',
-          verificationStatus: 'human_review_required',
-          humanReviewComment: 'Giáo viên xác nhận quan hệ ngữ nghĩa vector tuyến tính trong word representation.'
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Quan hệ ngữ nghĩa vector tuyến tính trong word representation.'
         }
       ];
       scenes = [
@@ -603,7 +821,12 @@ export class EducationalPlannerV3 {
             vietnamese: 'Trong không gian vector, các từ chỉ đồ vật, động vật hay cảm xúc sẽ tự động co cụm lại gần nhau.',
             subtitleVietnamese: 'Các từ tương đồng ngữ nghĩa sẽ tự động co cụm lại gần nhau.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'graph_plot',
+            headline: 'Đám mây vector từ vựng (Word Embeddings)',
+            formulaTex: '\\text{similarity}(u, v) = \\frac{u \\cdot v}{\\|u\\| \\|v\\|}',
+            notes: 'Độ tương đồng Cosine đo lường khoảng cách ngữ nghĩa'
+          }
         },
         {
           sceneId: 'sc_analogy_arrow',
@@ -617,11 +840,18 @@ export class EducationalPlannerV3 {
             vietnamese: 'Vector dịch chuyển từ "đàn ông" sang "phụ nữ" tương đương với vector từ "vua" sang "nữ hoàng".',
             subtitleVietnamese: 'Mối quan hệ ngữ nghĩa trở thành các phép cộng trừ vector hình học.'
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: 'Làm thế nào để máy tính thực hiện phép tính ngữ nghĩa: Vua - Đàn ông + Phụ nữ = Nữ hoàng?',
+            keyConcept: 'Phép toán vector ngữ nghĩa',
+            accentColor: '#8B5CF6',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         }
       ];
     } else {
-      // Fallback cho chủ đề hợp lệ tổng quát thuộc Math hoặc AI
+      // Fallback tổng quát cho chủ đề hợp lệ
       summary = `Kế hoạch bài học tổng quát về chủ đề ${topic}.`;
       learningObjectives = [`Nắm vững các khái niệm trọng tâm của ${topic}`];
       keyConcepts = [topic];
@@ -630,9 +860,8 @@ export class EducationalPlannerV3 {
           id: 'claim_general_1',
           claimType: isMath ? 'formal_mathematics' : 'ai_concept',
           statement: `Nội dung cốt lõi của chủ đề ${topic} được diễn giải theo chuẩn sư phạm.`,
-          verificationStatus: isMath ? 'formally_verified' : 'source_grounded',
+          verificationStatus: 'unverified',
           formalExpression: isMath ? 'f(x) = x' : undefined,
-          formalProofSummary: isMath ? 'Identity verified' : undefined,
           humanReviewComment: 'Nội dung khái niệm cần giáo viên đối chiếu sư phạm.'
         }
       ];
@@ -642,28 +871,46 @@ export class EducationalPlannerV3 {
           sceneType: 'concept_intro',
           title: `Giới thiệu ${topic}`,
           pedagogicalGoal: `Mở đầu và đặt vấn đề cho chủ đề ${topic}`,
-          durationSeconds: targetDurationSeconds / 2,
+          durationSeconds: Math.floor(targetDurationSeconds / 2),
           boundClaimIds: ['claim_general_1'],
           rendererTarget: 'remotion_infographic',
           narration: {
             vietnamese: `Chào mừng các bạn đến với bài học về ${topic}.`,
             subtitleVietnamese: `Khám phá bài học về ${topic}.`
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'concept_intro',
+            centralQuestion: `Bản chất cốt lõi của ${topic} là gì?`,
+            keyConcept: topic,
+            accentColor: '#6366F1',
+            visualStyleId: 'clean_educational_infographic',
+            reducedMotion: false
+          }
         },
         {
           sceneId: 'sc_gen_2',
           sceneType: 'summary',
           title: `Tổng kết ${topic}`,
           pedagogicalGoal: `Củng cố kiến thức đã học về ${topic}`,
-          durationSeconds: targetDurationSeconds / 2,
+          durationSeconds: Math.ceil(targetDurationSeconds / 2),
           boundClaimIds: ['claim_general_1'],
           rendererTarget: 'remotion_infographic',
           narration: {
             vietnamese: `Hy vọng bài học giúp bạn nắm vững bản chất cốt lõi của ${topic}.`,
             subtitleVietnamese: `Nắm vững bản chất cốt lõi của ${topic}.`
           },
-          visualPayload: {}
+          visualPayload: {
+            sceneType: 'summary',
+            title: `Tổng kết ${topic}`,
+            takeaways: [
+              `Nắm vững khái niệm nền tảng của ${topic}`,
+              'Hiểu rõ mối liên hệ giữa lý thuyết và trực quan',
+              'Sẵn sàng áp dụng vào các bài toán thực hành'
+            ],
+            verifiedFacts: [],
+            reviewNotes: ['Nội dung cần giáo viên rà soát ngữ nghĩa.'],
+            finalCallout: `Khép lại bài học sư phạm về ${topic}.`
+          }
         }
       ];
     }
@@ -690,5 +937,73 @@ export class EducationalPlannerV3 {
         totalDurationSeconds: totalSeconds
       }
     };
+  }
+
+  private getDefaultClaimsForTopic(capability: TopicCapabilityReportV3): EducationalClaimV3[] {
+    const isMath = capability.domain === 'mathematics';
+    return [
+      {
+        id: 'claim_default_1',
+        claimType: isMath ? 'formal_mathematics' : 'ai_concept',
+        statement: `Khái niệm cơ bản của ${capability.displayName}`,
+        formalExpression: isMath ? 'f(x) = x' : undefined,
+        verificationStatus: 'unverified',
+        humanReviewComment: 'Mệnh đề mặc định cần giáo viên xem xét sư phạm.'
+      }
+    ];
+  }
+
+  private getDefaultScenesForTopic(
+    capability: TopicCapabilityReportV3,
+    targetDuration: number
+  ): EducationalStoryboardV3['scenes'] {
+    return [
+      {
+        sceneId: 'sc_def_intro',
+        sceneType: 'concept_intro',
+        title: `Giới thiệu ${capability.displayName}`,
+        pedagogicalGoal: 'Khởi đầu bài học',
+        durationSeconds: Math.floor(targetDuration / 2),
+        boundClaimIds: ['claim_default_1'],
+        rendererTarget: 'remotion_infographic',
+        narration: {
+          vietnamese: `Chào mừng các bạn đến với ${capability.displayName}.`,
+          subtitleVietnamese: `Khám phá ${capability.displayName}.`
+        },
+        visualPayload: {
+          sceneType: 'concept_intro',
+          centralQuestion: `Bản chất của ${capability.displayName} là gì?`,
+          keyConcept: capability.displayName,
+          accentColor: '#3B82F6',
+          visualStyleId: 'clean_educational_infographic',
+          reducedMotion: false
+        }
+      },
+      {
+        sceneId: 'sc_def_summary',
+        sceneType: 'summary',
+        title: 'Tổng kết bài học',
+        pedagogicalGoal: 'Củng cố kiến thức',
+        durationSeconds: Math.ceil(targetDuration / 2),
+        boundClaimIds: ['claim_default_1'],
+        rendererTarget: 'remotion_infographic',
+        narration: {
+          vietnamese: `Đó là các kiến thức trọng tâm của ${capability.displayName}.`,
+          subtitleVietnamese: `Tổng kết kiến thức cốt lõi.`
+        },
+        visualPayload: {
+          sceneType: 'summary',
+          title: 'Tổng kết bài học',
+          takeaways: [
+            `Nắm vững khái niệm cơ bản của ${capability.displayName}`,
+            'Hiểu rõ ứng dụng thực tế',
+            'Sẵn sàng cho bài học tiếp theo'
+          ],
+          verifiedFacts: [],
+          reviewNotes: [],
+          finalCallout: 'Hoàn thành bài học.'
+        }
+      }
+    ];
   }
 }

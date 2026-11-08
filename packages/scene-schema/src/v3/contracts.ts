@@ -5,6 +5,7 @@ import {
   RendererTargetSchema,
   TopicCapabilityReportV3Schema
 } from './capability';
+import { EducationalVisualPayloadSchema, type EducationalVisualPayload } from './visual-dsl';
 
 export const LESSON_SCHEMA_VERSION_V3 = 'lesson-v3' as const;
 
@@ -78,6 +79,7 @@ export const EducationalSceneTypeSchema = z.enum([
   'graph_plot',
   'neural_architecture',
   'loss_landscape',
+  'attention_heatmap',
   'flowchart_simulation',
   'comparison_table',
   'summary'
@@ -99,8 +101,22 @@ export const EducationalSceneV3Schema = z.object({
     vietnamese: NoExecutableString,
     subtitleVietnamese: NoExecutableString
   }).strict(),
-  visualPayload: z.record(z.string(), z.any()).default({})
-}).strict();
+  visualPayload: EducationalVisualPayloadSchema
+}).strict().superRefine((scene, ctx) => {
+  if (scene.visualPayload.sceneType !== scene.sceneType) {
+    // Cho phép fallback generic payload cho các sceneType như formula_derivation, graph_plot
+    const isGenericMatch =
+      ['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table'].includes(scene.sceneType) &&
+      ['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table'].includes(scene.visualPayload.sceneType);
+    if (!isGenericMatch) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['visualPayload', 'sceneType'],
+        message: `visualPayload.sceneType (${scene.visualPayload.sceneType}) không khớp với scene.sceneType (${scene.sceneType})`
+      });
+    }
+  }
+});
 
 export type EducationalSceneV3 = z.infer<typeof EducationalSceneV3Schema>;
 

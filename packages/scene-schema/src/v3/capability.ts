@@ -192,9 +192,9 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
 
 /**
  * Danh sách các từ khóa ngoài phạm vi (Out-of-scope domains)
- * Phải fail-closed, tuyệt đối không nhận các lĩnh vực hóa học, sinh học, địa lý, nấu ăn...
+ * Phải fail-closed, tuyệt đối không nhận các lĩnh vực vật lý, hóa học, sinh học, địa lý, nấu ăn...
  */
-const FORBIDDEN_DOMAINS_REGEX = /\b(hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản)\b/i;
+const FORBIDDEN_DOMAINS_REGEX = /\b(newton|vật lý|physics|hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản|y học|medical)\b/i;
 
 export class DomainScopeViolationError extends Error {
   constructor(message: string) {
@@ -203,27 +203,67 @@ export class DomainScopeViolationError extends Error {
   }
 }
 
+// Canonical Aliases to resolve V2/V3 topic compatibility:
+export const TOPIC_ALIASES_V3: Record<string, string> = {
+  'calculus.integral.riemann_sum': 'calculus.riemann_integral.intuition',
+  'calculus.riemann_sum.left_rectangle': 'calculus.riemann_integral.intuition',
+  'calculus.integral.riemann': 'calculus.riemann_integral.intuition'
+};
+
+export function canonicalizeTopicId(topicId: string): string {
+  return TOPIC_ALIASES_V3[topicId] || topicId;
+}
+
 /**
- * Bộ phân loại chủ đề xác định (Deterministic Baseline Classifier)
+ * Bộ phân loại chủ đề xác định (Deterministic Canonical Classifier)
+ * Nhận diện mục tiêu sư phạm chính (Primary Educational Objective),
+ * ưu tiên các thuật toán AI phức hợp trước khi xét các công cụ toán học hỗ trợ.
  */
 export function classifyEducationalTopic(topicText: string): TopicCapabilityReportV3 {
   const normalized = topicText.trim().toLowerCase();
 
-  // 1. Kiểm tra phạm vi nghiêm ngặt: từ chối nếu chứa chủ đề ngoài phạm vi
+  // 1. Kiểm tra phạm vi nghiêm ngặt (Fail-closed)
   if (FORBIDDEN_DOMAINS_REGEX.test(normalized)) {
     throw new DomainScopeViolationError(
       `LuminaLearn chỉ hỗ trợ hai lĩnh vực: Toán học (Mathematics) và Trí tuệ nhân tạo (AI/ML). Chủ đề "${topicText}" nằm ngoài phạm vi giáo dục của hệ thống.`
     );
   }
 
-  // 2. Phân loại theo mẫu đã đăng ký (Exact topic matches)
+  // 2. AI & ML Compound Patterns (Phải ưu tiên trước các từ khóa toán học thành phần)
+  // Ví dụ: "Gradient Descent dùng đạo hàm" mục tiêu chính là thuật toán tối ưu học máy, dùng đạo hàm làm công cụ
+  if (/gradient descent|hàm mất mát|loss function|tối ưu hóa học máy|loss landscape/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['ai.gradient_descent.optimization'];
+  }
+  if (/backpropagation|lan truyền ngược|chain rule trong mạng|quy tắc chuỗi.*mạng|backward pass/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['ai.neural_network.backpropagation'];
+  }
+  if (/attention|transformer|tự chú ý|self-attention|cơ chế chú ý/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['ai.transformer.attention'];
+  }
+  if (/embedding|vector nhúng|word2vec|không gian vector nhúng|từ nhúng/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['ai.embeddings.vector_space'];
+  }
+  if (/perceptron|hàm kích hoạt|sigmoid|relu/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['ai.perceptron.activation'];
+  }
+  if (/bayes.*(machine learning|học máy|phân loại|classification|mô hình)/i.test(normalized)) {
+    return {
+      ...REGISTERED_TOPICS_V3['probability.bayes_theorem'],
+      domain: 'artificial_intelligence',
+      subCategory: 'Probabilistic Machine Learning',
+      displayName: 'Định lý Bayes trong phân loại Machine Learning',
+      limitations: ['Ứng dụng định lý Bayes trong phân loại học máy (Naïve Bayes).']
+    };
+  }
+
+  // 3. Mathematics Patterns (Chủ đề toán học thuần túy)
   if (/cát tuyến|tiếp tuyến|đạo hàm|derivative/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['calculus.derivative.intuition'];
   }
   if (/riemann|tích phân|diện tích hình phẳng|integral/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['calculus.riemann_integral.intuition'];
   }
-  if (/ma trận|biến đổi không gian|vector|matrix|linear algebra|đại số tuyến tính/i.test(normalized) && !/nhúng|embedding/i.test(normalized)) {
+  if (/ma trận|biến đổi không gian|vector 2d|matrix|linear algebra|đại số tuyến tính/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['linear_algebra.matrix_transform'];
   }
   if (/epsilon|delta|giới hạn|limit/i.test(normalized)) {
@@ -233,25 +273,8 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     return REGISTERED_TOPICS_V3['probability.bayes_theorem'];
   }
 
-  // AI & ML patterns
-  if (/perceptron|sigmoid|relu|kích hoạt|activation/i.test(normalized)) {
-    return REGISTERED_TOPICS_V3['ai.perceptron.activation'];
-  }
-  if (/gradient descent|mất mát|loss function|tối ưu hóa|optimization/i.test(normalized)) {
-    return REGISTERED_TOPICS_V3['ai.gradient_descent.optimization'];
-  }
-  if (/attention|transformer|tự chú ý|self-attention/i.test(normalized)) {
-    return REGISTERED_TOPICS_V3['ai.transformer.attention'];
-  }
-  if (/backpropagation|lan truyền ngược|chain rule|quy tắc chuỗi/i.test(normalized)) {
-    return REGISTERED_TOPICS_V3['ai.neural_network.backpropagation'];
-  }
-  if (/embedding|vector space|không gian vector|từ nhúng|word2vec/i.test(normalized)) {
-    return REGISTERED_TOPICS_V3['ai.embeddings.vector_space'];
-  }
-
-  // AI generic
-  if (/trí tuệ nhân tạo|machine learning|học máy|ai|deep learning|mạng neural|neural network/i.test(normalized)) {
+  // 4. AI Generic Fallback
+  if (/trí tuệ nhân tạo|machine learning|học máy|deep learning|mạng neural|neural network|\bai\b/i.test(normalized)) {
     return {
       topicId: 'ai.general.concept',
       domain: 'artificial_intelligence',
@@ -266,7 +289,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // Mathematics generic
+  // 5. Mathematics Generic Fallback
   if (/toán|hàm số|phương trình|đồ thị|hình học|calculus|algebra|geometry/i.test(normalized)) {
     return {
       topicId: 'math.general.concept',
@@ -282,7 +305,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // Nếu không khớp với bất kỳ từ khóa Toán học hoặc AI nào, fail closed
+  // 6. Fail-closed
   throw new DomainScopeViolationError(
     `Không nhận diện được chủ đề Toán học hoặc Trí tuệ nhân tạo từ nội dung: "${topicText}". Vui lòng cung cấp chủ đề cụ thể trong phạm vi Toán hoặc AI.`
   );
