@@ -7,6 +7,7 @@ import {
   type PronunciationHintV2,
   type StoryboardV2
 } from '@luminalearn/scene-schema';
+import { narrationPlanV2JsonSchema } from '../json-schemas';
 import type { AIProvider } from './ai-provider';
 import { verifyNarrationAndStoryboardMathConsistency } from './math-verifier';
 import type { ProviderCallTrace } from './types';
@@ -39,6 +40,7 @@ export class NarrationPlannerV2 {
         purpose: 'narration_planning',
         systemPrompt: `You are an expert voiceover writer for LuminaLearn STEM lessons. Language: ${language}. Use only the independently verified claims and exact source references supplied. Preserve scene IDs exactly; do not invent citations or mathematical claims.`,
         userPrompt: `Generate NarrationPlanV2. Verified lesson plan: ${JSON.stringify(lessonPlan)}\nVerified claims: ${JSON.stringify(verifiedClaims)}\nExact source references: ${JSON.stringify(lessonPlan.sourceEvidence)}\nStoryboard scenes and goals: ${JSON.stringify(sceneContext)}`,
+        jsonSchema: narrationPlanV2JsonSchema,
         validator: (data) => NarrationPlanV2Schema.parse(data),
         requestBudget
       });

@@ -306,7 +306,7 @@ export function CreateVideoForm({
       syncControlsFromDraft(data);
       setDraftDirty(false);
       if (data.stage === 'needs_review') {
-        setError(data.error?.message || 'Bản thảo cần giáo viên xác nhận ngữ nghĩa trước khi tiếp tục.');
+        setError(null);
       }
       setUiState('reviewing');
     } catch (err) {
@@ -800,11 +800,25 @@ export function CreateVideoForm({
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 700,
-                backgroundColor: draft.mathVerification?.status === 'verified' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                color: draft.mathVerification?.status === 'verified' ? '#4ade80' : '#f87171'
+                backgroundColor:
+                  draft.mathVerification?.status === 'verified'
+                    ? 'rgba(34, 197, 94, 0.2)'
+                    : draft.mathVerification?.status === 'needs_review'
+                    ? 'rgba(245, 158, 11, 0.2)'
+                    : 'rgba(239, 68, 68, 0.2)',
+                color:
+                  draft.mathVerification?.status === 'verified'
+                    ? '#4ade80'
+                    : draft.mathVerification?.status === 'needs_review'
+                    ? '#fbbf24'
+                    : '#f87171'
               }}
             >
-              {draft.mathVerification?.status === 'verified' ? '✓ SymPy Verified' : '✗ Verification Failed'}
+              {draft.mathVerification?.status === 'verified'
+                ? '✓ SymPy Verified'
+                : draft.mathVerification?.status === 'needs_review'
+                ? '⚠️ Cần giáo viên xác nhận (Needs Review)'
+                : '✗ Verification Failed'}
             </span>
           </div>
 

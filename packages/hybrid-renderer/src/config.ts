@@ -69,7 +69,7 @@ export function loadEnvironmentConfig(repositoryRoot: string): EnvironmentConfig
   const renderConcurrency = Number(process.env.RENDER_CONCURRENCY || '1');
 
   // Gemini & Google Cloud
-  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   const geminiApiKey = process.env.GEMINI_API_KEY;
   const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
   const googleApplicationCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS;

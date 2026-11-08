@@ -37,7 +37,7 @@ export class GoogleGenAiAudioClient implements GeminiAudioClient {
   private readonly ai: GoogleGenAI;
 
   constructor(apiKey: string) {
-    this.ai = new GoogleGenAI({ apiKey });
+    this.ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta' } });
   }
 
   async assertModelAvailable(model: string, signal: AbortSignal): Promise<void> {

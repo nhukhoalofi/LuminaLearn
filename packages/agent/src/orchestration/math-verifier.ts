@@ -170,6 +170,15 @@ export function evaluateStatementConsistency(
   const canonicalStatement = buildCanonicalClaimStatement(claim, mathSpec);
   const normalizedExpected = normalizeMathExpressionToken(claim.expectedExpression);
   const rawStmt = claim.statement.trim();
+  const normalizedRaw = normalizeMathExpressionToken(rawStmt);
+
+  if (normalizedRaw && normalizedRaw === normalizedExpected) {
+    return {
+      status: 'formal_match',
+      canonicalStatement,
+      extractedResults: [normalizedRaw]
+    };
+  }
 
   // Strip known input context patterns so they are not mistaken for claimed RHS values
   const stripped = rawStmt

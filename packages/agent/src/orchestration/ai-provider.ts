@@ -77,7 +77,7 @@ export class LiveGeminiAIProvider implements AIProvider {
       throw new Error('gemini_api_key_missing: GEMINI_API_KEY is required for LiveGeminiAIProvider. Live paid calls cannot be performed without valid credentials.');
     }
     this.apiKey = apiKey ?? '';
-    this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+    this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
     this.maxRetries = options.maxRetries ?? 1;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 250;
     this.defaultBudget = options.requestBudget;
@@ -86,7 +86,7 @@ export class LiveGeminiAIProvider implements AIProvider {
     if (!this.transport) {
       this.client = new GoogleGenAI({
         apiKey: this.apiKey,
-        httpOptions: { timeout: options.timeoutMs ?? 30_000 }
+        httpOptions: { timeout: options.timeoutMs ?? Number(process.env.GEMINI_TIMEOUT_MS || '60000') }
       });
     }
   }
@@ -122,7 +122,7 @@ export class LiveGeminiAIProvider implements AIProvider {
             config: {
               temperature: 0.2,
               responseMimeType: 'application/json',
-              ...(request.jsonSchema ? { responseJsonSchema: request.jsonSchema } : {})
+              ...(request.jsonSchema ? { responseSchema: request.jsonSchema as never, responseJsonSchema: request.jsonSchema } : {})
             }
           });
           responseText = response.text;

@@ -14,7 +14,7 @@ describe('EnvironmentConfig & ErrorTaxonomy', () => {
     assert.ok(config.remotionCliExecutable.length > 0);
     assert.ok(config.ffmpegExecutable.length > 0);
     assert.ok(config.ffprobeExecutable.length > 0);
-    assert.equal(config.geminiModel, 'gemini-2.5-flash');
+    assert.equal(config.geminiModel, 'gemini-3.5-flash-lite');
     assert.equal(config.renderConcurrency, 1);
   });
 
