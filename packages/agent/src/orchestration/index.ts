@@ -11,5 +11,6 @@ export * from './math-verifier';
 export * from './ai-provider';
 export * from './draft-manager';
 export * from './orchestrator';
+export * from './educational-planner-v3';
 
 

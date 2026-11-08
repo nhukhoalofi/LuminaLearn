@@ -38,6 +38,9 @@ export function Header() {
               </svg>
             </div>
             <span className="brand-title">LuminaLearn</span>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginLeft: '10px', borderLeft: '1px solid var(--border-subtle)', paddingLeft: '10px' }}>
+              AI & Mathematics Video Studio
+            </span>
           </a>
 
           <div className="header-status-badge">

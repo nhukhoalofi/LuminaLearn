@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { detectDraftConflicts, type FieldConflict } from './conflict-utils';
 
 type UiState = 'idle' | 'ingesting' | 'drafting' | 'saving' | 'reviewing' | 'submitting' | 'generating' | 'completed' | 'failed';
 type InputMode = 'topic_prompt' | 'source_document';
@@ -148,6 +149,12 @@ export function CreateVideoForm({
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [confirmSemanticReview, setConfirmSemanticReview] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<{
+    serverVersion: number;
+    localVersion: number;
+    serverDraft: LessonDraftInfo;
+    conflicts: FieldConflict[];
+  } | null>(null);
   const [uiState, setUiState] = useState<UiState>('idle');
   const [job, setJob] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -331,6 +338,59 @@ export function CreateVideoForm({
     }
   }
 
+  function handleAcceptServerDraft(): void {
+    if (!conflictInfo) return;
+    setDraft(conflictInfo.serverDraft);
+    syncControlsFromDraft(conflictInfo.serverDraft);
+    setDraftDirty(false);
+    setConflictInfo(null);
+    setError(null);
+  }
+
+  async function handleForceSaveLocal(): Promise<void> {
+    if (!conflictInfo || !draft) return;
+    const targetVer = conflictInfo.serverVersion;
+    setConflictInfo(null);
+    setError(null);
+    setUiState('saving');
+    try {
+      const narrationTexts = Object.fromEntries(
+        (draft.narrationPlan?.segments ?? []).map((segment) => [segment.segmentId, {
+          text: segment.text,
+          subtitleText: segment.subtitleText
+        }])
+      );
+      const response = await fetch(`/api/lessons/${draft.draftId}/draft`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: draft.lessonPlan.title,
+          summary: draft.lessonPlan.summary,
+          mathematicalClaims: draft.lessonPlan.mathematicalClaims,
+          narrationTexts,
+          renderMode,
+          narrationMode: voiceoverMode,
+          visualStyleId,
+          subtitlesEnabled,
+          humanSemanticReviewConfirmed: confirmSemanticReview ? true : undefined,
+          expectedVersion: targetVer,
+          note: `Teacher explicitly forced local edits over server version v${targetVer}`
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(vietnameseApiError(payload, 'Không thể lưu bản thảo sau khi giải quyết xung đột.'));
+      }
+      setDraft(payload);
+      syncControlsFromDraft(payload);
+      setDraftDirty(false);
+      setUiState('reviewing');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setUiState('failed');
+    }
+  }
+
   async function handleSaveDraft(): Promise<void> {
     if (!draft) return;
     setError(null);
@@ -362,9 +422,26 @@ export function CreateVideoForm({
       const payload = await response.json();
       if (!response.ok) {
         if (response.status === 409 && payload.currentVersion) {
-          // Optimistic concurrency conflict: preserve teacher's edits, update version, and warn
-          setDraft((prev) => prev ? { ...prev, version: payload.currentVersion } : prev);
-          setError(`Xung đột phiên bản: Bản thảo đã được sửa đổi ở nơi khác (phiên bản máy chủ: v${payload.currentVersion}). Các chỉnh sửa chưa lưu của bạn vẫn được giữ nguyên. Hãy nhấn "Lưu chỉnh sửa" để cập nhật.`);
+          // Checkpoint B: Safe Concurrency Conflict Resolution
+          try {
+            const serverRes = await fetch(`/api/lessons/${encodeURIComponent(draft.draftId)}/draft`, { cache: 'no-store' });
+            if (serverRes.ok) {
+              const serverDraft = (await serverRes.json()) as LessonDraftInfo;
+              const conflicts = detectDraftConflicts(draft, serverDraft);
+              setConflictInfo({
+                serverVersion: serverDraft.version,
+                localVersion: draft.version,
+                serverDraft,
+                conflicts
+              });
+              setError(`Xung đột phiên bản: Bản thảo đã được sửa đổi ở phiên khác (v${draft.version} → v${serverDraft.version}). Vui lòng đối chiếu các trường khác biệt bên dưới trước khi quyết định.`);
+              setUiState('reviewing');
+              return;
+            }
+          } catch {
+            // fallback
+          }
+          setError(`Xung đột phiên bản: Máy chủ hiện ở v${payload.currentVersion}. Vui lòng tải lại bản thảo.`);
           setUiState('reviewing');
           return;
         }
@@ -373,6 +450,7 @@ export function CreateVideoForm({
       setDraft(payload);
       syncControlsFromDraft(payload);
       setDraftDirty(false);
+      setConflictInfo(null);
       if (payload.mathVerification?.status === 'failed' || payload.error) {
         setError(vietnameseApiError(payload, 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.'));
       }
@@ -386,6 +464,10 @@ export function CreateVideoForm({
   // Handle Draft Approval & Video Render
   async function handleApproveAndRender(): Promise<void> {
     if (!draft) return;
+    if (conflictInfo) {
+      setError('Vui lòng giải quyết xung đột phiên bản trước khi duyệt bản thảo.');
+      return;
+    }
     if (requiresExternalApi && !confirmExternalApi) {
       setError('Vui lòng tích chọn xác nhận gọi API bên ngoài (Gemini Live / TTS) trước khi duyệt và render.');
       return;
@@ -433,15 +515,33 @@ export function CreateVideoForm({
           return;
         }
         if (res.status === 409 && data.currentVersion) {
-          // Version conflict on approval: update version and inform teacher
-          setDraft((prev) => prev ? { ...prev, version: data.currentVersion } : prev);
-          setError(`Xung đột phiên bản: Bản thảo đã được cập nhật ở nơi khác (phiên bản máy chủ: v${data.currentVersion}). Đã cập nhật phiên bản, vui lòng nhấn Duyệt lại.`);
+          // Safe conflict handling on approve
+          try {
+            const serverRes = await fetch(`/api/lessons/${encodeURIComponent(draft.draftId)}/draft`, { cache: 'no-store' });
+            if (serverRes.ok) {
+              const serverDraft = (await serverRes.json()) as LessonDraftInfo;
+              const conflicts = detectDraftConflicts(draft, serverDraft);
+              setConflictInfo({
+                serverVersion: serverDraft.version,
+                localVersion: draft.version,
+                serverDraft,
+                conflicts
+              });
+              setError(`Không thể duyệt: Bản thảo đã được sửa đổi trên máy chủ lên v${serverDraft.version}. Vui lòng xem các trường xung đột bên dưới trước khi tiếp tục.`);
+              setUiState('reviewing');
+              return;
+            }
+          } catch {
+            // fallback
+          }
+          setError(`Xung đột phiên bản khi duyệt: Bản thảo đã ở v${data.currentVersion}.`);
           setUiState('reviewing');
           return;
         }
         throw new Error(vietnameseApiError(data, 'Duyệt bản thảo thất bại'));
       }
 
+      setConflictInfo(null);
       setJob(data.job);
       setUiState('generating');
       await pollJob(data.job.jobId, controller.signal);
@@ -520,24 +620,77 @@ export function CreateVideoForm({
             disabled={busy}
             placeholder="Đạo hàm là gì? hoặc Tổng Riemann và tích phân"
           />
-          <div className="quick-topics">
-            <span className="quick-topics-label">Gợi ý bài giảng:</span>
-            <button
-              type="button"
-              className="quick-chip"
-              disabled={busy}
-              onClick={() => setTopic('Đạo hàm là gì? — Từ cát tuyến đến tiếp tuyến')}
-            >
-              Đạo hàm: cát tuyến → tiếp tuyến
-            </button>
-            <button
-              type="button"
-              className="quick-chip"
-              disabled={busy}
-              onClick={() => setTopic('Tổng Riemann và trực giác tích phân')}
-            >
-              Tích phân: Tổng Riemann xấp xỉ diện tích
-            </button>
+          <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Trạng thái năng lực kết xuất:</span>
+            {/cát tuyến|tiếp tuyến|đạo hàm|riemann|tích phân/i.test(topic) ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.4)' }}>
+                🎬 Render-Ready (Remotion + Manim)
+              </span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
+                📋 Planning & Pedagogical Review (Phase 2 Visual Engine)
+              </span>
+            )}
+          </div>
+          <div className="quick-topics" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <span className="quick-topics-label" style={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>📐 Toán học (Mathematics):</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Đạo hàm là gì? — Từ cát tuyến đến tiếp tuyến')}
+                >
+                  Đạo hàm: cát tuyến → tiếp tuyến
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Tổng Riemann và trực giác tích phân')}
+                >
+                  Tích phân: Tổng Riemann xấp xỉ diện tích
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Biến đổi không gian 2D bằng ma trận đại số tuyến tính')}
+                >
+                  Đại số tuyến tính: Biến đổi ma trận 2D
+                </button>
+              </div>
+            </div>
+            <div>
+              <span className="quick-topics-label" style={{ fontWeight: 600, color: 'var(--accent-violet)' }}>🤖 Trí tuệ nhân tạo (AI & Machine Learning):</span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Mô hình Perceptron và các hàm kích hoạt Sigmoid, ReLU')}
+                >
+                  Perceptron & Hàm kích hoạt
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Tối ưu hóa Gradient Descent và bề mặt hàm mất mát Loss Function')}
+                >
+                  Gradient Descent & Hàm mất mát
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  onClick={() => setTopic('Cơ chế Self-Attention và kiến trúc mạng Transformer')}
+                >
+                  Transformer: Cơ chế Self-Attention
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -790,6 +943,73 @@ export function CreateVideoForm({
             border: '1px solid var(--border-active)'
           }}
         >
+          {conflictInfo && (
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '16px',
+                borderRadius: '12px',
+                border: '2px solid #ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '20px' }}>⚠️</span>
+                <strong style={{ color: '#f87171', fontSize: '15px' }}>
+                  Xung đột phiên bản: Bản thảo đã được sửa đổi ở phiên khác (v{conflictInfo.localVersion} → v{conflictInfo.serverVersion})
+                </strong>
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                Để tránh ghi đè âm thầm, vui lòng kiểm tra các trường khác biệt dưới đây trước khi quyết định:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                {conflictInfo.conflicts.map((c) => (
+                  <div
+                    key={c.field}
+                    style={{
+                      padding: '10px',
+                      backgroundColor: 'var(--bg-input)',
+                      borderRadius: '8px',
+                      fontSize: '12px'
+                    }}
+                  >
+                    <strong style={{ color: 'var(--accent-cyan)' }}>{c.label}:</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' }}>
+                      <div style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                        <span style={{ color: '#fca5a5', fontWeight: 600 }}>Bản sửa chưa lưu của bạn:</span>
+                        <p style={{ marginTop: '2px', wordBreak: 'break-word' }}>{c.localValue}</p>
+                      </div>
+                      <div style={{ padding: '6px', borderRadius: '4px', backgroundColor: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                        <span style={{ color: '#86efac', fontWeight: 600 }}>Bản mới nhất trên máy chủ:</span>
+                        <p style={{ marginTop: '2px', wordBreak: 'break-word' }}>{c.serverValue}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  style={{ flex: 1, backgroundColor: 'rgba(59, 130, 246, 0.25)', borderColor: '#3b82f6', color: '#fff', fontWeight: 700 }}
+                  disabled={busy}
+                  onClick={handleAcceptServerDraft}
+                >
+                  📥 Tải lại phiên bản máy chủ (Bỏ thay đổi hiện tại)
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  style={{ flex: 1, backgroundColor: 'rgba(239, 68, 68, 0.25)', borderColor: '#ef4444', color: '#fff', fontWeight: 700 }}
+                  disabled={busy}
+                  onClick={handleForceSaveLocal}
+                >
+                  ⚠️ Xác nhận ghi đè bằng bản sửa của tôi
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--accent-cyan)' }}>
               Bản thảo bài học — phiên bản {draft.version}
@@ -977,7 +1197,7 @@ export function CreateVideoForm({
             type="button"
             className="btn-generate"
             style={{ width: '100%', marginTop: '12px', backgroundColor: '#22c55e', borderColor: '#22c55e' }}
-            disabled={busy || draftDirty || draft.mathVerification?.status !== 'verified'}
+            disabled={busy || draftDirty || Boolean(conflictInfo) || draft.mathVerification?.status !== 'verified'}
             onClick={handleApproveAndRender}
           >
             {draft.mathVerification?.status === 'verified'
