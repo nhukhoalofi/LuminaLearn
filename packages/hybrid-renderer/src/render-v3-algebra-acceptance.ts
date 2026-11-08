@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LessonDraftManagerV3 } from '@luminalearn/agent';
 import { runRenderPipelineV3 } from './pipeline-v3.js';
+import { parseRationalFps } from './fps-parser.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -98,7 +99,7 @@ async function main() {
     codec: videoStream?.codec_name,
     width: videoStream?.width,
     height: videoStream?.height,
-    fps: eval(videoStream?.r_frame_rate || '24/1'),
+    fps: parseRationalFps(videoStream?.r_frame_rate, 24),
     durationSeconds: parseFloat(probeData.format?.duration || '0'),
     frameSample: framePath,
     contactSheet: contactSheetPath,

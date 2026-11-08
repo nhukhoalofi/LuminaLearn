@@ -1,13 +1,134 @@
 import {
   type EducationalClaimV3,
   type EducationalDomain,
+  type EducationalSceneV3,
   type GroundingEvidence,
   type KnowledgeValidationReportV3,
   type MathVisualizationSpecV2,
-  type VerifiedClaim
+  type VerifiedClaim,
+  type AlgebraIdentityVisualPayload
 } from '@luminalearn/scene-schema';
 import { MathVerificationService } from './math-verifier';
-import { verifyAlgebraIdentityV3 } from './algebra-verifier-v3';
+import { verifyAlgebraIdentityV3, verifyTransformationChainV3 } from './algebra-verifier-v3';
+
+/**
+ * CHECKPOINT B: Phân tích sự nhất quán ngữ nghĩa giữa lời văn tự do (statement)
+ * và biểu thức toán học hình thức (formalExpression).
+ * Bắt buộc phát hiện mâu thuẫn trực tiếp (contradiction_detected) để ngăn chặn
+ * việc gán mác formally_verified cho những lời giải thích ngụy biện.
+ */
+export function inspectStatementSemanticConsistency(
+  statement: string,
+  formalExpression?: string
+): {
+  status: 'formal_match' | 'human_review_required' | 'contradiction_detected';
+  reason?: string;
+} {
+  const normalizedStmt = statement.trim().toLowerCase();
+  if (!formalExpression) {
+    return { status: 'human_review_required', reason: 'No formal expression bound to claim' };
+  }
+  const cleanExpr = formalExpression.trim().replace(/\s+/g, '');
+
+  // 1. Kiểm tra các cụm từ phủ định đối nghịch trực tiếp với thành phần công thức
+  // Ví dụ: biểu thức có 2*a*b mà lời văn nói "không có số hạng 2ab", "bỏ qua 2ab", "không có 2*a*b"
+  const contradictionPatterns = [
+    /không\s+(?:có|chứa|xuất hiện|tồn tại)\s+(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
+    /bỏ qua\s+(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
+    /loại trừ\s+(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
+    /triệt tiêu\s+(?:hoàn toàn\s+)?(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
+    /không\s+(?:bằng|phải là)\s+([a-b0-9*^ ]+)/gi
+  ];
+
+  for (const pattern of contradictionPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(normalizedStmt)) !== null) {
+      const term = match[1].replace(/\s+/g, '');
+      const normalizedTerm = term.replace(/\*/g, '').replace(/\^/g, '');
+      const normalizedFormula = cleanExpr.replace(/\*/g, '').replace(/\^/g, '');
+      if (normalizedTerm.length >= 2 && normalizedFormula.includes(normalizedTerm)) {
+        return {
+          status: 'contradiction_detected',
+          reason: `statement_contradicts_formula: Lời văn phủ định thành phần '${match[1]}' vốn có trong biểu thức '${formalExpression}'`
+        };
+      }
+    }
+  }
+
+  // 2. Kiểm tra đẳng thức mâu thuẫn hiển nhiên trong văn bản
+  // Ví dụ: statement khẳng định (a+b)^2 = a^2 + b^2 trong khi formalExpression là (a+b)^2 = a^2 + 2ab + b^2
+  const equalityInStmt = statement.match(/(?:(?:^|[.;\n])\s*)([a-b0-9+\-*/^() ]+)\s*(?:==|=|bằng)\s*([a-b0-9+\-*/^() ]+)/i);
+  if (equalityInStmt) {
+    const leftInStmt = equalityInStmt[1].trim().replace(/\s+/g, '').replace(/\*/g, '');
+    const rightInStmt = equalityInStmt[2].trim().replace(/\s+/g, '').replace(/\*/g, '');
+    const [expectedLeft, expectedRight] = formalExpression.split('=').map((s) => s.trim().replace(/\s+/g, '').replace(/\*/g, ''));
+    if (expectedLeft && expectedRight && leftInStmt.length > 2 && rightInStmt.length > 2) {
+      if (leftInStmt === expectedLeft && rightInStmt !== expectedRight) {
+        return {
+          status: 'contradiction_detected',
+          reason: `statement_contradicts_formula: Lời văn khẳng định '${equalityInStmt[2].trim()}' mâu thuẫn với biểu thức hình thức đã chứng minh '${expectedRight}'`
+        };
+      }
+    }
+  }
+
+  // 3. Khớp chính thức: lời văn chứa trọn vẹn đẳng thức hoặc công thức đại số
+  const statementWithoutPunctuation = statement.replace(/[.,:;!?]/g, '').trim();
+  if (statementWithoutPunctuation.includes(formalExpression) ||
+      statementWithoutPunctuation.replace(/\s+/g, '').includes(cleanExpr)) {
+    return { status: 'formal_match' };
+  }
+
+  // 4. Mặc định cho diễn giải sư phạm tự do: Yêu cầu giáo viên rà soát ngữ nghĩa
+  return {
+    status: 'human_review_required',
+    reason: 'Lời văn tự do cần giáo viên xác nhận ngữ nghĩa (không thể kiểm chứng hoàn toàn qua SymPy)'
+  };
+}
+
+/**
+ * CHECKPOINT C: Kiểm định tính hợp lệ toán học của từng bước biến đổi trong phân cảnh đại số.
+ */
+export async function validateAlgebraSceneMath(input: {
+  scene: EducationalSceneV3;
+  verifiedClaims: EducationalClaimV3[];
+}): Promise<{ valid: boolean; reason?: string }> {
+  const { scene, verifiedClaims } = input;
+  if (scene.sceneType !== 'algebra_identity') return { valid: true };
+  const payload = scene.visualPayload as AlgebraIdentityVisualPayload;
+
+  // 1. Phải liên kết với ít nhất một claim ID đã kiểm định
+  if (!scene.boundClaimIds || scene.boundClaimIds.length === 0) {
+    return { valid: false, reason: 'algebra_scene_unbound: Phân cảnh đại số bắt buộc phải liên kết với boundClaimIds' };
+  }
+
+  const matchingClaim = verifiedClaims.find((c) => scene.boundClaimIds.includes(c.id));
+  if (!matchingClaim) {
+    return { valid: false, reason: `algebra_claim_missing: Không tìm thấy claimId '${scene.boundClaimIds.join(',')}' trong danh sách mệnh đề đã kiểm định` };
+  }
+
+  // 2. Nhất quán tuyệt đối giữa claim.formalExpression và scene left/right
+  const expectedRelation = `${payload.leftExpression}=${payload.rightExpression}`.replace(/\s+/g, '');
+  const claimRelation = (matchingClaim.formalExpression ?? '').replace(/\s+/g, '');
+  if (claimRelation !== expectedRelation) {
+    return {
+      valid: false,
+      reason: `algebra_expression_mismatch: Phân cảnh biểu diễn '${payload.leftExpression} = ${payload.rightExpression}' không khớp với formalExpression '${matchingClaim.formalExpression}' của mệnh đề`
+    };
+  }
+
+  // 3. Chứng minh mọi bước biến đổi trung gian E_0 = E_1 = ... = E_n bằng SymPy
+  const steps = payload.transformationSteps.map((s) => s.expression);
+  const chainResult = await verifyTransformationChainV3(steps);
+  if (!chainResult.valid) {
+    return {
+      valid: false,
+      reason: `invalid_transformation_step: ${chainResult.reason}`
+    };
+  }
+
+  return { valid: true };
+}
 
 export interface KnowledgeValidationV3Options {
   mathVerifier?: MathVerificationService;
@@ -133,25 +254,38 @@ export class KnowledgeValidationServiceV3 {
       if (claim.claimType === 'formal_mathematics') {
         const validatorKey = claim.validatorKey ?? claim.id;
         const sympyCheck = sympyResults[validatorKey];
-
         const mapped = mappedMathClaims.get(claim.id);
-        if (sympyCheck !== undefined) {
-          if (sympyCheck.passed && mapped?.verificationStatus === 'verified') {
+
+        const formalProven = Boolean(sympyCheck?.passed && (mapped?.verificationStatus === 'verified' || isAlgebraIdentityTopic));
+        cloned.formalExpressionVerified = formalProven;
+
+        const semantic = inspectStatementSemanticConsistency(claim.statement, claim.formalExpression);
+        cloned.statementSemanticStatus = semantic.status;
+
+        if (semantic.status === 'contradiction_detected') {
+          cloned.verificationStatus = 'rejected';
+          cloned.formalExpressionVerified = false;
+          cloned.formalProofSummary = undefined;
+          cloned.statementContradictionReason = semantic.reason;
+          cloned.humanReviewComment = `Contradiction detected: ${semantic.reason}`;
+        } else if (formalProven) {
+          const proofSummary = isAlgebraIdentityTopic
+            ? `SymPy verified exact bounded identity ${claim.formalExpression} over symbols a,b`
+            : `SymPy verified exact expression ${claim.formalExpression} against the approved MathSpec`;
+          cloned.formalProofSummary = proofSummary;
+
+          if (semantic.status === 'formal_match') {
             cloned.verificationStatus = 'formally_verified';
-            cloned.formalProofSummary = isAlgebraIdentityTopic
-              ? `SymPy verified exact bounded identity ${claim.formalExpression} over symbols a,b`
-              : `SymPy verified exact expression ${claim.formalExpression} against the approved MathSpec`;
+            cloned.humanReviewComment = undefined;
           } else {
-            cloned.verificationStatus = !mapped || mapped.verificationStatus === 'unverified' ? 'human_review_required' : 'rejected';
-            cloned.formalProofSummary = undefined;
-            cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck.reason ?? 'expression mismatch'}`;
+            // semantic.status === 'human_review_required'
+            cloned.verificationStatus = 'human_review_required';
+            cloned.humanReviewComment = semantic.reason ?? 'Biểu thức đã được SymPy chứng minh, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.';
           }
         } else {
-          // Các toán tử toán học chưa có formal verifier trong Phase 2 (Bayes, Gradient Descent, Attention, Matrix)
-          // TUYỆT ĐỐI KHÔNG TỰ BỊA CHỨNG MINH SYMPY!
-          cloned.verificationStatus = 'human_review_required';
+          cloned.verificationStatus = !mapped || mapped.verificationStatus === 'unverified' ? 'human_review_required' : 'rejected';
           cloned.formalProofSummary = undefined;
-          cloned.humanReviewComment = claim.humanReviewComment ?? 'Toán tử toán học chưa có engine kiểm định hình thức tự động ở Phase 2; yêu cầu giáo viên đối chiếu.';
+          cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`;
         }
 
         claimReports.push({

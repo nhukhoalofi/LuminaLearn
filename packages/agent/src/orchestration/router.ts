@@ -8,6 +8,7 @@ interface TopicRule {
   patterns: RegExp[];
   supportedTemplates: string[];
   requiredValidators: string[];
+  v3Only?: boolean;
 }
 
 const TOPIC_REGISTRY: TopicRule[] = [
@@ -68,7 +69,8 @@ const TOPIC_REGISTRY: TopicRule[] = [
       /hiệu hai lập phương/i
     ],
     supportedTemplates: ['algebra_identity', 'concept_summary'],
-    requiredValidators: ['algebra_identity_equivalence']
+    requiredValidators: ['algebra_identity_equivalence'],
+    v3Only: true
   }
 ];
 
@@ -78,6 +80,20 @@ export class TopicRouter {
 
     for (const rule of TOPIC_REGISTRY) {
       if (rule.patterns.some((pattern) => pattern.test(raw))) {
+        if (rule.v3Only) {
+          return {
+            topicId: rule.topicId,
+            displayName: rule.displayName,
+            domain: rule.domain,
+            confidence: 0.95,
+            supportedTemplates: [...rule.supportedTemplates],
+            requiredValidators: [...rule.requiredValidators],
+            isSupported: false,
+            v3Only: true,
+            unsupportedReason: `v2_unsupported_algebra_topic: Chủ đề '${rule.displayName}' (${rule.topicId}) chỉ được hỗ trợ kết xuất trên LuminaLearn V3 Multi-Topic Studio. Pipeline V2 chỉ hỗ trợ giải tích (đạo hàm và tích phân Riemann). Vui lòng sử dụng V3 Studio hoặc API /api/v3/lessons/draft.`
+          };
+        }
+
         return {
           topicId: rule.topicId,
           displayName: rule.displayName,

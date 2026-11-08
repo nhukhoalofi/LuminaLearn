@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { LessonRequestV3Schema } from '@luminalearn/scene-schema';
+import { LessonRequestV3Schema, issueExternalApiConsentV3, type ExternalApiConsentRecordV3 } from '@luminalearn/scene-schema';
 import { createPlannerV3, draftManagerV3 } from '@/server/v3-services';
 import {
   assertExternalApiConfirmed, assertRequestAuthorized, readBoundedJson,
@@ -13,13 +13,32 @@ export async function POST(request: Request): Promise<Response> {
     const raw = await readBoundedJson<Record<string, unknown>>(request);
     const { confirmExternalApi, ...requestFields } = raw;
     const parsed = LessonRequestV3Schema.parse(requestFields);
+    const headerConfirmed = request.headers.get('x-lumina-confirm-external-api') === 'true';
+    const isConfirmed = confirmExternalApi === true || headerConfirmed;
+
     assertExternalApiConfirmed({
       renderMode: parsed.generationMode,
-      narrationMode: 'none',
-      confirmExternalApi: confirmExternalApi === true,
-      headerConfirmed: request.headers.get('x-lumina-confirm-external-api') === 'true'
+      narrationMode: parsed.narrationMode,
+      confirmExternalApi: isConfirmed,
+      headerConfirmed
     });
-    const draft = await draftManagerV3.create(parsed, ownerId, createPlannerV3(parsed.generationMode));
+
+    let consentRecord: ExternalApiConsentRecordV3 | undefined;
+    if (isConfirmed && parsed.generationMode === 'live') {
+      consentRecord = issueExternalApiConsentV3({
+        ownerId,
+        provider: 'gemini',
+        operation: 'planning',
+        requestId: parsed.requestId
+      });
+    }
+
+    const draft = await draftManagerV3.create(
+      parsed,
+      ownerId,
+      createPlannerV3(parsed.generationMode),
+      { consentRecord, confirmExternalApi: isConfirmed }
+    );
     return NextResponse.json(draft, { status: 201 });
   } catch (error) {
     if (error instanceof SecurityError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });

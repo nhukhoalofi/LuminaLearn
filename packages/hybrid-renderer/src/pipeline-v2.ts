@@ -136,6 +136,9 @@ export async function runHybridPipelineV2(
     mathSpec = structuredClone(artifact.mathSpec);
     sourceReferences = structuredClone(artifact.sourceReferences);
     topicId = artifact.lessonPlan.topicId;
+    if (topicId === 'algebra.identities.seven' || topicId.startsWith('algebra.')) {
+      throw new Error(`v2_unsupported_algebra_topic: Topic '${topicId}' is not supported by the V2 Manim/Remotion pipeline. Use LuminaLearn V3 Multi-Topic Studio (pipeline-v3) instead.`);
+    }
     renderMode = artifact.renderConfig.renderMode;
     narrationMode = artifact.renderConfig.narrationMode;
     aspectRatio = artifact.renderConfig.aspectRatio;
@@ -232,6 +235,9 @@ export async function runHybridPipelineV2(
       narrationPlan = context.narrationPlan!;
       verifiedClaims = context.lessonPlan!.mathematicalClaims;
       topicId = context.topicInfo?.topicId ?? 'calculus.derivative.intuition';
+      if (topicId === 'algebra.identities.seven' || topicId.startsWith('algebra.')) {
+        throw new Error(`v2_unsupported_algebra_topic: Topic '${topicId}' is not supported by the V2 Manim/Remotion pipeline. Use LuminaLearn V3 Multi-Topic Studio (pipeline-v3) instead.`);
+      }
       mathSpec = context.lessonPlan!.mathSpec ?? {
         topicId,
         visualization: topicId === 'calculus.integral.riemann_sum' ? 'riemann_sum' : 'secant_to_tangent',

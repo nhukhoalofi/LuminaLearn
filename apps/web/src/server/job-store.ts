@@ -16,7 +16,8 @@ import {
   LessonRequestV2Schema,
   type ApprovedRenderArtifactV2,
   type ApprovedRenderArtifactV3,
-  type LessonRequestV2
+  type LessonRequestV2,
+  type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
 import { verifyArtifactIntegrity, verifyArtifactIntegrityV3 } from '@luminalearn/agent';
 import { dirname, resolve } from 'node:path';
@@ -64,6 +65,7 @@ interface QueuedJob {
   v3Artifact?: ApprovedRenderArtifactV3;
   authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>;
   authorizeV3Artifact?: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>;
+  consentRecord?: ExternalApiConsentRecordV3;
 }
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
@@ -110,6 +112,7 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       result = await runRenderPipelineV3(entry.v3Artifact, {
         jobId: entry.jobId,
         authorizeArtifact: entry.authorizeV3Artifact,
+        consentRecord: entry.consentRecord,
         onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
       });
     } else if (entry.v2Artifact) {
@@ -180,42 +183,78 @@ async function runEntry(entry: QueuedJob): Promise<void> {
   }
 }
 
+// Checkpoint F: Atomic enqueue mutex per artifact for safe concurrency and idempotency
+const artifactEnqueueLocks = new Map<string, Promise<void>>();
+
+async function withArtifactEnqueueLock<T>(artifactId: string, action: () => Promise<T>): Promise<T> {
+  const currentLock = artifactEnqueueLocks.get(artifactId) ?? Promise.resolve();
+  let release: () => void;
+  const nextLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  artifactEnqueueLocks.set(artifactId, currentLock.then(() => nextLock, () => nextLock));
+
+  try {
+    await currentLock;
+    return await action();
+  } finally {
+    release!();
+    if (artifactEnqueueLocks.get(artifactId) === nextLock) {
+      artifactEnqueueLocks.delete(artifactId);
+    }
+  }
+}
+
 export async function createV3JobFromArtifact(
   input: unknown,
   authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
-  ownerId: string
+  ownerId: string,
+  consentRecord?: ExternalApiConsentRecordV3
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const artifact = ApprovedRenderArtifactV3Schema.parse(input);
   if (!verifyArtifactIntegrityV3(artifact)) throw new Error('artifact_tampered: V3 content hash mismatch');
   if (artifact.ownerId !== ownerId || !(await authorizeArtifact(artifact))) {
     throw new SecurityError(403, 'artifact_unauthorized', 'V3 artifact is not authorized for scheduling');
   }
-  const existing = Array.from(store.jobs.values()).find((job) =>
-    job.artifactId === artifact.artifactId && job.ownerId === ownerId &&
-    job.status !== 'failed' && job.status !== 'interrupted');
-  if (existing) return publicJob(existing);
-  assertQueueCapacity();
-  const jobId = createHybridJobId();
-  const now = new Date().toISOString();
-  const job: JobRecord = {
-    jobId,
-    ownerId,
-    status: 'queued',
-    progress: 0,
-    message: messageByState.queued,
-    renderMode: artifact.request.generationMode,
-    voiceoverMode: artifact.request.narrationMode,
-    visualStyleId: 'clean_educational_infographic',
-    subtitlesEnabled: artifact.request.subtitlesEnabled,
-    artifactId: artifact.artifactId,
-    createdAt: now,
-    updatedAt: now
-  };
-  store.jobs.set(jobId, job);
-  repository.save(job);
-  store.queue.push({ jobId, v3Artifact: artifact, authorizeV3Artifact: authorizeArtifact });
-  pump();
-  return publicJob(job);
+
+  return withArtifactEnqueueLock(artifact.artifactId, async () => {
+    // 1. Check existing job within atomic lock
+    const existing = Array.from(store.jobs.values()).find((job) =>
+      job.artifactId === artifact.artifactId && job.ownerId === ownerId &&
+      job.status !== 'failed' && job.status !== 'interrupted');
+    if (existing) return publicJob(existing);
+
+    // 2. Assert queue capacity before creating/persisting
+    assertQueueCapacity();
+
+    // 3. Create, persist, and queue
+    const jobId = createHybridJobId();
+    const now = new Date().toISOString();
+    const job: JobRecord = {
+      jobId,
+      ownerId,
+      status: 'queued',
+      progress: 0,
+      message: messageByState.queued,
+      renderMode: artifact.request.generationMode,
+      voiceoverMode: artifact.request.narrationMode,
+      visualStyleId: 'clean_educational_infographic',
+      subtitlesEnabled: artifact.request.subtitlesEnabled,
+      artifactId: artifact.artifactId,
+      createdAt: now,
+      updatedAt: now
+    };
+    store.jobs.set(jobId, job);
+    repository.save(job);
+    store.queue.push({
+      jobId,
+      v3Artifact: artifact,
+      authorizeV3Artifact: authorizeArtifact,
+      consentRecord
+    });
+    pump();
+    return publicJob(job);
+  });
 }
 
 function pump(): void {

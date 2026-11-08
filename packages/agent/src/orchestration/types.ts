@@ -43,6 +43,7 @@ export interface TopicClassification {
   requiredValidators: string[];
   isSupported: boolean;
   unsupportedReason?: string;
+  v3Only?: boolean;
 }
 
 export interface DocumentAnalysisResult {

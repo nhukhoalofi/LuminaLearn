@@ -10,7 +10,8 @@ import {
   type DraftStatusV3Schema,
   type EducationalLessonPlanV3,
   type EducationalVisualPayload,
-  type LessonRequestV3
+  type LessonRequestV3,
+  type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
 import type { z } from 'zod';
 import { canonicalJsonStringify } from './draft-manager';
@@ -116,7 +117,12 @@ export class LessonDraftManagerV3 {
     }
   }
 
-  public async create(requestInput: unknown, ownerId: string, planner?: EducationalPlannerV3): Promise<LessonDraftV3> {
+  public async create(
+    requestInput: unknown,
+    ownerId: string,
+    planner?: EducationalPlannerV3,
+    options?: { consentRecord?: ExternalApiConsentRecordV3; confirmExternalApi?: boolean }
+  ): Promise<LessonDraftV3> {
     const request = LessonRequestV3Schema.parse(requestInput);
     const draftId = `draft_v3_${randomUUID().replace(/-/g, '')}`;
     const selectedPlanner = planner ?? this.options.planner ?? new EducationalPlannerV3();
@@ -124,7 +130,9 @@ export class LessonDraftManagerV3 {
       lessonId: draftId,
       topic: request.topic,
       targetDurationSeconds: request.targetDurationSeconds,
-      externalApiConsent: request.generationMode === 'live'
+      ownerId,
+      consentRecord: options?.consentRecord,
+      externalApiConsent: options?.confirmExternalApi === true
     });
     if (lessonPlan.domain !== request.domain) throw new Error('requested_domain_mismatch');
     if (request.generationMode === 'mock' && lessonPlan.generationProvenance !== 'deterministic_mock') {

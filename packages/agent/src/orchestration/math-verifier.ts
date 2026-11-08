@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyAlgebraIdentityV3 } from './algebra-verifier-v3.js';
+import { verifyAlgebraIdentityV3 } from './algebra-verifier-v3';
 import type {
   MathVisualizationSpecV2,
   NarrationPlanV2,

@@ -44,3 +44,36 @@ export function verifyAlgebraIdentityV3(left: string, right: string): Promise<Al
   });
 }
 
+/**
+ * CHECKPOINT C: Proves that every intermediate step in an algebraic derivation chain
+ * E_0 = E_1 = ... = E_n is mathematically equivalent under trusted SymPy.
+ */
+export async function verifyTransformationChainV3(steps: string[]): Promise<{
+  valid: boolean;
+  failedStepIndex?: number;
+  reason?: string;
+}> {
+  if (steps.length < 2) {
+    return { valid: false, reason: 'A transformation chain requires at least 2 steps' };
+  }
+  for (let i = 0; i < steps.length - 1; i++) {
+    try {
+      const result = await verifyAlgebraIdentityV3(steps[i], steps[i + 1]);
+      if (result.status !== 'verified') {
+        return {
+          valid: false,
+          failedStepIndex: i,
+          reason: `Invalid intermediate transformation at step ${i} -> ${i + 1}: ${steps[i]} != ${steps[i + 1]} (diff: ${result.canonicalDifference})`
+        };
+      }
+    } catch (err) {
+      return {
+        valid: false,
+        failedStepIndex: i,
+        reason: `Verification error at step ${i} -> ${i + 1}: ${err instanceof Error ? err.message : String(err)}`
+      };
+    }
+  }
+  return { valid: true };
+}
+

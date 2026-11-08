@@ -29,6 +29,13 @@ export const EducationalVerificationStatusSchema = z.enum([
 ]);
 export type EducationalVerificationStatus = z.infer<typeof EducationalVerificationStatusSchema>;
 
+export const StatementSemanticStatusSchema = z.enum([
+  'formal_match',
+  'human_review_required',
+  'contradiction_detected'
+]);
+export type StatementSemanticStatus = z.infer<typeof StatementSemanticStatusSchema>;
+
 /**
  * Mệnh đề tri thức giáo dục V3 (EducationalClaimV3)
  * Phân biệt rành mạch giữa chứng minh hình thức toán học và khái niệm AI định tính.
@@ -42,7 +49,10 @@ export const EducationalClaimV3Schema = z.object({
   verificationStatus: EducationalVerificationStatusSchema,
   formalProofSummary: z.string().trim().max(500).optional(),
   sourceReferenceId: SafeIdString.optional(),
-  humanReviewComment: z.string().trim().max(500).optional()
+  humanReviewComment: z.string().trim().max(500).optional(),
+  formalExpressionVerified: z.boolean().optional(),
+  statementSemanticStatus: StatementSemanticStatusSchema.optional(),
+  statementContradictionReason: z.string().trim().max(500).optional()
 }).strict().superRefine((claim, ctx) => {
   // Quy tắc kiểm soát tính chân thực (Ground Truth Gate):
   // 1. Mệnh đề formal_mathematics nếu tuyên bố 'formally_verified' BẮT BUỘC phải có biểu thức formalExpression và tóm tắt kiểm định formalProofSummary
@@ -69,6 +79,24 @@ export const EducationalClaimV3Schema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['verificationStatus'],
       message: 'Khái niệm AI định tính (ai_concept) không thể mang trạng thái formally_verified; hãy dùng source_grounded hoặc human_review_required'
+    });
+  }
+
+  // 3. Nếu statement mâu thuẫn với formalExpression, cấm formally_verified
+  if (claim.statementSemanticStatus === 'contradiction_detected' && claim.verificationStatus === 'formally_verified') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['verificationStatus'],
+      message: 'Mệnh đề có statement mâu thuẫn với biểu thức formalExpression không thể mang trạng thái formally_verified'
+    });
+  }
+
+  // 4. Nếu formal_mathematics formally_verified, formalExpressionVerified không được là false
+  if (claim.claimType === 'formal_mathematics' && claim.verificationStatus === 'formally_verified' && claim.formalExpressionVerified === false) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['formalExpressionVerified'],
+      message: 'Mệnh đề toán học formally_verified bắt buộc phải có biểu thức formalExpression đã được SymPy chứng minh'
     });
   }
 });
