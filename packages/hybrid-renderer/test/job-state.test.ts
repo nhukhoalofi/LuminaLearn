@@ -13,6 +13,9 @@ describe('Job state transitions', () => {
     assert.throws(() => assertJobTransition('queued', 'completed'));
     assert.throws(() => assertJobTransition('completed', 'planning'));
   });
+  it('allows an authorized Remotion-only V3 job to skip the Manim stage', () => {
+    assert.doesNotThrow(() => assertJobTransition('validating', 'rendering_remotion'));
+  });
 });
 
 describe('Hybrid render request', () => {

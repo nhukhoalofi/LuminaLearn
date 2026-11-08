@@ -17,7 +17,8 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
   it('Topic 1 (Math): Derivative intuition — secant to tangent', async () => {
     const plan = await planner.planLesson({
       lessonId: 'lesson_math_1',
-      topic: 'Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến trên parabol'
+      topic: 'Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến trên parabol',
+      mathSpec: { topicId: 'calculus.derivative.intuition', visualization: 'secant_to_tangent', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { pointX: 1 }, boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'] }
     });
 
     assert.equal(plan.domain, 'mathematics');
@@ -41,7 +42,8 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
   it('Topic 2 (Math): Definite integral as Riemann sum limit', async () => {
     const plan = await planner.planLesson({
       lessonId: 'lesson_math_2',
-      topic: 'Tổng Riemann xấp xỉ diện tích hình thang cong và tích phân'
+      topic: 'Tổng Riemann xấp xỉ diện tích hình thang cong và tích phân',
+      mathSpec: { topicId: 'calculus.integral.riemann_sum', visualization: 'riemann_sum', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { interval: [0, 1], partitions: [4, 8] }, boundClaimIds: ['claim_riemann_int'] }
     });
 
     assert.equal(plan.domain, 'mathematics');
@@ -104,7 +106,7 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
 
     assert.equal(plan.domain, 'artificial_intelligence');
     assert.equal(plan.topicId, 'ai.perceptron.activation');
-    assert.equal(plan.capabilityReport.renderReadiness, 'planning_only');
+    assert.equal(plan.capabilityReport.renderReadiness, 'render_ready');
 
     // Never force a fake polynomial derivative on conceptual AI topic!
     for (const claim of plan.educationalClaims) {

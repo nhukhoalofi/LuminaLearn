@@ -49,6 +49,7 @@ export const perceptronStoryboardV3: EducationalStoryboardV3 = {
           { fromLayer: 0, fromNode: 1, toLayer: 1, toNode: 0, weightValue: -0.5 }
         ],
         inputValues: [1.0, 0.5],
+        signalMode: 'signal_flow_illustration',
         highlightActiveSignal: true,
         outputLabels: ['Dự đoán (y)']
       }

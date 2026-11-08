@@ -1,0 +1,158 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+
+type Claim = { id: string; statement: string; verificationStatus: string; claimType: string };
+type Scene = { sceneId: string; title: string; sceneType: string; durationSeconds: number; narration: { vietnamese: string; subtitleVietnamese: string }; visualPayload: unknown };
+type Draft = {
+  draftId: string; version: number; status: string; semanticReviewConfirmed: boolean;
+  lessonPlan: {
+    title: string; generationProvenance: string; learningObjectives: string[];
+    educationalClaims: Claim[]; storyboard?: { totalDurationSeconds: number; scenes: Scene[] };
+    validationReport?: { overallStatus: string; requiresHumanPedagogicalSignoff: boolean };
+    capabilityReport: { renderReadiness: string; limitations: string[] };
+  };
+};
+type Job = { jobId: string; status: string; progress: number; message: string; videoUrl?: string; error?: string };
+
+export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
+  const [topic, setTopic] = useState('Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
+  const [mode, setMode] = useState<'mock' | 'live'>('mock');
+  const [confirmExternalApi, setConfirmExternalApi] = useState(false);
+  const [draft, setDraft] = useState<Draft>();
+  const [job, setJob] = useState<Job>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!job || ['completed', 'failed'].includes(job.status)) return;
+    const timer = setInterval(async () => {
+      const response = await fetch(`/api/jobs/${job.jobId}`, { cache: 'no-store' });
+      if (response.ok) setJob(await response.json());
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [job]);
+
+  async function jsonRequest(url: string, method: string, body: unknown) {
+    const response = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw Object.assign(new Error(data.message ?? data.error ?? 'request_failed'), { status: response.status, data });
+    return data;
+  }
+
+  async function generate() {
+    setBusy(true); setError(''); setJob(undefined);
+    try {
+      setDraft(await jsonRequest('/api/v3/lessons/draft', 'POST', {
+        requestId: `req_v3_${Date.now()}`, topic, domain: 'artificial_intelligence', generationMode: mode,
+        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled: true,
+        fps: 24, width: 720, height: 1280, confirmExternalApi
+      }));
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function save() {
+    if (!draft) return;
+    setBusy(true); setError('');
+    try {
+      const claimStatements = Object.fromEntries(draft.lessonPlan.educationalClaims.map((claim) => [claim.id, claim.statement]));
+      const narrationTexts = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.narration.vietnamese]));
+      const subtitleTexts = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.narration.subtitleVietnamese]));
+      const visualPayloads = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.visualPayload]));
+      setDraft(await jsonRequest(`/api/v3/lessons/${draft.draftId}/draft`, 'PATCH', {
+        expectedVersion: draft.version, title: draft.lessonPlan.title,
+        learningObjectives: draft.lessonPlan.learningObjectives, claimStatements,
+        narrationTexts, subtitleTexts, visualPayloads
+      }));
+    } catch (err) {
+      const conflict = err as Error & { status?: number };
+      setError(conflict.status === 409 ? 'Bản nháp đã đổi ở tab khác. Hãy tải lại trước khi lưu.' : conflict.message);
+    } finally { setBusy(false); }
+  }
+
+  async function review() {
+    if (!draft) return;
+    setBusy(true); setError('');
+    try { setDraft(await jsonRequest(`/api/v3/lessons/${draft.draftId}/review`, 'POST', { expectedVersion: draft.version, semanticReviewConfirmed: true })); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+
+  async function approve() {
+    if (!draft) return;
+    setBusy(true); setError('');
+    try {
+      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/approve`, 'POST', { expectedVersion: draft.version, note: 'Teacher approved from V3 Studio' });
+      setDraft(result.draft); setJob(result.job);
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <section className="create-section" aria-labelledby="v3-studio-title" data-testid="v3-teacher-studio">
+      <h2 id="v3-studio-title">V3 Teacher Studio — AI & Toán học</h2>
+      <p>{mode === 'mock' ? 'Mock Mode: nội dung fixture xác định, hoàn toàn offline.' : 'Live Gemini: chỉ gọi API sau xác nhận rõ ràng.'}</p>
+      <label className="form-label">Lĩnh vực</label>
+      <select className="form-input" value="artificial_intelligence" disabled><option value="artificial_intelligence">Trí tuệ nhân tạo</option></select>
+      <label className="form-label">Chủ đề</label>
+      <textarea className="form-textarea" value={topic} onChange={(event) => setTopic(event.target.value)} />
+      <label className="form-label">Chế độ tạo nội dung</label>
+      <select className="form-input" value={mode} onChange={(event) => setMode(event.target.value as 'mock' | 'live')}>
+        <option value="mock">Mock offline (khuyến nghị demo)</option>
+        <option value="live" disabled={!liveEnabled}>Gemini Live</option>
+      </select>
+      {mode === 'live' && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini cho yêu cầu này.</label>}
+      <button className="btn-generate" disabled={busy || (mode === 'live' && !confirmExternalApi)} onClick={generate}>Tạo bài học V3</button>
+      {error && <p role="alert" className="error-message">{error}</p>}
+
+      {draft && <div className="job-panel" data-testid="v3-draft">
+        <p><strong>Nguồn tạo:</strong> {draft.lessonPlan.generationProvenance}</p>
+        <p><strong>Trạng thái:</strong> {draft.status} · v{draft.version} · validation {draft.lessonPlan.validationReport?.overallStatus}</p>
+        <input className="form-input" aria-label="Tiêu đề V3" value={draft.lessonPlan.title} onChange={(event) => setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, title: event.target.value } })} />
+        <h3>Mục tiêu học tập</h3>
+        {draft.lessonPlan.learningObjectives.map((objective, index) => <input key={index} className="form-input" aria-label={`Mục tiêu V3 ${index + 1}`} value={objective} onChange={(event) => {
+          const objectives = draft.lessonPlan.learningObjectives.map((item, i) => i === index ? event.target.value : item);
+          setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, learningObjectives: objectives } });
+        }} />)}
+        <h3>Mệnh đề giáo dục</h3>
+        {draft.lessonPlan.educationalClaims.map((claim, index) => <div key={claim.id}>
+          <textarea className="form-textarea" aria-label={`Mệnh đề V3 ${claim.id}`} value={claim.statement} onChange={(event) => {
+            const claims = draft.lessonPlan.educationalClaims.map((item, i) => i === index ? { ...item, statement: event.target.value } : item);
+            setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, educationalClaims: claims } });
+          }} />
+          <small>{claim.claimType}: {claim.verificationStatus}</small>
+        </div>)}
+        <h3>Storyboard ({draft.lessonPlan.storyboard?.totalDurationSeconds}s)</h3>
+        {draft.lessonPlan.storyboard?.scenes.map((scene, sceneIndex) => <article key={scene.sceneId}>
+          <strong>{scene.title}</strong> — {scene.sceneType}, {scene.durationSeconds}s
+          <textarea className="form-textarea" aria-label={`Lời dẫn V3 ${scene.sceneId}`} value={scene.narration.vietnamese} onChange={(event) => {
+            const scenes = draft.lessonPlan.storyboard!.scenes.map((item, i) => i === sceneIndex ? { ...item, narration: { ...item.narration, vietnamese: event.target.value } } : item);
+            setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, storyboard: { ...draft.lessonPlan.storyboard!, scenes } } });
+          }} />
+          <textarea className="form-textarea" aria-label={`Phụ đề V3 ${scene.sceneId}`} value={scene.narration.subtitleVietnamese} onChange={(event) => {
+            const scenes = draft.lessonPlan.storyboard!.scenes.map((item, i) => i === sceneIndex ? { ...item, narration: { ...item.narration, subtitleVietnamese: event.target.value } } : item);
+            setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, storyboard: { ...draft.lessonPlan.storyboard!, scenes } } });
+          }} />
+          <details><summary>Cấu hình cảnh typed (JSON)</summary><textarea className="form-textarea" aria-label={`Visual payload V3 ${scene.sceneId}`} value={JSON.stringify(scene.visualPayload, null, 2)} onChange={(event) => {
+            try {
+              const payload = JSON.parse(event.target.value) as unknown;
+              const scenes = draft.lessonPlan.storyboard!.scenes.map((item, i) => i === sceneIndex ? { ...item, visualPayload: payload } : item);
+              setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, storyboard: { ...draft.lessonPlan.storyboard!, scenes } } });
+              setError('');
+            } catch { setError('Visual payload phải là JSON hợp lệ; máy chủ sẽ kiểm tra đúng sceneType trước khi lưu.'); }
+          }} /></details>
+        </article>)}
+        <p><strong>Render readiness:</strong> {draft.lessonPlan.capabilityReport.renderReadiness}</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="quick-chip" disabled={busy || draft.status === 'approved'} onClick={save}>Lưu & tái kiểm định</button>
+          <button className="quick-chip" disabled={busy || draft.status !== 'needs_review'} onClick={review}>Xác nhận rà soát ngữ nghĩa</button>
+          <button className="btn-generate" disabled={busy || draft.status !== 'ready_for_approval' || draft.lessonPlan.capabilityReport.renderReadiness !== 'render_ready'} onClick={approve}>Duyệt & render MP4</button>
+        </div>
+      </div>}
+
+      {job && <div className="job-panel" data-testid="v3-job"><p>{job.message} — {job.progress}%</p>{job.error && <p role="alert">{job.error}</p>}{job.status === 'completed' && job.videoUrl && <><video controls src={job.videoUrl} /><a className="download-link" href={`${job.videoUrl}?download=1`}>Tải MP4 V3</a><a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`}>Tải phụ đề V3</a></>}</div>}
+    </section>
+  );
+}
+

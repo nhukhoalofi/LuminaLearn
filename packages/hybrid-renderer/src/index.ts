@@ -11,6 +11,7 @@ export * from './job-repository';
 export * from './config';
 export * from './error-taxonomy';
 export * from './pipeline-v2';
+export * from './pipeline-v3';
 export * from './visual-qa';
 export * from './environment';
 

@@ -20,9 +20,9 @@ export interface LuminaSceneV3Props {
  */
 const SceneDispatcher: React.FC<{ scene: EducationalSceneV3 }> = ({ scene }) => {
   const subtitle = scene.narration.subtitleVietnamese || scene.narration.vietnamese;
-  const payload = scene.visualPayload as any;
+  const payload = scene.visualPayload;
 
-  switch (scene.sceneType) {
+  switch (payload.sceneType) {
     case 'concept_intro':
       return <ConceptIntroScene title={scene.title} payload={payload} subtitleText={subtitle} />;
     case 'neural_architecture':
@@ -37,8 +37,11 @@ const SceneDispatcher: React.FC<{ scene: EducationalSceneV3 }> = ({ scene }) => 
     case 'graph_plot':
     case 'flowchart_simulation':
     case 'comparison_table':
-    default:
       return <GenericPlotScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+    default: {
+      const unsupported: never = payload;
+      throw new Error(`unsupported_v3_scene_payload: ${String(unsupported)}`);
+    }
   }
 };
 

@@ -40,10 +40,23 @@ export const NeuralArchitectureVisualPayloadSchema = z.object({
   layers: z.array(NeuralLayerSpecSchema).min(1).max(5),
   weights: z.array(NeuralWeightSpecSchema).max(64).default([]),
   inputValues: z.array(z.number().finite()).max(8).default([]),
+  signalMode: z.enum(['signal_flow_illustration', 'computed_forward_pass']).default('signal_flow_illustration'),
+  computedOutputs: z.array(z.number().finite()).max(8).optional(),
   highlightActiveSignal: z.boolean().default(true),
   outputLabels: z.array(z.string().trim().max(30)).max(4).default([])
 }).strict().superRefine((payload, ctx) => {
   const maxLayerIdx = payload.layers.length - 1;
+  const layerIds = new Set<string>();
+  payload.layers.forEach((layer, index) => {
+    if (layerIds.has(layer.layerId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['layers', index, 'layerId'], message: `Trùng layerId: ${layer.layerId}` });
+    }
+    layerIds.add(layer.layerId);
+  });
+  if (payload.inputValues.length !== payload.layers[0]?.nodeCount) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['inputValues'], message: 'Số giá trị đầu vào phải bằng nodeCount của lớp đầu vào' });
+  }
+  const edges = new Set<string>();
   for (let i = 0; i < payload.weights.length; i++) {
     const w = payload.weights[i];
     if (w.fromLayer < 0 || w.fromLayer > maxLayerIdx || w.toLayer < 0 || w.toLayer > maxLayerIdx) {
@@ -52,6 +65,41 @@ export const NeuralArchitectureVisualPayloadSchema = z.object({
         path: ['weights', i],
         message: `Chỉ số layer của weight (${w.fromLayer} -> ${w.toLayer}) vượt quá số layer hiện có (0-${maxLayerIdx})`
       });
+      continue;
+    }
+    if (w.toLayer !== w.fromLayer + 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['weights', i], message: 'Cạnh neural chỉ được nối xuôi giữa hai lớp kề nhau' });
+    }
+    if (w.fromNode >= payload.layers[w.fromLayer].nodeCount || w.toNode >= payload.layers[w.toLayer].nodeCount) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['weights', i], message: 'Cạnh neural tham chiếu node không tồn tại' });
+    }
+    const edgeId = `${w.fromLayer}:${w.fromNode}>${w.toLayer}:${w.toNode}`;
+    if (edges.has(edgeId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['weights', i], message: `Trùng cạnh neural: ${edgeId}` });
+    }
+    edges.add(edgeId);
+  }
+  if (payload.signalMode === 'computed_forward_pass' && !payload.computedOutputs?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['computedOutputs'], message: 'computed_forward_pass yêu cầu computedOutputs' });
+  } else if (payload.signalMode === 'computed_forward_pass' && payload.computedOutputs) {
+    let values = payload.inputValues;
+    const activate = (value: number, activation: 'linear' | 'sigmoid' | 'relu' | 'step' | undefined) => {
+      if (activation === 'sigmoid') return 1 / (1 + Math.exp(-value));
+      if (activation === 'relu') return Math.max(0, value);
+      if (activation === 'step') return value >= 0 ? 1 : 0;
+      return value;
+    };
+    for (let layerIndex = 1; layerIndex < payload.layers.length; layerIndex += 1) {
+      const next = Array.from({ length: payload.layers[layerIndex].nodeCount }, (_, toNode) => {
+        const sum = payload.weights
+          .filter((weight) => weight.fromLayer === layerIndex - 1 && weight.toLayer === layerIndex && weight.toNode === toNode)
+          .reduce((total, weight) => total + values[weight.fromNode] * weight.weightValue, 0);
+        return activate(sum, payload.layers[layerIndex].activation);
+      });
+      values = next;
+    }
+    if (values.length !== payload.computedOutputs.length || values.some((value, index) => Math.abs(value - payload.computedOutputs![index]) > 1e-8)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['computedOutputs'], message: 'computedOutputs không khớp phép lan truyền xuôi từ inputValues và weights' });
     }
   }
 });
@@ -77,7 +125,27 @@ export const LossLandscapeVisualPayloadSchema = z.object({
   learningRate: z.number().finite().min(0.001).max(2.0),
   steps: z.array(OptimizationStepSchema).min(1).max(10),
   showGradientTangent: z.boolean().default(true)
-}).strict();
+}).strict().superRefine((payload, ctx) => {
+  const tolerance = 1e-8;
+  payload.steps.forEach((step, index) => {
+    const delta = step.w - payload.minimumPoint.w;
+    const expectedLoss = payload.curvature * delta * delta + payload.minimumPoint.loss;
+    const expectedGradient = 2 * payload.curvature * delta;
+    if (Math.abs(step.loss - expectedLoss) > tolerance) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index, 'loss'], message: `loss không khớp hàm quadratic; cần ${expectedLoss}` });
+    }
+    if (Math.abs(step.gradient - expectedGradient) > tolerance) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index, 'gradient'], message: `gradient không khớp đạo hàm quadratic; cần ${expectedGradient}` });
+    }
+    const next = payload.steps[index + 1];
+    if (next) {
+      const expectedNext = step.w - payload.learningRate * step.gradient;
+      if (Math.abs(next.w - expectedNext) > tolerance) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['steps', index + 1, 'w'], message: `Bước cập nhật không khớp gradient descent; cần ${expectedNext}` });
+      }
+    }
+  });
+});
 export type LossLandscapeVisualPayload = z.infer<typeof LossLandscapeVisualPayloadSchema>;
 
 // 4. Attention Heatmap Visual Payload
@@ -85,6 +153,7 @@ export const AttentionHeatmapVisualPayloadSchema = z.object({
   sceneType: z.literal('attention_heatmap'),
   tokens: z.array(z.string().trim().min(1).max(20)).min(2).max(8),
   matrix: z.array(z.array(z.number().finite().min(0).max(1))).min(2).max(8),
+  scoreMatrix: z.array(z.array(z.number().finite())).min(2).max(8).optional(),
   highlightTokenIndex: z.number().int().min(0).max(7).optional(),
   isIllustrative: z.boolean().default(true)
 }).strict().superRefine((payload, ctx) => {
@@ -97,6 +166,12 @@ export const AttentionHeatmapVisualPayloadSchema = z.object({
     });
     return;
   }
+  if (payload.highlightTokenIndex !== undefined && payload.highlightTokenIndex >= n) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['highlightTokenIndex'], message: 'highlightTokenIndex vượt quá số token' });
+  }
+  if (payload.scoreMatrix && (payload.scoreMatrix.length !== n || payload.scoreMatrix.some((row) => row.length !== n))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scoreMatrix'], message: `scoreMatrix phải có kích thước ${n}x${n}` });
+  }
   for (let i = 0; i < n; i++) {
     const row = payload.matrix[i];
     if (row.length !== n) {
@@ -108,12 +183,23 @@ export const AttentionHeatmapVisualPayloadSchema = z.object({
       continue;
     }
     const sum = row.reduce((acc, v) => acc + v, 0);
-    // Softmax normalization constraint: tổng hàng phải xấp xỉ 1 (dung sai 0.15 cho làm tròn minh họa)
-    if (Math.abs(sum - 1.0) > 0.15) {
+    if (Math.abs(sum - 1.0) > 1e-6) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['matrix', i],
         message: `Tổng xác suất Softmax của hàng ${i} (${sum.toFixed(3)}) phải xấp xỉ 1.0`
+      });
+    }
+    const scores = payload.scoreMatrix?.[i];
+    if (scores?.length === n) {
+      const max = Math.max(...scores);
+      const exps = scores.map((score) => Math.exp(score - max));
+      const denominator = exps.reduce((acc, value) => acc + value, 0);
+      exps.forEach((value, column) => {
+        const expected = value / denominator;
+        if (Math.abs(row[column] - expected) > 1e-6) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['matrix', i, column], message: 'Trọng số không khớp stable softmax của scoreMatrix' });
+        }
       });
     }
   }
@@ -134,9 +220,9 @@ export type SummaryVisualPayload = z.infer<typeof SummaryVisualPayloadSchema>;
 // 6. Generic/Math Plot Fallback Payloads
 export const GenericSceneVisualPayloadSchema = z.object({
   sceneType: z.enum(['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table']),
-  headline: z.string().max(120).optional(),
-  formulaTex: z.string().max(200).optional(),
-  notes: z.string().max(300).optional()
+  headline: NoExecutableString.optional(),
+  formulaTex: NoExecutableString.optional(),
+  notes: NoExecutableString.optional()
 }).strict();
 export type GenericSceneVisualPayload = z.infer<typeof GenericSceneVisualPayloadSchema>;
 

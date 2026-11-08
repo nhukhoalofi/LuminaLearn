@@ -5,17 +5,20 @@ import {
   createHybridJobId,
   runHybridPipeline,
   runHybridPipelineV2,
+  runRenderPipelineV3,
   type HybridRenderRequest,
   type JobState,
   LocalJobRepository
 } from '@luminalearn/hybrid-renderer';
 import {
   ApprovedRenderArtifactV2Schema,
+  ApprovedRenderArtifactV3Schema,
   LessonRequestV2Schema,
   type ApprovedRenderArtifactV2,
+  type ApprovedRenderArtifactV3,
   type LessonRequestV2
 } from '@luminalearn/scene-schema';
-import { verifyArtifactIntegrity } from '@luminalearn/agent';
+import { verifyArtifactIntegrity, verifyArtifactIntegrityV3 } from '@luminalearn/agent';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { documentStore } from './v2-services';
@@ -58,7 +61,9 @@ interface QueuedJob {
   request?: HybridRenderRequest;
   v2Request?: LessonRequestV2;
   v2Artifact?: ApprovedRenderArtifactV2;
+  v3Artifact?: ApprovedRenderArtifactV3;
   authorizeArtifact?: (artifact: ApprovedRenderArtifactV2) => boolean | Promise<boolean>;
+  authorizeV3Artifact?: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>;
 }
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
@@ -98,7 +103,16 @@ async function runEntry(entry: QueuedJob): Promise<void> {
   try {
     let result: { outputPath: string };
 
-    if (entry.v2Artifact) {
+    if (entry.v3Artifact) {
+      if (!entry.authorizeV3Artifact) throw new Error('v3_authorization_callback_missing');
+      transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
+      transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
+      result = await runRenderPipelineV3(entry.v3Artifact, {
+        jobId: entry.jobId,
+        authorizeArtifact: entry.authorizeV3Artifact,
+        onStage: (stage) => transition(entry.jobId, stage)
+      });
+    } else if (entry.v2Artifact) {
       if (entry.authorizeArtifact && !(await entry.authorizeArtifact(entry.v2Artifact))) {
         throw new Error('artifact_revoked: Approved artifact is no longer authorized for rendering');
       }
@@ -164,6 +178,44 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       });
     }
   }
+}
+
+export async function createV3JobFromArtifact(
+  input: unknown,
+  authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
+  ownerId: string
+): Promise<Omit<JobRecord, 'outputPath'>> {
+  const artifact = ApprovedRenderArtifactV3Schema.parse(input);
+  if (!verifyArtifactIntegrityV3(artifact)) throw new Error('artifact_tampered: V3 content hash mismatch');
+  if (artifact.ownerId !== ownerId || !(await authorizeArtifact(artifact))) {
+    throw new SecurityError(403, 'artifact_unauthorized', 'V3 artifact is not authorized for scheduling');
+  }
+  const existing = Array.from(store.jobs.values()).find((job) =>
+    job.artifactId === artifact.artifactId && job.ownerId === ownerId &&
+    job.status !== 'failed' && job.status !== 'interrupted');
+  if (existing) return publicJob(existing);
+  assertQueueCapacity();
+  const jobId = createHybridJobId();
+  const now = new Date().toISOString();
+  const job: JobRecord = {
+    jobId,
+    ownerId,
+    status: 'queued',
+    progress: 0,
+    message: messageByState.queued,
+    renderMode: artifact.request.generationMode,
+    voiceoverMode: artifact.request.narrationMode,
+    visualStyleId: 'clean_educational_infographic',
+    subtitlesEnabled: artifact.request.subtitlesEnabled,
+    artifactId: artifact.artifactId,
+    createdAt: now,
+    updatedAt: now
+  };
+  store.jobs.set(jobId, job);
+  repository.save(job);
+  store.queue.push({ jobId, v3Artifact: artifact, authorizeV3Artifact: authorizeArtifact });
+  pump();
+  return publicJob(job);
 }
 
 function pump(): void {

@@ -137,8 +137,8 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     requiredValidationTypes: ['source_grounding', 'pedagogical_review'],
     availableRenderers: ['remotion_infographic'],
     evidenceRequirements: ['source_citation', 'human_signoff'],
-    renderReadiness: 'planning_only',
-    limitations: ['Bài giảng mang tính khái niệm kiến trúc; không ép buộc kiểm định vi phân đa thức nếu không có công thức đạo hàm.']
+    renderReadiness: 'render_ready',
+    limitations: ['Cảnh tín hiệu được ghi nhãn là minh họa luồng; không tuyên bố là suy luận số nếu không có computed_forward_pass.']
   },
   'ai.gradient_descent.optimization': {
     topicId: 'ai.gradient_descent.optimization',

@@ -10,6 +10,10 @@ import { MathVerificationService } from './math-verifier';
 
 export interface KnowledgeValidationV3Options {
   mathVerifier?: MathVerificationService;
+  verifySourceEvidence?: (input: {
+    claim: EducationalClaimV3;
+    evidence: GroundingEvidence;
+  }) => boolean | Promise<boolean>;
 }
 
 export interface ValidateClaimsV3Input {
@@ -19,6 +23,7 @@ export interface ValidateClaimsV3Input {
   claims: EducationalClaimV3[];
   sourceEvidence?: GroundingEvidence[];
   mathSpec?: MathVisualizationSpecV2;
+  assumptions?: string[];
 }
 
 export interface ValidationV3Result {
@@ -36,13 +41,15 @@ export interface ValidationV3Result {
  */
 export class KnowledgeValidationServiceV3 {
   private readonly mathVerifier: MathVerificationService;
+  private readonly verifySourceEvidence?: KnowledgeValidationV3Options['verifySourceEvidence'];
 
   constructor(options?: KnowledgeValidationV3Options) {
     this.mathVerifier = options?.mathVerifier ?? new MathVerificationService();
+    this.verifySourceEvidence = options?.verifySourceEvidence;
   }
 
   public async validateClaims(input: ValidateClaimsV3Input): Promise<ValidationV3Result> {
-    const { lessonId, topicId, domain, claims, sourceEvidence = [], mathSpec } = input;
+    const { lessonId, topicId, domain, claims, sourceEvidence = [], mathSpec, assumptions = [] } = input;
 
     const validatedClaims: EducationalClaimV3[] = [];
     const claimReports: KnowledgeValidationReportV3['claimReports'] = [];
@@ -54,9 +61,17 @@ export class KnowledgeValidationServiceV3 {
     const isDerivativeTopic = topicId === 'calculus.derivative.intuition';
     const isRiemannTopic = topicId === 'calculus.riemann_integral.intuition' || topicId === 'calculus.integral.riemann_sum';
 
+    let mappedMathClaims = new Map<string, VerifiedClaim>();
     let sympyResults: Record<string, { passed: boolean; reason?: string }> = {};
 
-    if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0) {
+    if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0 && !mathSpec) {
+      for (const c of formalMathClaims) {
+        sympyResults[c.validatorKey ?? c.id] = {
+          passed: false,
+          reason: 'missing_math_spec: Formal verification requires the exact requested MathSpec'
+        };
+      }
+    } else if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0) {
       try {
         const v2ClaimsToVerify: VerifiedClaim[] = formalMathClaims.map((c) => {
           let v2Key = c.validatorKey ?? (isDerivativeTopic ? 'polynomial_derivative' : 'definite_integral');
@@ -74,6 +89,7 @@ export class KnowledgeValidationServiceV3 {
 
         const v2TopicId = isRiemannTopic ? 'calculus.integral.riemann_sum' : topicId;
         const verifyResult = await this.mathVerifier.verifyClaims(v2TopicId, v2ClaimsToVerify, { mathSpec });
+        mappedMathClaims = new Map(verifyResult.claims.map((claim) => [claim.id, claim]));
 
         for (const [key, check] of Object.entries(verifyResult.result.checks)) {
           sympyResults[key] = { passed: check.passed, reason: check.reason };
@@ -98,12 +114,13 @@ export class KnowledgeValidationServiceV3 {
         const validatorKey = claim.validatorKey ?? claim.id;
         const sympyCheck = sympyResults[validatorKey];
 
+        const mapped = mappedMathClaims.get(claim.id);
         if (sympyCheck !== undefined) {
-          if (sympyCheck.passed) {
+          if (sympyCheck.passed && mapped?.verificationStatus === 'verified') {
             cloned.verificationStatus = 'formally_verified';
-            cloned.formalProofSummary = `SymPy verified: ${claim.formalExpression} for topic ${topicId}`;
+            cloned.formalProofSummary = `SymPy verified exact expression ${claim.formalExpression} against the approved MathSpec`;
           } else {
-            cloned.verificationStatus = 'rejected';
+            cloned.verificationStatus = !mapped || mapped.verificationStatus === 'unverified' ? 'human_review_required' : 'rejected';
             cloned.formalProofSummary = undefined;
             cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck.reason ?? 'expression mismatch'}`;
           }
@@ -119,15 +136,29 @@ export class KnowledgeValidationServiceV3 {
           claimId: cloned.id,
           claimType: cloned.claimType,
           status: cloned.verificationStatus,
-          verifierNotes: cloned.formalProofSummary ?? cloned.humanReviewComment
+          verifierNotes: cloned.formalProofSummary ?? cloned.humanReviewComment,
+          verifierImplementation: sympyCheck ? 'MathVerificationService/SymPy' : 'unsupported',
+          verificationBinding: cloned.verificationStatus === 'formally_verified' && mathSpec && claim.formalExpression ? {
+            claimId: claim.id,
+            exactExpression: claim.formalExpression,
+            mathSpecCanonical: JSON.stringify(mathSpec),
+            assumptions
+          } : undefined
         });
       }
       // 2. Mệnh đề KHÁI NIỆM AI & THUẬT TOÁN (ai_concept, algorithmic_property, empirical_observation)
       else {
         // Kiểm tra đối chiếu tài liệu nguồn thực tế (Real Source Grounding)
-        const matchingEvidence = sourceEvidence.find(
-          (ev) => ev.claimId === claim.id && ev.evidenceFound === true && ev.sourceReference?.exactQuote && ev.sourceReference.exactQuote.trim().length > 0
-        );
+        const candidateEvidence = sourceEvidence.filter((ev) => ev.claimId === claim.id);
+        let matchingEvidence: GroundingEvidence | undefined;
+        if (this.verifySourceEvidence) {
+          for (const evidence of candidateEvidence) {
+            if (await this.verifySourceEvidence({ claim, evidence })) {
+              matchingEvidence = evidence;
+              break;
+            }
+          }
+        }
 
         if (matchingEvidence) {
           cloned.verificationStatus = 'source_grounded';
@@ -163,7 +194,7 @@ export class KnowledgeValidationServiceV3 {
     const requiresHumanPedagogicalSignoff = hasNeedsReview || domain === 'artificial_intelligence';
 
     const report: KnowledgeValidationReportV3 = {
-      reportId: `val_report_${lessonId}_${Date.now()}`,
+      reportId: `val_${lessonId.slice(0, 40)}_${Date.now()}`,
       lessonId,
       domain,
       overallStatus,

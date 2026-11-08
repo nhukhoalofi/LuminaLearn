@@ -30,16 +30,26 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
   const wStar = minimumPoint.w;
   const lStar = minimumPoint.loss;
 
-  // Viewbox coordinates: w in [-2.5, 2.5], L in [0, 6]
+  // Derive viewport from validated parameters so legitimate bounded examples
+  // are not clipped by a hard-coded demonstration range.
   const svgW = 640;
   const svgH = 500;
   const padX = 60;
   const padY = 50;
 
-  const wMin = -2.5;
-  const wMax = 2.5;
-  const lMin = 0;
-  const lMax = 6.0;
+  const observedW = [wStar, payload.currentParam, ...steps.map((step) => step.w)];
+  const rawWMin = Math.min(...observedW);
+  const rawWMax = Math.max(...observedW);
+  const wMargin = Math.max(0.75, (rawWMax - rawWMin) * 0.25);
+  const wMin = rawWMin - wMargin;
+  const wMax = rawWMax + wMargin;
+  const boundaryLosses = [wMin, wMax].map((w) => curvature * Math.pow(w - wStar, 2) + lStar);
+  const observedLoss = [lStar, ...steps.map((step) => step.loss), ...boundaryLosses];
+  const rawLMin = Math.min(...observedLoss);
+  const rawLMax = Math.max(...observedLoss);
+  const lMargin = Math.max(0.25, (rawLMax - rawLMin) * 0.1);
+  const lMin = rawLMin - lMargin;
+  const lMax = rawLMax + lMargin;
 
   const toSvgX = (w: number) => padX + ((w - wMin) / (wMax - wMin)) * (svgW - 2 * padX);
   const toSvgY = (l: number) => svgH - padY - ((l - lMin) / (lMax - lMin)) * (svgH - 2 * padY);

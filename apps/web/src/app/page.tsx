@@ -4,6 +4,7 @@ import { Hero } from '@/components/Hero';
 import { CreateVideoForm } from '@/components/CreateVideoForm';
 import { WorkflowSection } from '@/components/WorkflowSection';
 import { Footer } from '@/components/Footer';
+import { V3TeacherStudio } from '@/components/V3TeacherStudio';
 
 export default function HomePage() {
   return (
@@ -12,6 +13,7 @@ export default function HomePage() {
       <main className="main-content">
         <div className="container">
           <Hero />
+          <V3TeacherStudio liveEnabled={Boolean(process.env.GEMINI_API_KEY)} />
           <CreateVideoForm
             liveEnabled={Boolean(process.env.GEMINI_API_KEY)}
             geminiTtsEnabled={Boolean(process.env.GEMINI_API_KEY)}

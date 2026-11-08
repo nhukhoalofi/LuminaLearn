@@ -114,7 +114,8 @@ test('CHECKPOINT A: Negative Test D - Altering a verified expression invalidates
     lessonId: 'test_altered',
     topicId: 'calculus.derivative.intuition',
     domain: 'mathematics',
-    claims: [alteredClaim]
+    claims: [alteredClaim],
+    mathSpec: { topicId: 'calculus.derivative.intuition', visualization: 'secant_to_tangent', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { pointX: 1 }, boundClaimIds: ['claim_corrupted_deriv'] }
   });
 
   const verified = result.validatedClaims[0];
@@ -138,7 +139,8 @@ test('CHECKPOINT A: Negative Test E - Malformed numerical example fails validati
     lessonId: 'test_malformed',
     topicId: 'calculus.riemann_integral.intuition',
     domain: 'mathematics',
-    claims: [malformedClaim]
+    claims: [malformedClaim],
+    mathSpec: { topicId: 'calculus.integral.riemann_sum', visualization: 'riemann_sum', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { interval: [0, 1], partitions: [4, 8] }, boundClaimIds: ['claim_malformed_riemann'] }
   });
 
   const verified = result.validatedClaims[0];
@@ -161,7 +163,8 @@ test('CHECKPOINT A: Negative Test F - Independently verified supported derivativ
     lessonId: 'test_valid',
     topicId: 'calculus.derivative.intuition',
     domain: 'mathematics',
-    claims: [validDerivativeClaim]
+    claims: [validDerivativeClaim],
+    mathSpec: { topicId: 'calculus.derivative.intuition', visualization: 'secant_to_tangent', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { pointX: 1 }, boundClaimIds: ['claim_valid_deriv'] }
   });
 
   const verified = result.validatedClaims[0];
@@ -171,7 +174,10 @@ test('CHECKPOINT A: Negative Test F - Independently verified supported derivativ
 });
 
 test('CHECKPOINT B: Real Source Grounding - Valid quote produces source_grounded', async () => {
-  const service = new KnowledgeValidationServiceV3();
+  const service = new KnowledgeValidationServiceV3({ verifySourceEvidence: ({ evidence }) =>
+    evidence.sourceReference.documentId === 'doc_neural_foundations_pdf' &&
+    evidence.sourceReference.exactQuote === 'The perceptron computes a weighted sum of inputs and applies a threshold function.'
+  });
   const claim: EducationalClaimV3 = {
     id: 'claim_perceptron_def',
     claimType: 'ai_concept',
@@ -340,7 +346,9 @@ test('CHECKPOINT D: EducationalPlannerV3 with AIProvider sanitizes claims and en
   const plan = await planner.planLesson({
     lessonId: 'plan_ai_test',
     topic: 'Đạo hàm x^2',
-    targetDurationSeconds: 40
+    targetDurationSeconds: 40,
+    externalApiConsent: true,
+    mathSpec: { topicId: 'calculus.derivative.intuition', visualization: 'secant_to_tangent', function: { type: 'polynomial', coefficients: [0, 0, 1] }, parameters: { pointX: 1 }, boundClaimIds: ['claim_ai_untrusted'] }
   });
 
   assert.equal(fakeProvider.callCount, 1);

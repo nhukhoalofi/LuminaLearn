@@ -62,6 +62,19 @@ export const Root: React.FC = () => {
         defaultProps={{ manifest: dynamicV2DefaultManifest }}
       />
       <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="LuminaSceneV3"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(perceptronStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: perceptronStoryboardV3 }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24))
+        })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
         id="LuminaSceneV3Perceptron"
         component={LuminaSceneV3}
         durationInFrames={Math.round(perceptronStoryboardV3.totalDurationSeconds * 24)}

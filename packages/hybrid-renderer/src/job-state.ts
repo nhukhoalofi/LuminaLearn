@@ -2,7 +2,7 @@ export const JOB_STATES = ['queued', 'planning', 'validating', 'rendering_manim'
 export type JobState = (typeof JOB_STATES)[number];
 
 const transitions: Record<JobState, readonly JobState[]> = {
-  queued: ['planning', 'failed'], planning: ['validating', 'failed'], validating: ['rendering_manim', 'failed'],
+  queued: ['planning', 'failed'], planning: ['validating', 'failed'], validating: ['rendering_manim', 'rendering_remotion', 'failed'],
   rendering_manim: ['narrating', 'failed'], narrating: ['synthesizing_audio', 'rendering_remotion', 'failed'],
   synthesizing_audio: ['rendering_remotion', 'failed'], rendering_remotion: ['completed', 'failed'],
   completed: [], failed: [], interrupted: []

@@ -5,6 +5,7 @@ import {
   type EducationalStoryboardV3,
   EducationalLessonPlanV3Schema,
   GeminiRequestBudget,
+  type MathVisualizationSpecV2,
   REGISTERED_TOPICS_V3,
   type TopicCapabilityReportV3
 } from '@luminalearn/scene-schema';
@@ -25,6 +26,23 @@ export interface PlanLessonV3Input {
   language?: 'vi' | 'en';
   targetDurationSeconds?: number;
   documentAnalysis?: DocumentAnalysisResult;
+  externalApiConsent?: boolean;
+  mathSpec?: MathVisualizationSpecV2;
+  assumptions?: string[];
+}
+
+export class EducationalGenerationError extends Error {
+  public readonly provenance = 'generation_failed' as const;
+  public readonly code: string;
+
+  constructor(error: unknown) {
+    const source = error instanceof Error ? error : new Error(String(error));
+    super(source.message, { cause: source });
+    this.name = 'EducationalGenerationError';
+    this.code = typeof (source as Error & { code?: unknown }).code === 'string'
+      ? String((source as Error & { code?: string }).code)
+      : 'live_generation_failed';
+  }
 }
 
 /**
@@ -65,17 +83,17 @@ export class EducationalPlannerV3 {
     let candidatePlan: EducationalLessonPlanV3;
 
     if (this.aiProvider && !this.aiProvider.isMock) {
+      if (input.externalApiConsent !== true) {
+        throw new EducationalGenerationError(
+          Object.assign(new Error('Explicit external API consent is required for live Gemini planning.'), {
+            code: 'external_api_consent_required'
+          })
+        );
+      }
       try {
         candidatePlan = await this.planLessonWithAI(input, capabilityReport);
-      } catch (_err) {
-        // Fallback an toàn về deterministic plan nếu AI thất bại
-        candidatePlan = this.buildDeterministicPlan(
-          lessonId,
-          topic,
-          capabilityReport,
-          targetDurationSeconds,
-          documentAnalysis
-        );
+      } catch (error) {
+        throw error instanceof EducationalGenerationError ? error : new EducationalGenerationError(error);
       }
     } else {
       candidatePlan = this.buildDeterministicPlan(
@@ -94,7 +112,9 @@ export class EducationalPlannerV3 {
       topicId: capabilityReport.topicId,
       domain: capabilityReport.domain,
       claims: candidatePlan.educationalClaims,
-      sourceEvidence: documentAnalysis?.evidence || candidatePlan.sourceEvidence
+      sourceEvidence: documentAnalysis?.evidence || candidatePlan.sourceEvidence,
+      mathSpec: input.mathSpec,
+      assumptions: input.assumptions
     });
 
     candidatePlan.educationalClaims = validationResult.validatedClaims;
@@ -158,6 +178,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
 
         return {
           schemaVersion: 'lesson-v3',
+          generationProvenance: 'ai_generated_live',
           lessonId: input.lessonId,
           domain: capability.domain,
           topicId: capability.topicId,
@@ -531,7 +552,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
           sceneType: 'neural_architecture',
           title: 'Cấu tạo một Nơ-ron nhân tạo',
           pedagogicalGoal: 'Trực quan hóa luồng dữ liệu từ các đầu vào x_i, nhân trọng số w_i đến bộ tích lũy',
-          durationSeconds: 20,
+          durationSeconds: 17,
           boundClaimIds: ['claim_perceptron_structure'],
           rendererTarget: 'remotion_infographic',
           narration: {
@@ -550,6 +571,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
               { fromLayer: 0, fromNode: 1, toLayer: 1, toNode: 0, weightValue: -0.5 }
             ],
             inputValues: [1.0, 0.5],
+            signalMode: 'signal_flow_illustration',
             highlightActiveSignal: true,
             outputLabels: ['Dự đoán (y)']
           }
@@ -559,7 +581,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
           sceneType: 'graph_plot',
           title: 'Sức mạnh của tính phi tuyến',
           pedagogicalGoal: 'So sánh đường cong kích hoạt Sigmoid và ReLU giúp mạng học được các mặt phân chia phức tạp',
-          durationSeconds: 20,
+          durationSeconds: 18,
           boundClaimIds: ['claim_non_linearity'],
           rendererTarget: 'remotion_infographic',
           narration: {
@@ -569,7 +591,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
           visualPayload: {
             sceneType: 'graph_plot',
             headline: 'Hàm kích hoạt phi tuyến',
-            formulaTex: '\\sigma(z) = \\frac{1}{1 + e^{-z}}, \\quad \\text{ReLU}(z) = \\max(0, z)',
+            formulaTex: 'σ(z) = 1 / (1 + e^(-z)); ReLU(z) = max(0, z)',
             notes: 'Phi tuyến tính phá vỡ giới hạn biến đổi affine'
           }
         }
@@ -919,6 +941,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
 
     return {
       schemaVersion: 'lesson-v3',
+      generationProvenance: 'deterministic_mock',
       lessonId,
       domain: capability.domain,
       topicId: capability.topicId,
