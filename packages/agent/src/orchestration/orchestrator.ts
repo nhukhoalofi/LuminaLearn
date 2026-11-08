@@ -298,6 +298,18 @@ export class LessonOrchestrator {
               linkedClaim.sourceReferenceId = reference.id;
             }
           }
+          const supportedClaimIds = new Set(
+            candidate.sourceEvidence
+              .filter((evidence) => evidence.supportStatus === 'supported' && evidence.quoteExists === true)
+              .map((evidence) => evidence.claimId)
+          );
+          for (const claim of candidate.mathematicalClaims) {
+            if (!supportedClaimIds.has(claim.id) || !claim.sourceReferenceId) {
+              throw new Error(
+                `source_evidence_missing_for_claim: Mathematical claim '${claim.id}' has no exact supported evidence from an authorized source document`
+              );
+            }
+          }
         }
         return candidate;
       });
@@ -465,7 +477,10 @@ export class LessonOrchestrator {
   }
 
   /** Continue a persisted semantic-review draft without repeating curriculum planning. */
-  public async resumeAfterSemanticReview(context: OrchestrationContext): Promise<OrchestrationContext> {
+  public async resumeAfterSemanticReview(
+    context: OrchestrationContext,
+    options: { onBudgetChange?: (summary: NonNullable<OrchestrationContext['requestBudget']>) => void } = {}
+  ): Promise<OrchestrationContext> {
     const lessonPlan = context.lessonPlan;
     const topicInfo = context.topicInfo;
     if (!lessonPlan || !topicInfo || context.mathVerification?.status !== 'verified' ||
@@ -485,23 +500,24 @@ export class LessonOrchestrator {
     context.teachingTreatment = this.filmDirector.createTreatment({ lessonPlan, storyboard, visualStyleId: request.visualStyleId });
 
     const priorBudget = context.requestBudget;
-    const remainingTotal = priorBudget
-      ? priorBudget.limits.maxRequestsPerJob - priorBudget.counts.totalTextRequests
-      : undefined;
-    const remainingNarration = priorBudget
-      ? priorBudget.limits.maxNarrationRequests - priorBudget.counts.narrationPlanning
-      : undefined;
-    if (remainingTotal !== undefined && (remainingTotal <= 0 || (remainingNarration ?? 0) <= 0)) {
+    if (priorBudget && (
+      priorBudget.counts.totalTextRequests >= priorBudget.limits.maxRequestsPerJob ||
+      priorBudget.counts.narrationPlanning >= priorBudget.limits.maxNarrationRequests
+    )) {
       throw new Error('gemini_budget_exceeded: No request budget remains for semantic-review resume');
     }
+    const persistBudget = (summary: NonNullable<OrchestrationContext['requestBudget']>) => {
+      context.requestBudget = summary;
+      options.onBudgetChange?.(summary);
+    };
     const budget = priorBudget
-      ? new GeminiRequestBudget({
-          maxRequestsPerJob: remainingTotal,
-          maxCurriculumRequests: 1,
-          maxNarrationRequests: remainingNarration,
-          maxTtsRequestsPerJob: priorBudget.limits.maxTtsRequestsPerJob
-        })
-      : this.createJobBudget();
+      ? new GeminiRequestBudget({ initialSummary: priorBudget, onChange: persistBudget })
+      : new GeminiRequestBudget({
+          maxRequestsPerJob: this.maxRetries + 3,
+          maxCurriculumRequests: Math.max(1, this.maxRetries + 1),
+          maxNarrationRequests: Math.max(1, this.maxRetries + 1),
+          onChange: persistBudget
+        });
     let provider = this.aiProvider;
     if (request.renderMode === 'live' && provider.isMock) {
       if (!process.env.GEMINI_API_KEY) throw new Error('live_mode_unavailable: GEMINI_API_KEY is required for live renderMode');
@@ -533,22 +549,7 @@ export class LessonOrchestrator {
     });
     context.stage = 'ready_to_render';
     context.error = undefined;
-    const resumedBudget = budget.getSummary();
-    context.requestBudget = priorBudget ? {
-      limits: priorBudget.limits,
-      counts: {
-        curriculumPlanning: priorBudget.counts.curriculumPlanning + resumedBudget.counts.curriculumPlanning,
-        narrationPlanning: priorBudget.counts.narrationPlanning + resumedBudget.counts.narrationPlanning,
-        geminiTts: priorBudget.counts.geminiTts + resumedBudget.counts.geminiTts,
-        totalTextRequests: priorBudget.counts.totalTextRequests + resumedBudget.counts.totalTextRequests,
-        totalTtsRequests: priorBudget.counts.totalTtsRequests + resumedBudget.counts.totalTtsRequests,
-        totalAllRequests: priorBudget.counts.totalAllRequests + resumedBudget.counts.totalAllRequests
-      },
-      attempts: [
-        ...priorBudget.attempts,
-        ...resumedBudget.attempts.map((attempt) => ({ ...attempt, attemptId: attempt.attemptId + priorBudget.attempts.length }))
-      ]
-    } : resumedBudget;
+    context.requestBudget = budget.getSummary();
     return context;
   }
 }

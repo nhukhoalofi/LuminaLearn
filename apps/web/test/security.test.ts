@@ -7,11 +7,51 @@ import {
   assertUploadSizeWithinLimit,
   getMaxPendingJobs,
   readBoundedJson,
+  resolveDeploymentMode,
   resolveOwnerId,
   SecurityError
 } from '../src/server/security.ts';
 
 describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota Protection', () => {
+  it('fails closed for every unsafe deployment flag combination', () => {
+    const mutableEnv = process.env as Record<string, string | undefined>;
+    const original = { public: process.env.LUMINA_PUBLIC_DEPLOYMENT, local: process.env.LUMINA_LOCAL_DEMO, token: process.env.LUMINA_API_AUTH_TOKEN, nodeEnv: process.env.NODE_ENV };
+    const localRequest = new Request('http://localhost:3000/api/documents');
+    const publicRequest = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer valid-token' } });
+    try {
+      mutableEnv.NODE_ENV = 'development';
+      delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
+      delete process.env.LUMINA_LOCAL_DEMO;
+      assert.equal(resolveDeploymentMode(), 'local_demo');
+      assert.doesNotThrow(() => assertRequestAuthorized(localRequest));
+
+      mutableEnv.NODE_ENV = 'production';
+      process.env.LUMINA_PUBLIC_DEPLOYMENT = 'false';
+      process.env.LUMINA_LOCAL_DEMO = 'false';
+      process.env.LUMINA_API_AUTH_TOKEN = 'valid-token';
+      assert.equal(resolveDeploymentMode(), 'disabled');
+      assert.throws(() => assertRequestAuthorized(publicRequest), (error: unknown) => error instanceof SecurityError && error.code === 'public_deployment_disabled');
+
+      process.env.LUMINA_LOCAL_DEMO = 'true';
+      assert.equal(resolveDeploymentMode(), 'local_demo');
+      assert.equal(resolveOwnerId(localRequest), 'local-single-user');
+
+      process.env.LUMINA_LOCAL_DEMO = 'false';
+      process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
+      assert.equal(resolveDeploymentMode(), 'public');
+      assert.doesNotThrow(() => assertRequestAuthorized(publicRequest));
+
+      process.env.LUMINA_LOCAL_DEMO = 'true';
+      assert.throws(() => assertRequestAuthorized(publicRequest), (error: unknown) => error instanceof SecurityError && error.code === 'unsafe_deployment_configuration');
+      assert.throws(() => resolveOwnerId(publicRequest), (error: unknown) => error instanceof SecurityError && error.code === 'unsafe_deployment_configuration');
+    } finally {
+      if (original.public === undefined) delete process.env.LUMINA_PUBLIC_DEPLOYMENT; else process.env.LUMINA_PUBLIC_DEPLOYMENT = original.public;
+      if (original.local === undefined) delete process.env.LUMINA_LOCAL_DEMO; else process.env.LUMINA_LOCAL_DEMO = original.local;
+      if (original.token === undefined) delete process.env.LUMINA_API_AUTH_TOKEN; else process.env.LUMINA_API_AUTH_TOKEN = original.token;
+      if (original.nodeEnv === undefined) delete mutableEnv.NODE_ENV; else mutableEnv.NODE_ENV = original.nodeEnv;
+    }
+  });
+
   it('allows localhost loopback requests in local dev and blocks non-loopback or unauthenticated public requests', () => {
     const origPublic = process.env.LUMINA_PUBLIC_DEPLOYMENT;
     const origToken = process.env.LUMINA_API_AUTH_TOKEN;

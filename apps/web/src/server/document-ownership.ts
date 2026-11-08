@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export interface DocumentOwnershipRecord {
@@ -49,13 +49,6 @@ export class DocumentOwnershipRepository {
   async persist(documentId: string, ownerId: string): Promise<DocumentOwnershipRecord> {
     this.pathFor(documentId);
     if (!OWNER_ID.test(ownerId)) throw new Error(`invalid_owner_id: '${ownerId}'`);
-    try {
-      const existing = await this.load(documentId);
-      if (existing.ownerId !== ownerId) throw new Error(`ownership_conflict: '${documentId}' already has a different owner`);
-      return existing;
-    } catch (error) {
-      if (error instanceof Error && !error.message.startsWith('ownership_metadata_missing')) throw error;
-    }
     const record: DocumentOwnershipRecord = {
       schemaVersion: 'document-ownership-v1', documentId, ownerId, createdAt: new Date().toISOString()
     };
@@ -64,11 +57,23 @@ export class DocumentOwnershipRepository {
     const target = this.pathFor(documentId);
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, JSON.stringify(record, null, 2), 'utf8');
-      await rename(temporary, target);
+      await writeFile(temporary, JSON.stringify(record, null, 2), { encoding: 'utf8', flag: 'wx' });
+      try {
+        // Atomic create-if-absent: a hard link cannot overwrite a winner created
+        // by another concurrent repository/process.
+        await link(temporary, target);
+        return record;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'EEXIST') throw error;
+        const existing = await this.load(documentId);
+        if (existing.ownerId !== ownerId) {
+          throw new Error(`ownership_conflict: '${documentId}' already has a different owner`);
+        }
+        return existing;
+      }
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined);
     }
-    return record;
   }
 }

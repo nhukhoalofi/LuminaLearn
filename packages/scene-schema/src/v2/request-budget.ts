@@ -18,6 +18,8 @@ export interface GeminiRequestBudgetOptions {
   maxCurriculumRequests?: number;
   maxNarrationRequests?: number;
   maxTtsRequestsPerJob?: number;
+  initialSummary?: GeminiRequestBudgetSummary;
+  onChange?: (summary: GeminiRequestBudgetSummary) => void;
 }
 
 export interface GeminiRequestBudgetSummary {
@@ -54,18 +56,33 @@ export class GeminiRequestBudget {
   private narrationCount = 0;
   private ttsCount = 0;
   private readonly attempts: GeminiBudgetAttemptRecord[] = [];
+  private readonly onChange?: (summary: GeminiRequestBudgetSummary) => void;
 
   constructor(options: GeminiRequestBudgetOptions = {}) {
+    const initial = options.initialSummary;
     this.maxRequestsPerJob =
       options.maxRequestsPerJob ??
+      initial?.limits.maxRequestsPerJob ??
       parsePositiveIntEnv(process.env.GEMINI_MAX_REQUESTS_PER_JOB, 4);
     this.maxTtsRequestsPerJob =
       options.maxTtsRequestsPerJob ??
+      initial?.limits.maxTtsRequestsPerJob ??
       parsePositiveIntEnv(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB, 5);
     this.maxCurriculumRequests =
-      options.maxCurriculumRequests ?? Math.min(2, this.maxRequestsPerJob);
+      options.maxCurriculumRequests ?? initial?.limits.maxCurriculumRequests ?? Math.min(2, this.maxRequestsPerJob);
     this.maxNarrationRequests =
-      options.maxNarrationRequests ?? Math.min(2, this.maxRequestsPerJob);
+      options.maxNarrationRequests ?? initial?.limits.maxNarrationRequests ?? Math.min(2, this.maxRequestsPerJob);
+    this.onChange = options.onChange;
+    if (initial) {
+      this.curriculumCount = initial.counts.curriculumPlanning;
+      this.narrationCount = initial.counts.narrationPlanning;
+      this.ttsCount = initial.counts.geminiTts;
+      this.attempts.push(...initial.attempts.map((attempt) => ({ ...attempt })));
+    }
+  }
+
+  private notifyChange(): void {
+    this.onChange?.(this.getSummary());
   }
 
   public canConsume(category: GeminiRequestCategory): boolean {
@@ -99,6 +116,7 @@ export class GeminiRequestBudget {
         model
       };
       this.attempts.push(record);
+      this.notifyChange();
       return record.attemptId;
     }
 
@@ -125,6 +143,7 @@ export class GeminiRequestBudget {
         model
       };
       this.attempts.push(record);
+      this.notifyChange();
       return record.attemptId;
     }
 
@@ -143,6 +162,7 @@ export class GeminiRequestBudget {
       model
     };
     this.attempts.push(record);
+    this.notifyChange();
     return record.attemptId;
   }
 
@@ -155,6 +175,7 @@ export class GeminiRequestBudget {
     if (entry) {
       entry.status = status;
       if (errorCode) entry.errorCode = errorCode;
+      this.notifyChange();
     }
   }
 

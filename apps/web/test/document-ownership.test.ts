@@ -41,4 +41,20 @@ describe('Durable document ownership', () => {
     await assert.rejects(() => new DocumentOwnershipRepository(root).load(documentId), /ownership_metadata_missing/);
     assert.throws(() => assertOwnerMatch(undefined, ownerA, documentId), (error: unknown) => error instanceof SecurityError && error.code === 'missing_resource_owner');
   });
+
+  it('atomically rejects conflicting concurrent owner registrations', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lumina-owner-race-'));
+    temporaryDirs.push(root);
+    const documentId = 'doc_concurrent_test';
+    const results = await Promise.allSettled([
+      new DocumentOwnershipRepository(root).persist(documentId, 'tok_aaaaaaaaaaaaaaaa'),
+      new DocumentOwnershipRepository(root).persist(documentId, 'tok_bbbbbbbbbbbbbbbb')
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    assert.match(String(rejected?.reason), /ownership_conflict/);
+    const persisted = await new DocumentOwnershipRepository(root).load(documentId);
+    assert.ok(['tok_aaaaaaaaaaaaaaaa', 'tok_bbbbbbbbbbbbbbbb'].includes(persisted.ownerId));
+  });
 });

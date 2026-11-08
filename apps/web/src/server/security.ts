@@ -73,18 +73,42 @@ function extractAuthToken(req: Request): string | undefined {
   return undefined;
 }
 
+type DeploymentMode = 'local_demo' | 'public' | 'disabled';
+
+export function resolveDeploymentMode(): DeploymentMode {
+  const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
+  const explicitLocalDemo = process.env.LUMINA_LOCAL_DEMO === 'true';
+  if (publicDeployment && explicitLocalDemo) {
+    throw new SecurityError(
+      500,
+      'unsafe_deployment_configuration',
+      'LUMINA_PUBLIC_DEPLOYMENT=true and LUMINA_LOCAL_DEMO=true are mutually exclusive'
+    );
+  }
+  if (publicDeployment) return 'public';
+  if (explicitLocalDemo || process.env.NODE_ENV !== 'production') return 'local_demo';
+  return 'disabled';
+}
+
 /**
  * Enforces local demo safety vs public deployment authentication.
  * - On localhost/loopback (when LUMINA_PUBLIC_DEPLOYMENT !== 'true'): allows local workflow without extra setup.
  * - On non-loopback or when LUMINA_PUBLIC_DEPLOYMENT === 'true': requires LUMINA_API_AUTH_TOKEN and a matching token.
  */
 export function assertRequestAuthorized(req: Request): void {
-  const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
-  const localDemo = process.env.LUMINA_LOCAL_DEMO === 'true' || (!publicDeployment && process.env.NODE_ENV !== 'production');
+  const mode = resolveDeploymentMode();
   const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
   const providedToken = extractAuthToken(req);
 
-  if (!localDemo) {
+  if (mode === 'disabled') {
+    throw new SecurityError(
+      403,
+      'public_deployment_disabled',
+      'Production access is disabled until LUMINA_PUBLIC_DEPLOYMENT=true and authentication are configured.'
+    );
+  }
+
+  if (mode === 'public') {
     if (!configuredToken) {
       throw new SecurityError(
         403,
@@ -110,9 +134,9 @@ export function assertRequestAuthorized(req: Request): void {
  * Resolves the caller's session/owner identifier for document, draft, and job isolation.
  */
 export function resolveOwnerId(req: Request): string {
-  const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
-  const localDemo = process.env.LUMINA_LOCAL_DEMO === 'true' || (!publicDeployment && process.env.NODE_ENV !== 'production');
-  if (localDemo) return 'local-single-user';
+  const mode = resolveDeploymentMode();
+  if (mode === 'local_demo') return 'local-single-user';
+  if (mode === 'disabled') throw new SecurityError(403, 'public_deployment_disabled', 'Production access is disabled.');
   const token = extractAuthToken(req);
   const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
   if (token && configuredToken && safeTokenCompare(token, configuredToken)) {

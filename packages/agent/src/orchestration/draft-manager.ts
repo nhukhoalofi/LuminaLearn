@@ -221,6 +221,7 @@ function buildDefaultMathSpec(
 
 export class LessonDraftManager {
   private readonly drafts: Map<string, LessonDraft> = new Map();
+  private readonly draftUpdateLocks = new Map<string, Promise<void>>();
   private readonly orchestrator: LessonOrchestrator;
   private readonly verifier: MathVerificationService;
   private readonly filmDirector = new EducationalFilmDirector();
@@ -351,6 +352,25 @@ export class LessonDraftManager {
     updates: LessonDraftUpdateInput,
     note?: string
   ): Promise<LessonDraft> {
+    const previous = this.draftUpdateLocks.get(draftId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+    const queued = previous.then(() => current);
+    this.draftUpdateLocks.set(draftId, queued);
+    await previous;
+    try {
+      return await this.updateDraftUnlocked(draftId, updates, note);
+    } finally {
+      release();
+      if (this.draftUpdateLocks.get(draftId) === queued) this.draftUpdateLocks.delete(draftId);
+    }
+  }
+
+  private async updateDraftUnlocked(
+    draftId: string,
+    updates: LessonDraftUpdateInput,
+    note?: string
+  ): Promise<LessonDraft> {
     const draft = this.drafts.get(draftId);
     if (!draft) {
       throw new Error(`Lesson draft not found: ${draftId}`);
@@ -453,7 +473,13 @@ export class LessonDraftManager {
       draft.context.error = undefined;
       if (!draft.context.storyboard || !draft.context.narrationPlan || !draft.context.manifest) {
         try {
-          await this.orchestrator.resumeAfterSemanticReview(draft.context);
+          await this.orchestrator.resumeAfterSemanticReview(draft.context, {
+            onBudgetChange: (summary) => {
+              draft.context.requestBudget = summary;
+              draft.updatedAt = new Date().toISOString();
+              this.persistDraft(draft);
+            }
+          });
         } catch (error) {
           draft.status = 'reviewing';
           draft.context.stage = 'failed';

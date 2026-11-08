@@ -5,10 +5,10 @@ import {
   assertExternalApiConfirmed,
   assertOwnerMatch,
   assertRequestAuthorized,
-  readBoundedJson,
   resolveOwnerId,
   SecurityError
 } from '@/server/security';
+import { readApprovalRequest } from '@/server/approval-request';
 
 export async function POST(
   req: Request,
@@ -18,6 +18,7 @@ export async function POST(
     assertRequestAuthorized(req);
     const callerOwnerId = resolveOwnerId(req);
     const { lessonId } = await params;
+    const body = await readApprovalRequest(req);
 
     const existing = draftManager.getDraft(lessonId);
     if (!existing) {
@@ -27,11 +28,6 @@ export async function POST(
       );
     }
     assertOwnerMatch(existing.ownerId, callerOwnerId, `draft '${lessonId}'`);
-
-    const body = await readBoundedJson<Record<string, unknown>>(req).catch((err) => {
-      if (err instanceof SecurityError && err.code === 'request_too_large') throw err;
-      return {} as Record<string, unknown>;
-    });
 
     // If the caller supplied config updates alongside approval, apply them before approving so the artifact matches
     const hasConfigUpdates =

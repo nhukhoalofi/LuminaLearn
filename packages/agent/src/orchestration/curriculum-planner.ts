@@ -223,14 +223,10 @@ export class CurriculumPlanner {
         };
       });
 
-      for (const dc of docClaims) {
-        const existingIdx = mathematicalClaims.findIndex((mc) => mc.validatorKey === dc.validatorKey);
-        if (existingIdx >= 0) {
-          mathematicalClaims[existingIdx] = dc;
-        } else {
-          mathematicalClaims.push(dc);
-        }
-      }
+      // In source-document mode, only claims actually extracted from authorized
+      // source evidence are formal lesson claims. Deterministic teaching formulas
+      // must not silently become ungrounded source assertions.
+      mathematicalClaims = docClaims;
     }
 
     let mathSpec: MathVisualizationSpecV2 | undefined = customMathSpec;
