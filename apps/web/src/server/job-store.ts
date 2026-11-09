@@ -7,6 +7,7 @@ import {
   runHybridPipelineV2,
   runRenderPipelineV3,
   LongFormRenderCoordinatorV3,
+  generateSrtFromStoryboardV3,
   type HybridRenderRequest,
   type JobState,
   LocalJobRepository
@@ -109,10 +110,18 @@ async function runEntry(entry: QueuedJob): Promise<void> {
 
     if (entry.v3Artifact) {
       if (!entry.authorizeV3Artifact) throw new Error('v3_authorization_callback_missing');
-      transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
-      transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
 
       if (isLongFormDuration(entry.v3Artifact.request.targetDurationSeconds)) {
+        // CHECKPOINT 0.C: Reject unsupported narration modes for long-form rendering
+        if (entry.v3Artifact.request.narrationMode !== 'none') {
+          throw new SecurityError(
+            400,
+            'unsupported_longform_narration_mode',
+            `Long-form rendering (>= 60s) currently only supports narrationMode='none'. Mode '${entry.v3Artifact.request.narrationMode}' is not supported.`
+          );
+        }
+
+        // CHECKPOINT 0.A: Correct state transitions: queued -> planning -> validating -> rendering_remotion -> completed
         transition(entry.jobId, 'planning', { message: 'Đang lập kế hoạch phân đoạn bài giảng dài' });
         const planner = new LongFormSegmentPlannerV3();
         const manifest = planner.planSegments({
@@ -124,6 +133,23 @@ async function runEntry(entry: QueuedJob): Promise<void> {
           height: entry.v3Artifact.request.height
         });
 
+        transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
+        if (!verifyArtifactIntegrityV3(entry.v3Artifact)) {
+          throw new Error('artifact_tampered: V3 content hash mismatch');
+        }
+        if (!(await entry.authorizeV3Artifact(entry.v3Artifact))) {
+          throw new Error('artifact_revoked: V3 artifact is no longer authorized for rendering');
+        }
+
+        // CHECKPOINT 0.B: Generate SubRip (.srt) subtitles automatically from approved storyboard
+        let subtitlesSrtContent: string | undefined;
+        if (entry.v3Artifact.request.subtitlesEnabled) {
+          subtitlesSrtContent = generateSrtFromStoryboardV3(
+            entry.v3Artifact.lessonPlan.storyboard!,
+            entry.v3Artifact.request.fps
+          );
+        }
+
         transition(entry.jobId, 'rendering_remotion', { message: 'Đang render phân đoạn Remotion' });
         const coordinator = new LongFormRenderCoordinatorV3();
         const res = await coordinator.render({
@@ -131,23 +157,29 @@ async function runEntry(entry: QueuedJob): Promise<void> {
           artifact: entry.v3Artifact,
           authorizeArtifact: entry.authorizeV3Artifact,
           jobId: entry.jobId,
+          subtitlesSrtContent,
           onProgress: (renderJob) => {
             const current = store.jobs.get(entry.jobId);
             if (current && current.status !== 'completed' && current.status !== 'failed') {
               const progress = Math.min(
                 95,
-                Math.round((renderJob.completedSegments / renderJob.totalSegments) * 80) + 15
+                Math.round((renderJob.completedSegments / Math.max(1, renderJob.totalSegments)) * 80) + 15
               );
-              store.jobs.set(entry.jobId, {
+              const updatedJob: JobRecord = {
                 ...current,
                 progress,
-                message: `Đang render phân đoạn ${renderJob.completedSegments}/${renderJob.totalSegments}`
-              });
+                message: `Đang render phân đoạn ${renderJob.completedSegments}/${renderJob.totalSegments}`,
+                updatedAt: new Date().toISOString()
+              };
+              store.jobs.set(entry.jobId, updatedJob);
+              repository.save(updatedJob);
             }
           }
         });
         result = { outputPath: res.finalMp4Path };
       } else {
+        transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
+        transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
         result = await runRenderPipelineV3(entry.v3Artifact, {
           jobId: entry.jobId,
           authorizeArtifact: entry.authorizeV3Artifact,
@@ -225,6 +257,7 @@ async function runEntry(entry: QueuedJob): Promise<void> {
 
 // Checkpoint F & G: Atomic enqueue mutex per artifact for safe concurrency, idempotency, and leak-free cleanup
 const artifactEnqueueLocks = new Map<string, Promise<unknown>>();
+const artifactStore = new Map<string, ApprovedRenderArtifactV3>();
 
 export function getArtifactEnqueueLockCount(): number {
   return artifactEnqueueLocks.size;
@@ -261,10 +294,22 @@ export async function createV3JobFromArtifact(
   consentRecord?: ExternalApiConsentRecordV3
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const artifact = ApprovedRenderArtifactV3Schema.parse(input);
+
+  // CHECKPOINT 0.C: Explicitly reject unsupported long-form narration modes prior to enqueue
+  if (isLongFormDuration(artifact.request.targetDurationSeconds) && artifact.request.narrationMode !== 'none') {
+    throw new SecurityError(
+      400,
+      'unsupported_longform_narration_mode',
+      `Long-form rendering (>= 60s) currently only supports narrationMode='none'. Voiceover mode '${artifact.request.narrationMode}' is not supported.`
+    );
+  }
+
   if (!verifyArtifactIntegrityV3(artifact)) throw new Error('artifact_tampered: V3 content hash mismatch');
   if (artifact.ownerId !== ownerId || !(await authorizeArtifact(artifact))) {
     throw new SecurityError(403, 'artifact_unauthorized', 'V3 artifact is not authorized for scheduling');
   }
+
+  artifactStore.set(artifact.artifactId, artifact);
 
   return withArtifactEnqueueLock(artifact.artifactId, async () => {
     // 1. Check existing job within atomic lock
@@ -303,6 +348,72 @@ export async function createV3JobFromArtifact(
     });
     pump();
     return publicJob(job);
+  });
+}
+
+/**
+ * CHECKPOINT 0.E: Resumes an existing failed or interrupted V3 job from its persistent checkpoint.
+ * Preserves the exact jobId so LongFormRenderCoordinator loads prior completed segments without restarting.
+ */
+export async function resumeV3Job(
+  jobId: string,
+  ownerId: string,
+  authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
+  artifactOverride?: ApprovedRenderArtifactV3
+): Promise<Omit<JobRecord, 'outputPath'>> {
+  const job = store.jobs.get(jobId);
+  if (!job) throw new SecurityError(404, 'job_not_found', `Job '${jobId}' not found`);
+  if (job.ownerId && job.ownerId !== ownerId) {
+    throw new SecurityError(403, 'job_unauthorized', 'Cannot resume job owned by another teacher');
+  }
+  if (job.status !== 'failed' && job.status !== 'interrupted') {
+    throw new SecurityError(
+      409,
+      'job_not_resumable',
+      `Job in status '${job.status}' cannot be resumed (must be failed or interrupted)`
+    );
+  }
+
+  const artifactId = job.artifactId;
+  if (!artifactId) {
+    throw new Error('job_missing_artifact_id: Cannot resume job without associated artifactId');
+  }
+
+  const artifact = artifactOverride || artifactStore.get(artifactId);
+  if (!artifact) {
+    throw new Error('job_missing_artifact: Cannot resume job without approved artifact');
+  }
+
+  if (!verifyArtifactIntegrityV3(artifact)) {
+    throw new Error('artifact_tampered: V3 content hash mismatch');
+  }
+  if (!(await authorizeArtifact(artifact))) {
+    throw new SecurityError(403, 'artifact_unauthorized', 'Artifact is no longer authorized for rendering');
+  }
+
+  assertQueueCapacity();
+
+  return withArtifactEnqueueLock(artifactId, async () => {
+    const resumedJob: JobRecord = {
+      ...job,
+      status: 'queued',
+      progress: job.progress || 0,
+      message: 'Đang xếp hàng tiếp tục kết xuất từ Checkpoint',
+      error: undefined,
+      failureType: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    store.jobs.set(jobId, resumedJob);
+    repository.save(resumedJob);
+
+    store.queue.push({
+      jobId,
+      v3Artifact: artifact,
+      authorizeV3Artifact: authorizeArtifact
+    });
+    pump();
+    return publicJob(resumedJob);
   });
 }
 

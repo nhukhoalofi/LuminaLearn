@@ -260,3 +260,276 @@ export const EducationalVisualPayloadSchema = z.union([
   GenericSceneVisualPayloadSchema
 ]);
 export type EducationalVisualPayload = z.infer<typeof EducationalVisualPayloadSchema>;
+
+// ============================================================================
+// CHECKPOINT A: UNIVERSAL VISUAL DSL V3.1 CONTRACTS & PRIMITIVES
+// ============================================================================
+export const EDUCATIONAL_VISUAL_DSL_VERSION_V3 = 'visual-dsl-v3.1';
+export type EducationalVisualDSLVersionV3 = typeof EDUCATIONAL_VISUAL_DSL_VERSION_V3;
+
+export const VisualAnimationPresetV3Schema = z.enum([
+  'fade_in',
+  'slide_up',
+  'draw_line',
+  'highlight_pulse',
+  'step_reveal',
+  'spring_scale',
+  'none'
+]);
+export type VisualAnimationPresetV3 = z.infer<typeof VisualAnimationPresetV3Schema>;
+
+export const VisualLayoutPresetV3Schema = z.enum([
+  'split_horizontal',
+  'split_vertical',
+  'centered_focus',
+  'grid_2x2',
+  'full_canvas',
+  'stacked_column'
+]);
+export type VisualLayoutPresetV3 = z.infer<typeof VisualLayoutPresetV3Schema>;
+
+export const VisualStylePresetV3Schema = z.enum([
+  'clean_educational_infographic',
+  'math_chalkboard',
+  'ai_neural_visualization'
+]);
+export type VisualStylePresetV3 = z.infer<typeof VisualStylePresetV3Schema>;
+
+export const TimelineMarkerV3Schema = z.object({
+  frame: z.number().int().nonnegative(),
+  label: z.string().trim().min(1).max(100),
+  eventType: z.enum(['reveal', 'highlight', 'transition', 'compute', 'callout'])
+}).strict();
+export type TimelineMarkerV3 = z.infer<typeof TimelineMarkerV3Schema>;
+
+export const VisualTimelineV3Schema = z.object({
+  startFrame: z.number().int().nonnegative().default(0),
+  durationFrames: z.number().int().positive(),
+  fps: z.literal(24).default(24),
+  markers: z.array(TimelineMarkerV3Schema).default([])
+}).strict();
+export type VisualTimelineV3 = z.infer<typeof VisualTimelineV3Schema>;
+
+// --- Controlled Visual Primitives ---
+export const VisualTextElementSchema = z.object({
+  elementType: z.literal('text'),
+  elementId: SafeIdString,
+  content: z.string().trim().min(1).max(500),
+  typography: z.enum(['heading_1', 'heading_2', 'body', 'caption', 'code']).default('body'),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#F8FAFC'),
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  animation: VisualAnimationPresetV3Schema.default('fade_in')
+}).strict();
+
+export const VisualFormulaElementSchema = z.object({
+  elementType: z.literal('formula'),
+  elementId: SafeIdString,
+  latex: z.string().trim().min(1).max(300),
+  revealSpeed: z.enum(['slow', 'medium', 'fast', 'instant']).default('medium'),
+  highlightTerms: z.array(z.string().trim().max(50)).default([]),
+  claimId: SafeIdString.optional(),
+  fontSize: z.number().min(12).max(72).default(36),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8'),
+  animation: VisualAnimationPresetV3Schema.default('step_reveal')
+}).strict();
+
+export const VisualGraphElementSchema = z.object({
+  elementType: z.literal('graph'),
+  elementId: SafeIdString,
+  functionType: z.enum(['convex_quadratic', 'sine', 'polynomial', 'exponential', 'custom_curve']),
+  expression: z.string().max(100).optional(),
+  xRange: z.tuple([z.number().finite(), z.number().finite()]).default([-3, 3]),
+  yRange: z.tuple([z.number().finite(), z.number().finite()]).default([-1, 9]),
+  showTangentLine: z.boolean().default(false),
+  tangentAtX: z.number().finite().optional(),
+  animation: VisualAnimationPresetV3Schema.default('draw_line')
+}).strict();
+
+export const VisualAxesElementSchema = z.object({
+  elementType: z.literal('axes'),
+  elementId: SafeIdString,
+  xLabel: z.string().max(30).default('x'),
+  yLabel: z.string().max(30).default('y'),
+  showGrid: z.boolean().default(true),
+  gridColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#334155')
+}).strict();
+
+export const VisualPointElementSchema = z.object({
+  elementType: z.literal('point'),
+  elementId: SafeIdString,
+  coordinates: z.tuple([z.number().finite(), z.number().finite()]),
+  label: z.string().max(50).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#EF4444'),
+  pulse: z.boolean().default(false),
+  animation: VisualAnimationPresetV3Schema.default('highlight_pulse')
+}).strict();
+
+export const VisualVectorElementSchema = z.object({
+  elementType: z.literal('vector'),
+  elementId: SafeIdString,
+  start: z.tuple([z.number().finite(), z.number().finite()]),
+  end: z.tuple([z.number().finite(), z.number().finite()]),
+  label: z.string().max(50).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#10B981')
+}).strict();
+
+export const VisualArrowElementSchema = z.object({
+  elementType: z.literal('arrow'),
+  elementId: SafeIdString,
+  fromElementId: SafeIdString,
+  toElementId: SafeIdString,
+  curve: z.number().finite().default(0),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#94A3B8')
+}).strict();
+
+export const VisualMatrixElementSchema = z.object({
+  elementType: z.literal('matrix'),
+  elementId: SafeIdString,
+  rows: z.number().int().min(1).max(8),
+  cols: z.number().int().min(1).max(8),
+  values: z.array(z.array(z.number().finite())).min(1).max(8),
+  rowLabels: z.array(z.string().max(20)).optional(),
+  colLabels: z.array(z.string().max(20)).optional(),
+  showHeatmap: z.boolean().default(false),
+  animation: VisualAnimationPresetV3Schema.default('fade_in')
+}).strict();
+
+export const VisualChartElementSchema = z.object({
+  elementType: z.literal('chart'),
+  elementId: SafeIdString,
+  chartType: z.enum(['bar', 'line', 'scatter']),
+  labels: z.array(z.string().max(30)).min(1).max(12),
+  data: z.array(z.number().finite()).min(1).max(12),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#6366F1')
+}).strict();
+
+export const VisualNeuralNodeElementSchema = z.object({
+  elementType: z.literal('neural_node'),
+  elementId: SafeIdString,
+  layerIndex: z.number().int().nonnegative(),
+  nodeIndex: z.number().int().nonnegative(),
+  activation: z.enum(['linear', 'sigmoid', 'relu', 'step']).default('linear'),
+  state: z.enum(['idle', 'active', 'firing']).default('idle'),
+  value: z.number().finite().optional(),
+  label: z.string().max(20).optional()
+}).strict();
+
+export const VisualNeuralConnectionElementSchema = z.object({
+  elementType: z.literal('neural_connection'),
+  elementId: SafeIdString,
+  fromLayer: z.number().int().nonnegative(),
+  fromNode: z.number().int().nonnegative(),
+  toLayer: z.number().int().nonnegative(),
+  toNode: z.number().int().nonnegative(),
+  weight: z.number().finite(),
+  signalActive: z.boolean().default(false)
+}).strict();
+
+export const VisualShapeElementSchema = z.object({
+  elementType: z.literal('shape'),
+  elementId: SafeIdString,
+  shapeType: z.enum(['rectangle', 'circle', 'box']),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  fill: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#1E293B'),
+  borderColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  borderWidth: z.number().nonnegative().default(1)
+}).strict();
+
+export const VisualCalloutElementSchema = z.object({
+  elementType: z.literal('callout'),
+  elementId: SafeIdString,
+  text: z.string().trim().min(1).max(250),
+  calloutType: z.enum(['note', 'warning', 'key_takeaway', 'pedagogical_tip']).default('note'),
+  position: z.enum(['top', 'bottom', 'left', 'right', 'center']).default('bottom'),
+  animation: VisualAnimationPresetV3Schema.default('slide_up')
+}).strict();
+
+export const VisualHighlightedRegionElementSchema = z.object({
+  elementType: z.literal('highlighted_region'),
+  elementId: SafeIdString,
+  bounds: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    width: z.number().positive(),
+    height: z.number().positive()
+  }).strict(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#FBBF24'),
+  opacity: z.number().min(0).max(1).default(0.2)
+}).strict();
+
+export const VisualLabeledStepElementSchema = z.object({
+  elementType: z.literal('labeled_step'),
+  elementId: SafeIdString,
+  stepNumber: z.number().int().positive(),
+  title: z.string().trim().min(1).max(100),
+  formula: z.string().max(200).optional(),
+  explanation: z.string().trim().min(1).max(250),
+  active: z.boolean().default(true)
+}).strict();
+
+export const VisualTimelineMarkerElementSchema = z.object({
+  elementType: z.literal('timeline_marker'),
+  elementId: SafeIdString,
+  frame: z.number().int().nonnegative(),
+  label: z.string().max(50),
+  eventType: z.enum(['reveal', 'highlight', 'transition', 'compute', 'callout'])
+}).strict();
+
+// Controlled Primitive Elements Union
+export const VisualElementV3Schema = z.discriminatedUnion('elementType', [
+  VisualTextElementSchema,
+  VisualFormulaElementSchema,
+  VisualGraphElementSchema,
+  VisualAxesElementSchema,
+  VisualPointElementSchema,
+  VisualVectorElementSchema,
+  VisualArrowElementSchema,
+  VisualMatrixElementSchema,
+  VisualChartElementSchema,
+  VisualNeuralNodeElementSchema,
+  VisualNeuralConnectionElementSchema,
+  VisualShapeElementSchema,
+  VisualCalloutElementSchema,
+  VisualHighlightedRegionElementSchema,
+  VisualLabeledStepElementSchema,
+  VisualTimelineMarkerElementSchema
+]);
+export type VisualElementV3 = z.infer<typeof VisualElementV3Schema>;
+
+// Mathematical Binding: Binds visual formula to SymPy-verified claim
+export const VerifiedMathBindingV3Schema = z.object({
+  bindingId: SafeIdString,
+  claimId: SafeIdString,
+  elementId: SafeIdString,
+  formalExpression: z.string().trim().min(1).max(200),
+  mathSymbol: z.string().trim().max(50),
+  sympySummary: z.string().trim().max(300).optional(),
+  isVerified: z.boolean().default(true)
+}).strict();
+export type VerifiedMathBindingV3 = z.infer<typeof VerifiedMathBindingV3Schema>;
+
+// Visual Data Binding: Dynamic parameter links
+export const VisualDataBindingV3Schema = z.object({
+  bindingKey: SafeIdString,
+  targetElementId: SafeIdString,
+  sourceProperty: z.string().min(1).max(100),
+  transform: z.enum(['identity', 'percentage', 'fixed_decimal_2', 'fixed_decimal_4']).default('identity')
+}).strict();
+export type VisualDataBindingV3 = z.infer<typeof VisualDataBindingV3Schema>;
+
+// Complete Visual Scene Definition
+export const VisualSceneDefinitionV3Schema = z.object({
+  schemaVersion: z.literal(EDUCATIONAL_VISUAL_DSL_VERSION_V3).default(EDUCATIONAL_VISUAL_DSL_VERSION_V3),
+  sceneId: SafeIdString,
+  sceneType: z.string().trim().min(2).max(50),
+  layout: VisualLayoutPresetV3Schema.default('centered_focus'),
+  style: VisualStylePresetV3Schema.default('clean_educational_infographic'),
+  animation: VisualAnimationPresetV3Schema.default('fade_in'),
+  elements: z.array(VisualElementV3Schema).default([]),
+  timeline: VisualTimelineV3Schema.optional(),
+  mathBindings: z.array(VerifiedMathBindingV3Schema).default([]),
+  dataBindings: z.array(VisualDataBindingV3Schema).default([]),
+  legacyPayload: EducationalVisualPayloadSchema.optional()
+}).strict();
+export type VisualSceneDefinitionV3 = z.infer<typeof VisualSceneDefinitionV3Schema>;

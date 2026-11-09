@@ -219,31 +219,51 @@ export class VisualDirectorAgent {
       let cameraMotion: VisualDirectionDecisionV3['cameraMotion'] = 'static';
       let rhythmPacing: VisualDirectionDecisionV3['rhythmPacing'] = 'steady';
 
+      let layoutPreset: VisualDirectionDecisionV3['layoutPreset'] = 'centered_focus';
+      let stylePreset: VisualDirectionDecisionV3['stylePreset'] = 'clean_educational_infographic';
+
       if (scene.sceneType === 'algebra_identity') {
         selectedComponent = 'AlgebraIdentityScene';
-        treatmentRationale = 'Hiển thị biến đổi biểu thức toán học từng bước kết hợp trực quan hóa hình học 2D/3D';
+        treatmentRationale = 'Hiển thị biến đổi biểu thức toán học từng bước kết hợp trực quan hóa hình học 2D/3D (Shotcraft: Split-focus layout, subtitle-safe)';
         cameraMotion = 'zoom_in';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'clean_educational_infographic';
       } else if (scene.sceneType === 'neural_architecture') {
         selectedComponent = 'NeuralArchitectureScene';
-        treatmentRationale = 'Mô hình hóa kiến trúc mạng nơ-ron, luồng dữ liệu tiến và kích hoạt tế bào';
+        treatmentRationale = 'Mô hình hóa kiến trúc mạng nơ-ron, luồng dữ liệu tiến và kích hoạt tế bào (Shotcraft: High-contrast cyber-glow)';
         cameraMotion = 'slow_pan';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'centered_focus';
+        stylePreset = 'ai_neural_visualization';
       } else if (scene.sceneType === 'loss_landscape') {
         selectedComponent = 'LossLandscapeScene';
-        treatmentRationale = 'Biểu diễn mặt cong hàm mất mát đa chiều và quỹ đạo dốc giảm dần';
+        treatmentRationale = 'Biểu diễn mặt cong hàm mất mát đa chiều và quỹ đạo dốc giảm dần (Shotcraft: Dual contour-gradient view)';
         cameraMotion = 'focus_pulse';
         rhythmPacing = 'deliberate_pause';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'ai_neural_visualization';
       } else if (scene.sceneType === 'attention_heatmap') {
         selectedComponent = 'AttentionHeatmapScene';
-        treatmentRationale = 'Biểu diễn ma trận chú ý đa đầu và trọng số softmax trực quan';
+        treatmentRationale = 'Biểu diễn ma trận chú ý đa đầu và trọng số softmax trực quan (Shotcraft: Synchronous query-key highlight)';
         cameraMotion = 'slow_pan';
         rhythmPacing = 'steady';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'ai_neural_visualization';
+      } else if (scene.sceneType === 'summary') {
+        selectedComponent = 'SummaryScene';
+        treatmentRationale = 'Tổng kết điểm cốt lõi và các mệnh đề đã chứng minh (Shotcraft: Stacked column takeaway)';
+        cameraMotion = 'static';
+        rhythmPacing = 'deliberate_pause';
+        layoutPreset = 'stacked_column';
+        stylePreset = 'clean_educational_infographic';
       } else if (index === 0) {
         selectedComponent = 'ConceptTitleReveal';
         treatmentRationale = 'Mở đầu nhịp độ cao với tiêu đề khái niệm và trực giác dẫn nhập';
         cameraMotion = 'zoom_in';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'centered_focus';
+        stylePreset = 'clean_educational_infographic';
       }
 
       // Đảm bảo không thay đổi công thức toán đã được liên kết
@@ -254,6 +274,8 @@ export class VisualDirectorAgent {
         treatmentRationale,
         cameraMotion,
         rhythmPacing,
+        layoutPreset,
+        stylePreset,
         visualPayload: scene.visualPayload,
         preservesVerifiedMath: true
       };

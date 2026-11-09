@@ -46,12 +46,26 @@ export class LongFormSegmentPlannerV3 {
     const totalSeconds = storyboard.totalDurationSeconds;
     const totalFrames = secondsToFrames(totalSeconds, fps);
 
-    // Build scene-to-chapter lookup
+    // Build scene-to-chapter lookup and validate ownership
     const chapters = (storyboard as LongFormStoryboardV3).chapters ?? [];
     const sceneToChapterMap = new Map<string, string>();
+    const seenScenes = new Set<string>();
+
     for (const ch of chapters) {
       for (const scId of ch.sceneIds) {
+        if (seenScenes.has(scId)) {
+          throw new Error(`duplicate_chapter_ownership: Scene '${scId}' is assigned to multiple chapters`);
+        }
+        seenScenes.add(scId);
         sceneToChapterMap.set(scId, ch.chapterId);
+      }
+    }
+
+    if (chapters.length > 0) {
+      for (const sc of storyboard.scenes) {
+        if (!sceneToChapterMap.has(sc.sceneId)) {
+          throw new Error(`missing_chapter_coverage: Scene '${sc.sceneId}' is not assigned to any chapter`);
+        }
       }
     }
 
@@ -63,7 +77,11 @@ export class LongFormSegmentPlannerV3 {
     let segmentIndex = 0;
     let currentChapterId: string | undefined = undefined;
 
-    const manifestPrefix = `man_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    // CHECKPOINT 0.E: Deterministic manifest ID and segment IDs derived from content seed (no randomUUID)
+    const sbIdentifier = (storyboard as any).storyboardId || (storyboard as any).lessonId || 'sb';
+    const manifestSeed = `${artifactId}:${sbIdentifier}:${totalFrames}:${fps}:${storyboard.scenes.map((s) => s.sceneId).join(',')}`;
+    const manifestFingerprint = createHash('sha256').update(manifestSeed, 'utf8').digest('hex').slice(0, 12);
+    const manifestPrefix = `man_${manifestFingerprint}`;
 
     for (let i = 0; i < storyboard.scenes.length; i++) {
       const scene = storyboard.scenes[i];

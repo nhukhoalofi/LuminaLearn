@@ -17,13 +17,17 @@ export async function computeFileSha256(filePath: string): Promise<string> {
 }
 
 export async function detectIfEntirelyBlank(filePath: string, durationSeconds: number): Promise<boolean> {
-  return new Promise((resolvePromise) => {
+  return new Promise((resolvePromise, rejectPromise) => {
     execFile(
       'ffmpeg',
       ['-i', filePath, '-vf', 'blackdetect=d=2:pix_th=0.05', '-f', 'null', '-'],
       { windowsHide: true, timeout: 30_000 },
       (err, _stdout, stderr) => {
-        if (err) return resolvePromise(false);
+        if (err) {
+          return rejectPromise(
+            new Error(`qa_blackdetect_failed: FFmpeg inspection failed: ${stderr || err.message}`)
+          );
+        }
         const blackMatches = Array.from(stderr.matchAll(/black_start:([0-9.]+)\s+black_end:([0-9.]+)\s+black_duration:([0-9.]+)/g));
         let totalBlackSec = 0;
         for (const match of blackMatches) {
@@ -253,17 +257,28 @@ export class LongFormMediaAssemblerV3 {
       throw new Error(`assembler_file_too_small: Output MP4 size (${finalStat.size} bytes) indicates missing or empty video streams`);
     }
 
-    const isEntirelyBlank = await detectIfEntirelyBlank(finalOutputPath, finalProbe.durationSeconds);
+    let isEntirelyBlank = false;
+    try {
+      isEntirelyBlank = await detectIfEntirelyBlank(finalOutputPath, finalProbe.durationSeconds);
+    } catch (qaErr) {
+      throw new Error(
+        `assembler_qa_inspection_failed: Black frame inspection could not be completed: ${qaErr instanceof Error ? qaErr.message : String(qaErr)}`
+      );
+    }
+
     if (isEntirelyBlank) {
       throw new Error('assembler_blank_video_detected: Rendered output was detected as completely black/empty frames');
     }
 
+    const frameCountDiff = Math.abs(finalProbe.totalFrames - manifest.totalFrames);
     const qaPassed = Boolean(
       finalStat.size > 10_000 &&
       Math.abs(finalProbe.durationSeconds - manifest.targetDurationSeconds) <= 1.5 &&
       finalProbe.width === manifest.width &&
       finalProbe.height === manifest.height &&
       finalProbe.videoCodec === 'h264' &&
+      finalProbe.fps === manifest.fps &&
+      frameCountDiff <= manifest.fps &&
       !isEntirelyBlank
     );
 

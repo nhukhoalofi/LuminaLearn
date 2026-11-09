@@ -15,7 +15,14 @@ import {
   type LessonRequestV3
 } from './artifact';
 import { ExternalApiConsentRecordV3Schema, type ExternalApiConsentRecordV3 } from './consent';
-import { EducationalVisualPayloadSchema, type EducationalVisualPayload } from './visual-dsl';
+import {
+  EducationalVisualPayloadSchema,
+  type EducationalVisualPayload,
+  VisualLayoutPresetV3Schema,
+  VisualStylePresetV3Schema,
+  type VisualLayoutPresetV3,
+  type VisualStylePresetV3
+} from './visual-dsl';
 
 // 1. Supervisor Request Schema
 export const TargetAudienceSchema = z.enum([
@@ -122,6 +129,8 @@ export const VisualDirectionDecisionV3Schema = z.object({
   treatmentRationale: z.string().min(1).max(300),
   cameraMotion: CameraMotionV3Schema.default('static'),
   rhythmPacing: RhythmPacingV3Schema.default('steady'),
+  layoutPreset: VisualLayoutPresetV3Schema.optional(),
+  stylePreset: VisualStylePresetV3Schema.optional(),
   visualPayload: EducationalVisualPayloadSchema,
   preservesVerifiedMath: z.boolean().default(true)
 }).strict();

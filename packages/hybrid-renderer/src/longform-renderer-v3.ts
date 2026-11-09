@@ -461,11 +461,30 @@ export class LongFormRenderCoordinatorV3 {
     activeJobLocks.add(jobId);
 
     try {
-      // CHECKPOINT G: Verify artifact authorization before starting/resuming
-      if (artifact && authorizeArtifact) {
-        const authorized = await authorizeArtifact(artifact);
-        if (!authorized) {
-          throw new Error('artifact_revoked: V3 artifact is no longer authorized for rendering');
+      // CHECKPOINT 0.F: Enforce approval, integrity, and authorization trust boundaries
+      if (!artifact) {
+        throw new Error('render_artifact_missing: Approved artifact is required for production render coordinator');
+      }
+      if (!authorizeArtifact) {
+        throw new Error('authorization_callback_missing: Authorization callback is required for production render coordinator');
+      }
+      if (!verifyV3ArtifactIntegrity(artifact)) {
+        throw new Error('artifact_tampered: V3 content hash mismatch');
+      }
+      const authorized = await authorizeArtifact(artifact);
+      if (!authorized) {
+        throw new Error('artifact_revoked: V3 artifact is no longer authorized for rendering');
+      }
+      if (manifest.artifactId !== artifact.artifactId) {
+        throw new Error(`manifest_artifact_mismatch: Manifest artifactId '${manifest.artifactId}' does not match approved artifact '${artifact.artifactId}'`);
+      }
+
+      const storyboardSceneIds = new Set((artifact.lessonPlan.storyboard?.scenes ?? []).map((s) => s.sceneId));
+      for (const seg of manifest.segments) {
+        for (const scId of seg.sceneIds) {
+          if (!storyboardSceneIds.has(scId)) {
+            throw new Error(`manifest_scene_missing: Manifest references unknown scene '${scId}' not found in approved storyboard`);
+          }
         }
       }
 
