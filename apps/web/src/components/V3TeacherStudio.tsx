@@ -23,6 +23,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s' | '600s'>('60s');
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
   const [trace, setTrace] = useState<SupervisorTrace>();
@@ -49,9 +50,11 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   async function generate() {
     setBusy(true); setError(''); setJob(undefined); setTrace(undefined);
     try {
+      const targetSeconds = durationPreset === '600s' ? 600 : durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : durationPreset === '60s' ? 60 : 35;
       const responseData = await jsonRequest('/api/v3/supervisor', 'POST', {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
-        targetDurationSeconds: 40, narrationMode: 'none', subtitlesEnabled,
+        targetAudience: 'high_school',
+        targetDurationSeconds: targetSeconds, narrationMode: 'none', subtitlesEnabled,
         fps: 24, width: 720, height: 1280, confirmExternalApi
       });
       if (responseData.trace) {
@@ -65,18 +68,26 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         lessonPlan: responseData.lessonPlan
       });
     } catch (err) {
-      // Fallback sang endpoint draft tiêu chuẩn nếu cần
-      try {
-        setDraft(await jsonRequest('/api/v3/lessons/draft', 'POST', {
-          requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
-          targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
-          fps: 24, width: 720, height: 1280, confirmExternalApi
-        }));
-      } catch (fallbackErr) {
-        setError(fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
-      }
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Supervisor Multi-Agent gặp sự cố: ${msg}`);
     }
     finally { setBusy(false); }
+  }
+
+  async function generateLegacyFallback() {
+    setBusy(true); setError(''); setJob(undefined); setTrace(undefined);
+    try {
+      const legacyData = await jsonRequest('/api/v3/lessons/draft', 'POST', {
+        requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
+        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
+        fps: 24, width: 720, height: 1280, confirmExternalApi
+      });
+      setDraft(legacyData);
+    } catch (legacyErr) {
+      setError(legacyErr instanceof Error ? legacyErr.message : String(legacyErr));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function retryEnqueue() {
@@ -161,6 +172,14 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
         ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => setTopic(String(example))}>{example} · {ready ? 'render-ready' : 'planning-only'}</button>)}
       </div>
+      <label className="form-label">Thời lượng bài học (Duration Preset)</label>
+      <select className="form-input" value={durationPreset} onChange={(event) => setDurationPreset(event.target.value as typeof durationPreset)}>
+        <option value="35s">35 giây (Demo nhanh)</option>
+        <option value="60s">1 phút (60s) — Khái niệm & Trực giác cốt lõi</option>
+        <option value="180s">3 phút (180s) — Lý thuyết & Ví dụ trực quan</option>
+        <option value="300s">5 phút (300s) — Dẫn giải chi tiết & Tránh lỗi thường gặp</option>
+        <option value="600s">10 phút (600s) — Masterclass nhiều chương chuyên sâu</option>
+      </select>
       <label><input type="checkbox" checked={subtitlesEnabled} onChange={(event) => setSubtitlesEnabled(event.target.checked)} /> Ghi phụ đề vào video và tạo SRT</label>
       <label className="form-label">Chế độ tạo nội dung</label>
       <select className="form-input" value={mode} onChange={(event) => setMode(event.target.value as 'mock' | 'live')}>
@@ -169,7 +188,22 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       </select>
       {mode === 'live' && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini cho yêu cầu này.</label>}
       <button className="btn-generate" disabled={busy || (mode === 'live' && !confirmExternalApi)} onClick={generate}>Tạo bài học V3</button>
-      {error && <p role="alert" className="error-message">{error}</p>}
+      {error && (
+        <div style={{ marginTop: '8px' }}>
+          <p role="alert" className="error-message">{error}</p>
+          {error.includes('Supervisor Multi-Agent') && (
+            <button
+              type="button"
+              className="quick-chip"
+              style={{ marginTop: '6px', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+              disabled={busy}
+              onClick={generateLegacyFallback}
+            >
+              ⚙️ Tạo bằng bộ lập kế hoạch đơn lẻ (Legacy Fallback)
+            </button>
+          )}
+        </div>
+      )}
 
       {trace && (
         <div className="job-panel" style={{ borderLeft: '3px solid var(--accent-cyan, #22d3ee)', marginTop: '14px' }} data-testid="v3-supervisor-trace">

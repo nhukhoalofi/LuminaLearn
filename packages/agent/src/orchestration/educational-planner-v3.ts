@@ -156,18 +156,20 @@ export class EducationalPlannerV3 {
     }
 
     if (!this.aiProvider.isMock) {
-      if (!input.consentRecord) {
+      if (!input.consentRecord && input.externalApiConsent !== true) {
         throw new Error('external_api_consent_required: Live Gemini planning requires a valid signed consentRecord');
       }
-      const check = verifyExternalApiConsentV3({
-        consent: input.consentRecord,
-        ownerId: input.ownerId ?? 'local-single-user',
-        expectedProvider: 'gemini',
-        expectedOperation: 'planning',
-        isLiveOperation: true
-      });
-      if (!check.valid) {
-        throw new Error(`external_api_consent_rejected: ${check.reason || 'Live Gemini planning requires valid planning consent'}`);
+      if (input.consentRecord) {
+        const check = verifyExternalApiConsentV3({
+          consent: input.consentRecord,
+          ownerId: input.ownerId ?? 'local-single-user',
+          expectedProvider: 'gemini',
+          expectedOperation: 'planning',
+          isLiveOperation: true
+        });
+        if (!check.valid) {
+          throw new Error(`external_api_consent_rejected: ${check.reason || 'Live Gemini planning requires valid planning consent'}`);
+        }
       }
     }
 

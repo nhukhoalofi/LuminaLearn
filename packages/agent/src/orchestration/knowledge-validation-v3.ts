@@ -108,7 +108,7 @@ export function inspectStatementSemanticConsistency(
   // Chỉ gán formal_match khi câu văn THỰC SỰ CHỈ NÊU BIỂU THỨC HOẶC ĐẲNG THỨC NÀY
   // (loại bỏ các tiền tố chuẩn như "Công thức: ...", "$$...$$", "Biểu thức: ...", nhãn tên hằng đẳng thức/đạo hàm/tích phân)
   // Tuyệt đối không cho phép đoạn văn dài hoặc câu chứa khẳng định phụ được mang nhãn formal_match!
-  const boilerplatePrefixRegex = /^(?:(?:công thức|biểu thức|định lý|hằng đẳng thức|đồng nhất thức|phương trình|identity|formula)\s*[:;]?|đạo hàm của [^:=]+ (?:là|=)|tích phân(?: xác định)? của [^:=]+ (?:là|=)|hệ số góc[^:=]+ (?:là|=)|giới hạn của [^:=]+ (?:là|=)|quy tắc[^:=]+ (?:là|=:?)|(?:[0-9]+\.\s*)?[^:;=,\n]{1,60}[:;])?\s*(?:\$\$?|\\\[)?\s*/i;
+  const boilerplatePrefixRegex = /^(?:(?:công thức|biểu thức|định lý|hằng đẳng thức|đồng nhất thức|phương trình|identity|formula)\s*[:;]?|đạo hàm (?:của )?[^:=]+ (?:là|=|bằng)|tích phân(?: xác định)? (?:của )?[^:=]+ (?:là|=|bằng)|hệ số góc[^:=]+ (?:là|=|bằng)|giới hạn (?:của )?[^:=]+ (?:là|=|bằng)|quy tắc[^:=]+ (?:là|=|bằng:?)|(?:[0-9]+\.\s*)?[^:;=,\n]{1,60}[:;])?\s*(?:\$\$?|\\\[)?\s*/i;
   const boilerplateSuffixRegex = /\s*(?:\$\$?|\\\])?\.?$/i;
 
   let coreStatement = trimmedStmt
@@ -123,7 +123,7 @@ export function inspectStatementSemanticConsistency(
   }
 
   // Nếu coreStatement có dạng "LHS = RHS" mà vế RHS khớp với biểu thức cần chứng minh
-  const eqParts = coreStatement.split(/(?:==|=|bằng)/);
+  const eqParts = coreStatement.split(/(?:==|=|bằng|là)/);
   if (eqParts.length === 2) {
     const rhs = eqParts[1].trim();
     if (normalizeMath(rhs) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
@@ -427,13 +427,25 @@ export class KnowledgeValidationServiceV3 {
             cloned.humanReviewComment = semantic.reason ?? 'Biểu thức đã được SymPy chứng minh, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.';
           }
         } else {
-          const isRejected = (sympyCheck && !sympyCheck.passed && !sympyCheck.reason?.includes('prose_unverified')) || mapped?.verificationStatus === 'failed';
-          cloned.verificationStatus = isRejected ? 'rejected' : 'human_review_required';
-          cloned.formalExpressionVerified = !isRejected && Boolean(sympyCheck?.passed);
-          cloned.formalProofSummary = isRejected ? undefined : `SymPy verified formula ${claim.formalExpression}; human review required for prose statement`;
-          cloned.humanReviewComment = isRejected
-            ? `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`
-            : (semantic.reason ?? 'Biểu thức đã được kiểm tra, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.');
+          const isCheckUnverified = sympyCheck?.reason?.includes('No formal SymPy verifier') || mapped?.verificationStatus === 'unverified' || (!sympyCheck && !mapped);
+          const isCheckFailed = mapped?.verificationStatus === 'failed' || (sympyCheck && !sympyCheck.passed && !sympyCheck.reason?.includes('No formal SymPy verifier') && !sympyCheck.reason?.includes('unsupported') && !sympyCheck.reason?.includes('prose_unverified') && !sympyCheck.reason?.includes('missing_math_spec'));
+
+          if (isCheckUnverified) {
+            cloned.verificationStatus = 'human_review_required';
+            cloned.formalExpressionVerified = false;
+            cloned.formalProofSummary = undefined;
+            cloned.humanReviewComment = 'Mệnh đề chưa có bộ kiểm định SymPy hình thức tương ứng; cần giáo viên rà soát thủ công.';
+          } else if (isCheckFailed) {
+            cloned.verificationStatus = 'rejected';
+            cloned.formalExpressionVerified = false;
+            cloned.formalProofSummary = undefined;
+            cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`;
+          } else {
+            cloned.verificationStatus = 'human_review_required';
+            cloned.formalExpressionVerified = false;
+            cloned.formalProofSummary = undefined;
+            cloned.humanReviewComment = semantic.reason ?? 'Cần giáo viên xác nhận ngữ nghĩa.';
+          }
         }
 
         claimReports.push({
