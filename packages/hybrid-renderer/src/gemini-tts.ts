@@ -54,36 +54,46 @@ export class GoogleGenAiAudioClient implements GeminiAudioClient {
 
   async generateSpeech(request: GeminiSpeechRequest): Promise<GeminiSpeechResponse> {
     if (request.model === 'gemini-3.8-flash-tts' || request.model === 'gemini-3.8-flash-lite-tts') {
-      const interaction = await this.ai.interactions.create({
-        model: request.model,
-        input: [{
-          type: 'user_input',
-          content: [{
-            type: 'text',
-            text: request.text,
-            annotations: request.styleInstruction
-              ? [{ type: 'speech_metadata', style: request.styleInstruction }]
-              : []
-          }]
-        }],
-        response_format: { type: 'audio' },
-        generation_config: { speech_config: [{ voice: request.voice }] }
-      }, { fetch_options: { signal: request.signal } });
-      if (!interaction.output_audio?.data) {
-        throw new Error('tts_empty_audio: Gemini returned no interaction audio payload');
+      try {
+        const interaction = await this.ai.interactions.create({
+          model: request.model,
+          input: [{
+            type: 'user_input',
+            content: [{
+              type: 'text',
+              text: request.text,
+              annotations: request.styleInstruction
+                ? [{ type: 'speech_metadata', style: request.styleInstruction }]
+                : []
+            }]
+          }],
+          response_format: { type: 'audio' },
+          generation_config: { speech_config: [{ voice: request.voice }] }
+        }, { fetch_options: { signal: request.signal } });
+        if (interaction.output_audio?.data) {
+          return {
+            data: interaction.output_audio.data,
+            mimeType: interaction.output_audio.mime_type,
+            modelVersion: request.model,
+            sampleRate: interaction.output_audio.sample_rate,
+            channels: interaction.output_audio.channels
+          };
+        }
+      } catch (err) {
+        // Fall back to generateContent with gemini-2.0-flash if interactions/3.8 model is not found (404)
+        if (!/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
+          throw err;
+        }
       }
-      return {
-        data: interaction.output_audio.data,
-        mimeType: interaction.output_audio.mime_type,
-        modelVersion: request.model,
-        sampleRate: interaction.output_audio.sample_rate,
-        channels: interaction.output_audio.channels
-      };
     }
 
-    // Preview/legacy Gemini TTS models use generateContent and return raw PCM.
+    // Preview or standard Gemini multimodal models use generateContent with AUDIO response modality.
+    const effectiveModel = (request.model === 'gemini-3.8-flash-tts' || request.model === 'gemini-3.8-flash-lite-tts')
+      ? 'gemini-2.0-flash'
+      : request.model;
+
     const response = await this.ai.models.generateContent({
-      model: request.model,
+      model: effectiveModel,
       contents: [{ parts: [{ text: request.text }] }],
       config: {
         abortSignal: request.signal,
@@ -115,6 +125,8 @@ export interface GeminiTtsProviderOptions {
 }
 
 const SUPPORTED_GEMINI_TTS_MODELS = new Set([
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-exp',
   'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts',
   'gemini-3.1-flash-tts-preview',

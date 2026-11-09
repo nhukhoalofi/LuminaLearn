@@ -82,4 +82,29 @@ test('Checkpoint G & Checkpoint D/E — V2 Dispatch & V3 Audio Security', async 
     assert.throws(() => parseRationalFps('24/0'), /invalid_fps_division/);
     assert.throws(() => parseRationalFps('process.exit(1)'), /invalid_fps_format/);
   });
+
+  await t.test('5. Nonexistent provided audio file is rejected fail-closed with v3_audio_not_found', async () => {
+    const manager = new LessonDraftManagerV3();
+    let draft = await manager.create({
+      requestId: 'req_nonexistent_audio_test',
+      topic: 'Mạng Neural Perceptron',
+      domain: 'artificial_intelligence',
+      generationMode: 'mock',
+      targetDurationSeconds: 30,
+      narrationMode: 'provided_audio',
+      subtitlesEnabled: true
+    }, 'teacher_sec');
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_sec', draft.version);
+    draft = await manager.approve(draft.draftId, 'teacher_sec', draft.version);
+    const artifact = draft.approvedArtifact!;
+
+    await assert.rejects(
+      () => runRenderPipelineV3(artifact, {
+        jobId: `job_sec_nonexistent_${Date.now()}`,
+        authorizeArtifact: () => true,
+        providedAudioPath: 'nonexistent-audio-path-xyz.mp3'
+      }),
+      /v3_audio_not_found/
+    );
+  });
 });

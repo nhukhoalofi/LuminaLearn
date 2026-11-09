@@ -463,8 +463,13 @@ export function CreateVideoForm({
       syncControlsFromDraft(payload);
       setDraftDirty(false);
       setConflictInfo(null);
-      if (payload.mathVerification?.status === 'failed' || payload.error) {
+      if (
+        payload.mathVerification?.status === 'failed' ||
+        (payload.error && payload.stage !== 'needs_review' && payload.status !== 'reviewing')
+      ) {
         setError(vietnameseApiError(payload, 'Mệnh đề toán học không vượt qua kiểm định hình thức SymPy.'));
+      } else {
+        setError(null);
       }
       setUiState('reviewing');
     } catch (caught) {
@@ -1248,11 +1253,63 @@ export function CreateVideoForm({
             {job.failureType ? <span>Lỗi: {job.failureType}</span> : null}
           </div>
           {job.error ? (
-            <p className="error-message" role="alert" style={{ marginTop: '8px', fontSize: '13px' }}>
-              {/tts_model_unavailable|model is not found: models\/gemini/i.test(job.error)
-                ? 'Lỗi TTS: Mô hình Gemini TTS chưa mở công khai trên Google AI Studio API key hiện tại. Vui lòng chuyển tùy chọn sang "Không giọng đọc (Mặc định)" để kết xuất video có phụ đề tiếng Việt thành công.'
-                : job.error}
-            </p>
+            <div style={{ marginTop: '8px' }}>
+              <p className="error-message" role="alert" style={{ fontSize: '13px', margin: 0 }}>
+                {/tts_model_unavailable|model is not found: models\/gemini|failuretype:?\s*tts/i.test(job.error) || job.failureType === 'tts'
+                  ? 'Lỗi TTS: Mô hình Gemini TTS chưa mở công khai trên Google AI Studio API key hiện tại. Vui lòng chuyển tùy chọn sang "Không giọng đọc (Mặc định)" để kết xuất video có phụ đề tiếng Việt thành công.'
+                  : job.error}
+              </p>
+              {job.failureType === 'tts' || /tts/i.test(job.error) ? (
+                <button
+                  type="button"
+                  style={{
+                    marginTop: '10px',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(34, 211, 238, 0.15)',
+                    border: '1px solid var(--accent-cyan)',
+                    color: 'var(--accent-cyan)',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    setVoiceoverMode('none');
+                    setError(null);
+                    setJob(null);
+                    setUiState('reviewing');
+                  }}
+                >
+                  🔄 Chuyển sang "Không giọng đọc" (giữ phụ đề) để kết xuất ngay
+                </button>
+              ) : null}
+            </div>
+          ) : job.failureType === 'tts' ? (
+            <div style={{ marginTop: '8px' }}>
+              <p className="error-message" role="alert" style={{ fontSize: '13px', margin: 0 }}>
+                Lỗi TTS: Dịch vụ Gemini TTS không khả dụng trên API key hiện tại. Vui lòng chuyển sang "Không giọng đọc (Mặc định)" để tiếp tục.
+              </p>
+              <button
+                type="button"
+                style={{
+                  marginTop: '10px',
+                  padding: '8px 14px',
+                  borderRadius: '8px',
+                  background: 'rgba(34, 211, 238, 0.15)',
+                  border: '1px solid var(--accent-cyan)',
+                  color: 'var(--accent-cyan)',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+                onClick={() => {
+                  setVoiceoverMode('none');
+                  setError(null);
+                  setJob(null);
+                  setUiState('reviewing');
+                }}
+              >
+                🔄 Chuyển sang "Không giọng đọc" (giữ phụ đề) để kết xuất ngay
+              </button>
+            </div>
           ) : null}
           {job.status !== 'failed' ? (
             <div className="progress-track" aria-label={`Tiến độ ${job.progress}%`}>

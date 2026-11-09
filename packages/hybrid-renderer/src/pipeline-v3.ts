@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, stat, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -111,20 +111,36 @@ export async function runRenderPipelineV3(
     if (!options.providedAudioPath) {
       throw new Error('v3_audio_missing: providedAudioPath is required when narrationMode is provided_audio');
     }
-    // Checkpoint E: Path traversal check
+    // Checkpoint E/F: Strict path traversal and asset security
     if (options.providedAudioPath.includes('..')) {
       throw new Error('v3_audio_path_traversal: providedAudioPath contains illegal path traversal');
     }
     const resolvedPath = resolve(options.providedAudioPath);
-    const audioMeta = await probeAudio(resolvedPath, 600);
+    let realAudioPath: string;
+    try {
+      realAudioPath = await realpath(resolvedPath);
+    } catch {
+      throw new Error(`v3_audio_not_found: no such file or directory, cannot read audio file at '${options.providedAudioPath}'`);
+    }
+
+    const fileStat = await stat(realAudioPath);
+    if (!fileStat.isFile() || fileStat.size <= 0) {
+      throw new Error('v3_audio_invalid: provided audio must be a non-empty regular file');
+    }
+    if (fileStat.size > 50 * 1024 * 1024) {
+      throw new Error('v3_audio_oversized: provided audio file exceeds 50MB limit');
+    }
+
+    const audioMeta = await probeAudio(realAudioPath, 600);
     if (audioMeta.durationSeconds <= 0) {
       throw new Error('v3_audio_invalid: provided audio has zero or negative duration');
     }
-    const signal = await probeAudioSignal(resolvedPath).catch(() => ({ isSilent: false }));
+    // Fail-closed signal probe
+    const signal = await probeAudioSignal(realAudioPath);
     if (signal.isSilent) {
       throw new Error('v3_audio_silent: provided audio is completely silent');
     }
-    audioTrackPath = resolvedPath;
+    audioTrackPath = realAudioPath;
   } else if (artifact.request.narrationMode === 'gemini_tts' || artifact.request.narrationMode === 'google_cloud_tts') {
     options.onStage?.('synthesizing_audio');
     const isGemini = artifact.request.narrationMode === 'gemini_tts';
@@ -159,8 +175,8 @@ export async function runRenderPipelineV3(
       .join(' ');
     await provider.synthesize(fullText, audioPath);
 
-    // Verify synthesized audio is valid and audible
-    const ttsSignal = await probeAudioSignal(audioPath).catch(() => ({ isSilent: false }));
+    // Verify synthesized audio is valid and audible (fail closed)
+    const ttsSignal = await probeAudioSignal(audioPath);
     if (ttsSignal.isSilent) {
       throw new Error('tts_audio_silent: Synthesized TTS audio returned silent audio payload');
     }
@@ -189,9 +205,10 @@ export async function runRenderPipelineV3(
     const videoDuration = await probeVideoDuration(remotionTarget);
     const audioMeta = await probeAudio(audioTrackPath, 600);
 
-    // If audio is significantly longer than video, do NOT silently truncate speech!
-    if (audioMeta.durationSeconds > videoDuration + 0.5) {
-      throw new Error(`audio_duration_overflow: Narration speech duration (${audioMeta.durationSeconds.toFixed(2)}s) exceeds approved video timeline (${videoDuration.toFixed(2)}s). Increase scene duration or shorten narration text.`);
+    // Checkpoint E: If audio exceeds video timeline by > 0.05s, FAIL CLOSED rather than truncating speech with FFmpeg -t
+    const durationDelta = audioMeta.durationSeconds - videoDuration;
+    if (durationDelta > 0.05) {
+      throw new Error(`audio_duration_overflow: Narration speech duration (${audioMeta.durationSeconds.toFixed(2)}s) exceeds approved video timeline (${videoDuration.toFixed(2)}s) by ${durationDelta.toFixed(2)}s. Increase scene duration or shorten narration text.`);
     }
 
     // Pad audio with silence up to videoDuration so speech is never truncated and video is never shortened

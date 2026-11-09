@@ -16,7 +16,7 @@ import {
 import type { z } from 'zod';
 import { canonicalJsonStringify } from './draft-manager';
 import { EducationalPlannerV3 } from './educational-planner-v3';
-import { KnowledgeValidationServiceV3 } from './knowledge-validation-v3';
+import { KnowledgeValidationServiceV3, validateLessonMathematicalIntegrityV3 } from './knowledge-validation-v3';
 
 export type DraftStatusV3 = z.infer<typeof DraftStatusV3Schema>;
 
@@ -173,16 +173,15 @@ export class LessonDraftManagerV3 {
           visualPayload: (patch.visualPayloads?.[scene.sceneId] ?? scene.visualPayload) as EducationalVisualPayload
         }));
       }
-      const validator = this.options.validator ?? new KnowledgeValidationServiceV3();
-      const validated = await validator.validateClaims({
-        lessonId: plan.lessonId,
-        topicId: plan.topicId,
-        domain: plan.domain,
-        claims: plan.educationalClaims,
+      const integrity = await validateLessonMathematicalIntegrityV3({
+        lessonPlan: plan,
         sourceEvidence: plan.sourceEvidence
       });
-      plan.educationalClaims = validated.validatedClaims;
-      plan.validationReport = validated.report;
+      if (!integrity.valid) {
+        throw new Error(`mathematical_integrity_failed: ${integrity.reason}`);
+      }
+      plan.educationalClaims = integrity.validatedClaims;
+      plan.validationReport = integrity.validationReport;
       const parsedPlan = EducationalLessonPlanV3Schema.parse(plan);
       const updated: LessonDraftV3 = {
         ...current,
@@ -206,6 +205,11 @@ export class LessonDraftManagerV3 {
       if (current.ownerId !== ownerId) throw new Error('forbidden_owner_mismatch');
       if (current.version !== expectedVersion) throw new DraftVersionConflictV3Error(current.version);
       if (current.lessonPlan.validationReport?.overallStatus === 'failed') throw new Error('knowledge_validation_failed');
+      const integrity = await validateLessonMathematicalIntegrityV3({
+        lessonPlan: current.lessonPlan,
+        sourceEvidence: current.lessonPlan.sourceEvidence
+      });
+      if (!integrity.valid) throw new Error(`mathematical_integrity_failed: ${integrity.reason}`);
       const updated = { ...current, version: current.version + 1, status: 'ready_for_approval' as const, semanticReviewConfirmed: true, updatedAt: new Date().toISOString() };
       this.drafts.set(draftId, clone(updated));
       await this.persist(updated);
@@ -223,6 +227,11 @@ export class LessonDraftManagerV3 {
       if (current.lessonPlan.capabilityReport.renderReadiness !== 'render_ready') throw new Error('topic_not_render_ready');
       if (!current.lessonPlan.storyboard || !current.lessonPlan.validationReport) throw new Error('incomplete_v3_lesson');
       if (current.lessonPlan.validationReport.overallStatus === 'failed') throw new Error('knowledge_validation_failed');
+      const integrity = await validateLessonMathematicalIntegrityV3({
+        lessonPlan: current.lessonPlan,
+        sourceEvidence: current.lessonPlan.sourceEvidence
+      });
+      if (!integrity.valid) throw new Error(`mathematical_integrity_failed: ${integrity.reason}`);
       if (current.lessonPlan.educationalClaims.some((claim) => claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified')) {
         throw new Error('unresolved_claim_status');
       }

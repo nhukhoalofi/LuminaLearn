@@ -293,12 +293,20 @@ export async function synthesizeNarrationV2(options: {
       metadata = await probeAudio(jobPath, 300);
     }
 
-    const signal = await probeAudioSignal(jobPath).catch(() => ({
-      meanVolumeDb: -91.0,
-      maxVolumeDb: -91.0,
-      isSilent: true,
-      audioClassification: 'silent_fixture' as const
-    }));
+    let signal: AudioSignalProbeResult;
+    try {
+      signal = await probeAudioSignal(jobPath);
+    } catch (probeErr) {
+      if (options.rejectSilentAudio || options.provider.id !== 'mock_tts') {
+        throw new Error(`audio_signal_probe_failed: ${probeErr instanceof Error ? probeErr.message : String(probeErr)}`);
+      }
+      signal = {
+        meanVolumeDb: -91.0,
+        maxVolumeDb: -91.0,
+        isSilent: true,
+        audioClassification: 'silent_fixture' as const
+      };
+    }
     metadata.meanVolumeDb = signal.meanVolumeDb;
     metadata.maxVolumeDb = signal.maxVolumeDb;
     metadata.isSilent = signal.isSilent;

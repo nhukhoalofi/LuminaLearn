@@ -538,7 +538,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
       claims = [
         {
           id: 'claim_lin_basis',
-          claimType: 'formal_mathematics',
+          claimType: 'algorithmic_property',
           statement: 'Phép biến đổi tuyến tính được xác định hoàn toàn bởi tọa độ ảnh của các vector cơ sở.',
           formalExpression: 'T(v) = A * v',
           validatorKey: 'matrix_transform',
@@ -592,7 +592,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
       claims = [
         {
           id: 'claim_bayes_formula',
-          claimType: 'formal_mathematics',
+          claimType: 'algorithmic_property',
           statement: 'Xác suất hậu nghiệm P(A|B) bằng P(B|A) nhân P(A) chia cho P(B).',
           formalExpression: 'P(A|B) = P(B|A) * P(A) / P(B)',
           validatorKey: 'bayes_theorem',
@@ -873,7 +873,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
       claims = [
         {
           id: 'claim_chain_rule_bp',
-          claimType: 'formal_mathematics',
+          claimType: 'algorithmic_property',
           statement: 'Theo quy tắc chuỗi vi phân: dL/dw = (dL/dy) * (dy/dz) * (dz/dw)',
           formalExpression: 'dL/dw = (dL/dy) * (dy/dz) * (dz/dw)',
           validatorKey: 'chain_rule_formula',

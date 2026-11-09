@@ -141,6 +141,58 @@ test('Checkpoint A — External API Consent Hardening (P0)', async (t) => {
 
     assert.equal(result.valid, false);
     assert.equal(result.code, 'consent_expired');
+
+    // Confirm default validity is exactly 900 seconds (15 minutes)
+    const normalConsent = issueExternalApiConsentV3({
+      ownerId: 'teacher_1',
+      provider: 'gemini',
+      operation: 'planning'
+    });
+    const issuedAt = new Date(normalConsent.authorizedAt).getTime();
+    const expiresAt = new Date(normalConsent.expiresAt).getTime();
+    assert.equal((expiresAt - issuedAt) / 1000, 900, 'Default consent validity must be exactly 15 minutes (900s)');
+  });
+
+  await t.test('6b. Tampered HMAC signature or forged payload is rejected with consent_signature_invalid', () => {
+    const consent = issueExternalApiConsentV3({
+      ownerId: 'teacher_1',
+      provider: 'gemini',
+      operation: 'planning'
+    });
+
+    const tamperedConsent = {
+      ...consent,
+      signature: '0'.repeat(64)
+    };
+
+    const res = verifyExternalApiConsentV3({
+      consent: tamperedConsent,
+      ownerId: 'teacher_1',
+      expectedProvider: 'gemini',
+      expectedOperation: 'planning'
+    });
+
+    assert.equal(res.valid, false);
+    assert.equal(res.code, 'consent_signature_invalid');
+  });
+
+  await t.test('6c. Missing mandatory artifact binding is rejected when artifactId is expected', () => {
+    const consentWithoutArtifact = issueExternalApiConsentV3({
+      ownerId: 'teacher_1',
+      provider: 'gemini_tts',
+      operation: 'narration'
+    });
+
+    const res = verifyExternalApiConsentV3({
+      consent: consentWithoutArtifact,
+      ownerId: 'teacher_1',
+      expectedProvider: 'gemini_tts',
+      expectedOperation: 'narration',
+      expectedArtifactId: 'artifact_123'
+    });
+
+    assert.equal(res.valid, false);
+    assert.equal(res.code, 'consent_artifact_missing');
   });
 
   await t.test('7. Live planning without consent is rejected by EducationalPlannerV3', async () => {

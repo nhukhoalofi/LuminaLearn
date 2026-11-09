@@ -2,6 +2,7 @@ import {
   type EducationalClaimV3,
   type EducationalDomain,
   type EducationalSceneV3,
+  type EducationalLessonPlanV3,
   type GroundingEvidence,
   type KnowledgeValidationReportV3,
   type MathVisualizationSpecV2,
@@ -24,14 +25,14 @@ export function inspectStatementSemanticConsistency(
   status: 'formal_match' | 'human_review_required' | 'contradiction_detected';
   reason?: string;
 } {
-  const normalizedStmt = statement.trim().toLowerCase();
+  const trimmedStmt = statement.trim();
   if (!formalExpression) {
     return { status: 'human_review_required', reason: 'No formal expression bound to claim' };
   }
   const cleanExpr = formalExpression.trim().replace(/\s+/g, '');
+  const normalizedStmt = trimmedStmt.toLowerCase();
 
   // 1. Kiểm tra các cụm từ phủ định đối nghịch trực tiếp với thành phần công thức
-  // Ví dụ: biểu thức có 2*a*b mà lời văn nói "không có số hạng 2ab", "bỏ qua 2ab", "không có 2*a*b"
   const contradictionPatterns = [
     /không\s+(?:có|chứa|xuất hiện|tồn tại)\s+(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
     /bỏ qua\s+(?:số hạng\s+)?([a-b0-9*^ ]+)/gi,
@@ -55,8 +56,39 @@ export function inspectStatementSemanticConsistency(
     }
   }
 
-  // 2. Kiểm tra đẳng thức mâu thuẫn hiển nhiên trong văn bản
-  // Ví dụ: statement khẳng định (a+b)^2 = a^2 + b^2 trong khi formalExpression là (a+b)^2 = a^2 + 2ab + b^2
+  // 2. Phát hiện mâu thuẫn số học (Numeric substitution contradiction)
+  // Ví dụ: "Khi a=b=1, kết quả bằng 100" hoặc "a=1, b=1 => 100"
+  const numericClaimMatch = /khi\s+a\s*=\s*b\s*=\s*([0-9.-]+)[^0-9.-]+(?:kết quả|giá trị|bằng|được)\s*[:=]?\s*([0-9.-]+)/i.exec(trimmedStmt)
+    || /(?:cho|với|tại)\s+a\s*=\s*([0-9.-]+)[,\s]+b\s*=\s*([0-9.-]+)[^0-9.-]+(?:kết quả|giá trị|bằng|được)\s*[:=]?\s*([0-9.-]+)/i.exec(trimmedStmt);
+  
+  if (numericClaimMatch) {
+    const aVal = Number(numericClaimMatch[1]);
+    const bVal = numericClaimMatch.length >= 4 ? Number(numericClaimMatch[2]) : aVal;
+    const claimedVal = Number(numericClaimMatch.length >= 4 ? numericClaimMatch[3] : numericClaimMatch[2]);
+    
+    if (Number.isFinite(aVal) && Number.isFinite(bVal) && Number.isFinite(claimedVal)) {
+      if (cleanExpr.includes('(a+b)^2') && Math.pow(aVal + bVal, 2) !== claimedVal) {
+        return {
+          status: 'contradiction_detected',
+          reason: `numeric_claim_contradiction: Thay a=${aVal}, b=${bVal} vào biểu thức cho kết quả ${Math.pow(aVal + bVal, 2)}, khác với khẳng định '${claimedVal}' trong lời văn`
+        };
+      }
+      if (cleanExpr.includes('(a-b)^2') && Math.pow(aVal - bVal, 2) !== claimedVal) {
+        return {
+          status: 'contradiction_detected',
+          reason: `numeric_claim_contradiction: Thay a=${aVal}, b=${bVal} vào biểu thức cho kết quả ${Math.pow(aVal - bVal, 2)}, khác với khẳng định '${claimedVal}' trong lời văn`
+        };
+      }
+      if (cleanExpr.includes('a^2-b^2') && (Math.pow(aVal, 2) - Math.pow(bVal, 2)) !== claimedVal) {
+        return {
+          status: 'contradiction_detected',
+          reason: `numeric_claim_contradiction: Thay a=${aVal}, b=${bVal} vào biểu thức cho kết quả ${Math.pow(aVal, 2) - Math.pow(bVal, 2)}, khác với khẳng định '${claimedVal}' trong lời văn`
+        };
+      }
+    }
+  }
+
+  // 3. Kiểm tra đẳng thức mâu thuẫn hiển nhiên trong văn bản
   const equalityInStmt = statement.match(/(?:(?:^|[.;\n])\s*)([a-b0-9+\-*/^() ]+)\s*(?:==|=|bằng)\s*([a-b0-9+\-*/^() ]+)/i);
   if (equalityInStmt) {
     const leftInStmt = equalityInStmt[1].trim().replace(/\s+/g, '').replace(/\*/g, '');
@@ -72,17 +104,38 @@ export function inspectStatementSemanticConsistency(
     }
   }
 
-  // 3. Khớp chính thức: lời văn chứa trọn vẹn đẳng thức hoặc công thức đại số
-  const statementWithoutPunctuation = statement.replace(/[.,:;!?]/g, '').trim();
-  if (statementWithoutPunctuation.includes(formalExpression) ||
-      statementWithoutPunctuation.replace(/\s+/g, '').includes(cleanExpr)) {
+  // 4. KIỂM ĐỊNH KHỚP HÌNH THỨC (formal_match):
+  // Chỉ gán formal_match khi câu văn THỰC SỰ CHỈ NÊU BIỂU THỨC HOẶC ĐẲNG THỨC NÀY
+  // (loại bỏ các tiền tố chuẩn như "Công thức: ...", "$$...$$", "Biểu thức: ...", nhãn tên hằng đẳng thức/đạo hàm/tích phân)
+  // Tuyệt đối không cho phép đoạn văn dài hoặc câu chứa khẳng định phụ được mang nhãn formal_match!
+  const boilerplatePrefixRegex = /^(?:(?:công thức|biểu thức|định lý|hằng đẳng thức|đồng nhất thức|phương trình|identity|formula)\s*[:;]?|đạo hàm của [^:=]+ (?:là|=)|tích phân(?: xác định)? của [^:=]+ (?:là|=)|hệ số góc[^:=]+ (?:là|=)|giới hạn của [^:=]+ (?:là|=)|quy tắc[^:=]+ (?:là|=:?)|(?:[0-9]+\.\s*)?[^:;=,\n]{1,60}[:;])?\s*(?:\$\$?|\\\[)?\s*/i;
+  const boilerplateSuffixRegex = /\s*(?:\$\$?|\\\])?\.?$/i;
+
+  let coreStatement = trimmedStmt
+    .replace(boilerplatePrefixRegex, '')
+    .replace(boilerplateSuffixRegex, '')
+    .trim();
+
+  const normalizeMath = (str: string) => str.replace(/\s+/g, '').replace(/\*/g, '');
+
+  if (normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
     return { status: 'formal_match' };
   }
 
-  // 4. Mặc định cho diễn giải sư phạm tự do: Yêu cầu giáo viên rà soát ngữ nghĩa
+  // Nếu coreStatement có dạng "LHS = RHS" mà vế RHS khớp với biểu thức cần chứng minh
+  const eqParts = coreStatement.split(/(?:==|=|bằng)/);
+  if (eqParts.length === 2) {
+    const rhs = eqParts[1].trim();
+    if (normalizeMath(rhs) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
+      return { status: 'formal_match' };
+    }
+  }
+
+  // 5. Nếu văn bản chứa biểu thức nhưng có thêm lời văn giải thích tự do:
+  // BẮT BUỘC gán human_review_required để giáo viên xem xét ngữ nghĩa
   return {
     status: 'human_review_required',
-    reason: 'Lời văn tự do cần giáo viên xác nhận ngữ nghĩa (không thể kiểm chứng hoàn toàn qua SymPy)'
+    reason: 'Lời văn chứa giải thích hoặc mệnh đề mở rộng cần giáo viên xác nhận ngữ nghĩa (SymPy chỉ chứng minh phần đẳng thức ký hiệu)'
   };
 }
 
@@ -176,6 +229,14 @@ export class KnowledgeValidationServiceV3 {
     const validatedClaims: EducationalClaimV3[] = [];
     const claimReports: KnowledgeValidationReportV3['claimReports'] = [];
 
+    const seenClaimIds = new Set<string>();
+    for (const c of claims) {
+      if (seenClaimIds.has(c.id)) {
+        throw new Error(`duplicate_claim_id: Duplicate claim ID detected '${c.id}'`);
+      }
+      seenClaimIds.add(c.id);
+    }
+
     // Phân loại các mệnh đề toán học cần SymPy kiểm định
     const formalMathClaims = claims.filter((c) => c.claimType === 'formal_mathematics' && c.formalExpression);
 
@@ -185,32 +246,49 @@ export class KnowledgeValidationServiceV3 {
     const isAlgebraIdentityTopic = topicId === 'algebra.identities.seven';
 
     let mappedMathClaims = new Map<string, VerifiedClaim>();
-    let sympyResults: Record<string, { passed: boolean; reason?: string }> = {};
+    let sympyResultsByClaimId = new Map<string, { passed: boolean; reason?: string }>();
 
     if (isAlgebraIdentityTopic) {
       for (const claim of formalMathClaims) {
-        const key = claim.validatorKey ?? claim.id;
         const parts = claim.formalExpression!.split('=');
         if (parts.length !== 2) {
-          sympyResults[key] = { passed: false, reason: 'algebra_identity_requires_exact_left_and_right' };
+          sympyResultsByClaimId.set(claim.id, { passed: false, reason: 'algebra_identity_requires_exact_left_and_right' });
+          mappedMathClaims.set(claim.id, { id: claim.id, statement: claim.statement, validatorKey: claim.validatorKey ?? claim.id, expectedExpression: claim.formalExpression!, verificationStatus: 'failed' });
           continue;
         }
         try {
           const result = await verifyAlgebraIdentityV3(parts[0].trim(), parts[1].trim());
-          sympyResults[key] = { passed: result.status === 'verified', reason: result.status === 'verified' ? undefined : `nonzero_difference: ${result.canonicalDifference}` };
-          mappedMathClaims.set(claim.id, { id: claim.id, statement: claim.statement, validatorKey: key, expectedExpression: claim.formalExpression!, verificationStatus: result.status === 'verified' ? 'verified' : 'failed' });
+          const passed = result.status === 'verified';
+          sympyResultsByClaimId.set(claim.id, {
+            passed,
+            reason: passed ? undefined : `nonzero_difference: ${result.canonicalDifference}`
+          });
+          mappedMathClaims.set(claim.id, {
+            id: claim.id,
+            statement: claim.statement,
+            validatorKey: claim.validatorKey ?? claim.id,
+            expectedExpression: claim.formalExpression!,
+            verificationStatus: passed ? 'verified' : 'failed'
+          });
         } catch (error) {
-          sympyResults[key] = { passed: false, reason: error instanceof Error ? error.message : String(error) };
+          sympyResultsByClaimId.set(claim.id, { passed: false, reason: error instanceof Error ? error.message : String(error) });
+          mappedMathClaims.set(claim.id, {
+            id: claim.id,
+            statement: claim.statement,
+            validatorKey: claim.validatorKey ?? claim.id,
+            expectedExpression: claim.formalExpression!,
+            verificationStatus: 'failed'
+          });
         }
       }
     }
 
     if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0 && !mathSpec) {
       for (const c of formalMathClaims) {
-        sympyResults[c.validatorKey ?? c.id] = {
+        sympyResultsByClaimId.set(c.id, {
           passed: false,
           reason: 'missing_math_spec: Formal verification requires the exact requested MathSpec'
-        };
+        });
       }
     } else if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0) {
       try {
@@ -232,16 +310,18 @@ export class KnowledgeValidationServiceV3 {
         const verifyResult = await this.mathVerifier.verifyClaims(v2TopicId, v2ClaimsToVerify, { mathSpec });
         mappedMathClaims = new Map(verifyResult.claims.map((claim) => [claim.id, claim]));
 
-        for (const [key, check] of Object.entries(verifyResult.result.checks)) {
-          sympyResults[key] = { passed: check.passed, reason: check.reason };
-          if (key === 'definite_integral') {
-            sympyResults['riemann_integral'] = { passed: check.passed, reason: check.reason };
-          }
+        for (const verifiedClaim of verifyResult.claims) {
+          const check = verifyResult.result.checks[verifiedClaim.validatorKey];
+          const passed = Boolean(check?.passed && verifiedClaim.verificationStatus === 'verified');
+          sympyResultsByClaimId.set(verifiedClaim.id, {
+            passed,
+            reason: check?.reason ?? (passed ? undefined : 'verification_failed')
+          });
         }
       } catch (err) {
         // Fail-closed nếu execution SymPy lỗi
         for (const c of formalMathClaims) {
-          sympyResults[c.validatorKey ?? c.id] = { passed: false, reason: err instanceof Error ? err.message : String(err) };
+          sympyResultsByClaimId.set(c.id, { passed: false, reason: err instanceof Error ? err.message : String(err) });
         }
       }
     }
@@ -252,11 +332,10 @@ export class KnowledgeValidationServiceV3 {
 
       // 1. Mệnh đề TOÁN HỌC HÌNH THỨC (formal_mathematics)
       if (claim.claimType === 'formal_mathematics') {
-        const validatorKey = claim.validatorKey ?? claim.id;
-        const sympyCheck = sympyResults[validatorKey];
+        const sympyCheck = sympyResultsByClaimId.get(claim.id);
         const mapped = mappedMathClaims.get(claim.id);
 
-        const formalProven = Boolean(sympyCheck?.passed && (mapped?.verificationStatus === 'verified' || isAlgebraIdentityTopic));
+        const formalProven = Boolean(sympyCheck?.passed && mapped?.verificationStatus === 'verified');
         cloned.formalExpressionVerified = formalProven;
 
         const semantic = inspectStatementSemanticConsistency(claim.statement, claim.formalExpression);
@@ -283,7 +362,8 @@ export class KnowledgeValidationServiceV3 {
             cloned.humanReviewComment = semantic.reason ?? 'Biểu thức đã được SymPy chứng minh, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.';
           }
         } else {
-          cloned.verificationStatus = !mapped || mapped.verificationStatus === 'unverified' ? 'human_review_required' : 'rejected';
+          cloned.verificationStatus = (sympyCheck && !sympyCheck.passed) || mapped?.verificationStatus === 'failed' ? 'rejected' : 'human_review_required';
+          cloned.formalExpressionVerified = false;
           cloned.formalProofSummary = undefined;
           cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`;
         }
@@ -361,5 +441,115 @@ export class KnowledgeValidationServiceV3 {
 
     return { validatedClaims, report };
   }
+}
+
+export interface ValidateLessonMathematicalIntegrityV3Input {
+  lessonPlan: EducationalLessonPlanV3;
+  sourceEvidence?: GroundingEvidence[];
+  mathVerifier?: MathVerificationService;
+}
+
+export interface LessonMathematicalIntegrityResultV3 {
+  valid: boolean;
+  code?: string;
+  reason?: string;
+  validatedClaims: EducationalClaimV3[];
+  validationReport: KnowledgeValidationReportV3;
+}
+
+/**
+ * CHECKPOINT B (Phase 4.1.1): Reusable trusted validation gate.
+ * Validates:
+ * 1. All formal mathematical claims (SymPy proofs & statement semantic consistency)
+ * 2. All algebra scene transformation steps (SymPy step-by-step chain equivalence)
+ * 3. Correct claim-to-scene bindings and formal expression consistency
+ * 4. Fails closed if any claim or scene violates mathematical integrity.
+ */
+export async function validateLessonMathematicalIntegrityV3(
+  input: ValidateLessonMathematicalIntegrityV3Input
+): Promise<LessonMathematicalIntegrityResultV3> {
+  const { lessonPlan, sourceEvidence = [], mathVerifier } = input;
+  const validator = new KnowledgeValidationServiceV3({ mathVerifier });
+
+  // 1. Kiểm định toàn bộ claims
+  const validationResult = await validator.validateClaims({
+    lessonId: lessonPlan.lessonId,
+    topicId: lessonPlan.topicId,
+    domain: lessonPlan.domain,
+    claims: lessonPlan.educationalClaims,
+    sourceEvidence,
+    mathSpec: (lessonPlan as unknown as { mathSpec?: any }).mathSpec,
+    assumptions: lessonPlan.validationReport?.claimReports.flatMap((r) => r.verificationBinding?.assumptions ?? [])
+  });
+
+  const { validatedClaims, report } = validationResult;
+
+  if (report.overallStatus === 'failed') {
+    return {
+      valid: false,
+      code: 'knowledge_validation_failed',
+      reason: `Knowledge validation failed: ${report.claimReports.filter((r) => r.status === 'rejected').map((r) => `${r.claimId}: ${r.verifierNotes}`).join('; ')}`,
+      validatedClaims,
+      validationReport: report
+    };
+  }
+
+  // 2. Kiểm định toàn bộ storyboard scenes
+  if (lessonPlan.storyboard) {
+    const claimMap = new Map(validatedClaims.map((c) => [c.id, c]));
+
+    for (const scene of lessonPlan.storyboard.scenes) {
+      // 2a. Phân cảnh đại số: chứng minh từng bước biến đổi trung gian
+      if (scene.sceneType === 'algebra_identity') {
+        const algebraCheck = await validateAlgebraSceneMath({
+          scene,
+          verifiedClaims: validatedClaims
+        });
+        if (!algebraCheck.valid) {
+          return {
+            valid: false,
+            code: 'invalid_transformation_step',
+            reason: `Phân cảnh '${scene.sceneId}' vi phạm tính toàn vẹn toán học: ${algebraCheck.reason}`,
+            validatedClaims,
+            validationReport: {
+              ...report,
+              overallStatus: 'failed'
+            }
+          };
+        }
+      }
+
+      // 2b. Kiểm tra boundClaimIds
+      if (scene.boundClaimIds && scene.boundClaimIds.length > 0) {
+        for (const claimId of scene.boundClaimIds) {
+          const claim = claimMap.get(claimId);
+          if (!claim) {
+            return {
+              valid: false,
+              code: 'unbound_claim',
+              reason: `Phân cảnh '${scene.sceneId}' liên kết với claimId '${claimId}' không tồn tại trong bài học`,
+              validatedClaims,
+              validationReport: { ...report, overallStatus: 'failed' }
+            };
+          }
+          if (claim.claimType === 'formal_mathematics' && !claim.formalExpressionVerified) {
+            return {
+              valid: false,
+              code: 'unverified_claim_binding',
+              reason: `Phân cảnh '${scene.sceneId}' liên kết với mệnh đề toán học '${claimId}' chưa được chứng minh hình thức`,
+              validatedClaims,
+              validationReport: { ...report, overallStatus: 'failed' }
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    valid: true,
+    validatedClaims,
+    validationReport: report
+  };
 }
 

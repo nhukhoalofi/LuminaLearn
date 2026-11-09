@@ -12,23 +12,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     const { lessonId } = await params;
     const body = await readBoundedJson<{ expectedVersion?: number; note?: string; confirmExternalApi?: boolean }>(request);
     if (!Number.isInteger(body.expectedVersion)) return NextResponse.json({ error: 'missing_expected_version' }, { status: 400 });
-    const draft = await draftManagerV3.approve(lessonId, ownerId, body.expectedVersion!, body.note);
-    if (!draft.approvedArtifact) throw new Error('approved_artifact_missing');
+
+    const currentDraft = await draftManagerV3.load(lessonId);
+    if (!currentDraft) return NextResponse.json({ error: 'draft_not_found' }, { status: 404 });
+    if (currentDraft.ownerId !== ownerId) throw new SecurityError(403, 'artifact_unauthorized', 'Draft owner does not match');
 
     const headerConfirmed = request.headers.get('x-lumina-confirm-external-api') === 'true';
     const isConfirmed = body.confirmExternalApi === true || headerConfirmed;
 
     const needsExternalTts =
-      draft.approvedArtifact.request.narrationMode === 'gemini_tts' ||
-      draft.approvedArtifact.request.narrationMode === 'google_cloud_tts';
+      currentDraft.request.narrationMode === 'gemini_tts' ||
+      currentDraft.request.narrationMode === 'google_cloud_tts';
 
     if (needsExternalTts) {
       assertExternalApiConfirmed({
-        narrationMode: draft.approvedArtifact.request.narrationMode,
+        narrationMode: currentDraft.request.narrationMode,
         confirmExternalApi: isConfirmed,
         headerConfirmed
       });
     }
+
+    const draft = await draftManagerV3.approve(lessonId, ownerId, body.expectedVersion!, body.note);
+    if (!draft.approvedArtifact) throw new Error('approved_artifact_missing');
 
     let consentRecord: ExternalApiConsentRecordV3 | undefined;
     if (needsExternalTts && isConfirmed) {

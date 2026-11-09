@@ -183,23 +183,32 @@ async function runEntry(entry: QueuedJob): Promise<void> {
   }
 }
 
-// Checkpoint F: Atomic enqueue mutex per artifact for safe concurrency and idempotency
-const artifactEnqueueLocks = new Map<string, Promise<void>>();
+// Checkpoint F & G: Atomic enqueue mutex per artifact for safe concurrency, idempotency, and leak-free cleanup
+const artifactEnqueueLocks = new Map<string, Promise<unknown>>();
 
-async function withArtifactEnqueueLock<T>(artifactId: string, action: () => Promise<T>): Promise<T> {
-  const currentLock = artifactEnqueueLocks.get(artifactId) ?? Promise.resolve();
+export function getArtifactEnqueueLockCount(): number {
+  return artifactEnqueueLocks.size;
+}
+
+export async function withArtifactEnqueueLock<T>(artifactId: string, action: () => Promise<T>): Promise<T> {
+  const previousLock = artifactEnqueueLocks.get(artifactId) ?? Promise.resolve();
   let release: () => void;
-  const nextLock = new Promise<void>((resolve) => {
+  const operationLock = new Promise<void>((resolve) => {
     release = resolve;
   });
-  artifactEnqueueLocks.set(artifactId, currentLock.then(() => nextLock, () => nextLock));
+
+  const nextChain = previousLock
+    .catch(() => undefined)
+    .then(() => operationLock);
+
+  artifactEnqueueLocks.set(artifactId, nextChain);
 
   try {
-    await currentLock;
+    await previousLock.catch(() => undefined);
     return await action();
   } finally {
     release!();
-    if (artifactEnqueueLocks.get(artifactId) === nextLock) {
+    if (artifactEnqueueLocks.get(artifactId) === nextChain) {
       artifactEnqueueLocks.delete(artifactId);
     }
   }

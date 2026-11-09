@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LessonDraftManagerV3 } from '@luminalearn/agent';
-import { createV3JobFromArtifact, getJob } from '../src/server/job-store.js';
+import { createV3JobFromArtifact, getJob, withArtifactEnqueueLock, getArtifactEnqueueLockCount } from '../src/server/job-store.js';
 import { SecurityError } from '../src/server/security.js';
 
 test('Checkpoint F — Queue Concurrency, Idempotency and Recovery (P1)', async (t) => {
@@ -75,5 +75,45 @@ test('Checkpoint F — Queue Concurrency, Idempotency and Recovery (P1)', async 
       () => createV3JobFromArtifact(artifact, () => false, 'teacher_1'),
       (err: unknown) => err instanceof SecurityError && err.status === 403 && err.code === 'artifact_unauthorized'
     );
+  });
+
+  await t.test('5. 50 sequential and 50 concurrent requests cleanly release lock without memory leaks', async () => {
+    const testArtifactId = 'art_mutex_test_leak_check';
+
+    // 50 sequential runs
+    for (let i = 0; i < 50; i++) {
+      await withArtifactEnqueueLock(testArtifactId, async () => {
+        return i;
+      });
+    }
+    assert.equal(getArtifactEnqueueLockCount(), 0, 'Lock map must be empty after 50 sequential requests');
+
+    // 50 concurrent runs
+    const promises = Array.from({ length: 50 }, (_, i) =>
+      withArtifactEnqueueLock(testArtifactId, async () => {
+        return i;
+      })
+    );
+    const results = await Promise.all(promises);
+    assert.equal(results.length, 50);
+    assert.equal(getArtifactEnqueueLockCount(), 0, 'Lock map must return to 0 size after 50 concurrent requests resolve');
+  });
+
+  await t.test('6. Exception inside locked action does not deadlock subsequent requests and cleans up lock map', async () => {
+    const testArtifactId = 'art_mutex_error_test';
+
+    await assert.rejects(
+      () => withArtifactEnqueueLock(testArtifactId, async () => {
+        throw new Error('deliberate_failure_in_lock');
+      }),
+      /deliberate_failure_in_lock/
+    );
+
+    // Ensure next request unblocks cleanly
+    const result = await withArtifactEnqueueLock(testArtifactId, async () => {
+      return 'success_after_failure';
+    });
+    assert.equal(result, 'success_after_failure');
+    assert.equal(getArtifactEnqueueLockCount(), 0, 'Lock map must clean up even after error');
   });
 });
