@@ -146,22 +146,22 @@ export async function runRenderPipelineV3(
     const isGemini = artifact.request.narrationMode === 'gemini_tts';
     const providerId = isGemini ? 'gemini_tts' : 'google_cloud_tts';
 
-    // Checkpoint A: Enforce consent before live provider invocation
+    // Checkpoint 0 & A: Enforce signed consent before live provider invocation (no boolean-only bypass)
     if (!options.ttsProvider) {
-      if (options.consentRecord) {
-        const check = verifyExternalApiConsentV3({
-          consent: options.consentRecord,
-          ownerId: artifact.ownerId,
-          expectedProvider: providerId,
-          expectedOperation: 'narration',
-          expectedArtifactId: artifact.artifactId,
-          expectedContentHash: artifact.contentHash
-        });
-        if (!check.valid) {
-          throw new Error(`external_api_consent_rejected: ${check.reason || 'TTS requires valid matching consent'}`);
-        }
-      } else if (options.confirmExternalApi !== true) {
-        throw new Error(`external_api_consent_required: Narration mode '${artifact.request.narrationMode}' requires explicit user consent`);
+      if (!options.consentRecord) {
+        throw new Error(`external_api_consent_required: Live narration mode '${artifact.request.narrationMode}' requires a valid signed consentRecord`);
+      }
+      const check = verifyExternalApiConsentV3({
+        consent: options.consentRecord,
+        ownerId: artifact.ownerId,
+        expectedProvider: providerId,
+        expectedOperation: 'narration',
+        expectedArtifactId: artifact.artifactId,
+        expectedContentHash: artifact.contentHash,
+        isLiveOperation: true
+      });
+      if (!check.valid) {
+        throw new Error(`external_api_consent_rejected: ${check.reason || 'TTS requires valid matching consent'}`);
       }
     }
 

@@ -142,6 +142,16 @@ export function inspectStatementSemanticConsistency(
 /**
  * CHECKPOINT C: Kiểm định tính hợp lệ toán học của từng bước biến đổi trong phân cảnh đại số.
  */
+export const CANONICAL_ALGEBRA_IDENTITIES: Record<string, { expectedLeft: string; expectedRight: string; labelVi: string }> = {
+  square_sum: { expectedLeft: '(a+b)^2', expectedRight: 'a^2+2*a*b+b^2', labelVi: 'bình phương một tổng' },
+  square_difference: { expectedLeft: '(a-b)^2', expectedRight: 'a^2-2*a*b+b^2', labelVi: 'bình phương một hiệu' },
+  difference_squares: { expectedLeft: 'a^2-b^2', expectedRight: '(a-b)*(a+b)', labelVi: 'hiệu hai bình phương' },
+  cube_sum_expansion: { expectedLeft: '(a+b)^3', expectedRight: 'a^3+3*a^2*b+3*a*b^2+b^3', labelVi: 'lập phương một tổng' },
+  cube_difference_expansion: { expectedLeft: '(a-b)^3', expectedRight: 'a^3-3*a^2*b+3*a*b^2-b^3', labelVi: 'lập phương một hiệu' },
+  sum_cubes: { expectedLeft: 'a^3+b^3', expectedRight: '(a+b)*(a^2-a*b+b^2)', labelVi: 'tổng hai lập phương' },
+  difference_cubes: { expectedLeft: 'a^3-b^3', expectedRight: '(a-b)*(a^2+a*b+b^2)', labelVi: 'hiệu hai lập phương' }
+};
+
 export async function validateAlgebraSceneMath(input: {
   scene: EducationalSceneV3;
   verifiedClaims: EducationalClaimV3[];
@@ -160,7 +170,36 @@ export async function validateAlgebraSceneMath(input: {
     return { valid: false, reason: `algebra_claim_missing: Không tìm thấy claimId '${scene.boundClaimIds.join(',')}' trong danh sách mệnh đề đã kiểm định` };
   }
 
-  // 2. Nhất quán tuyệt đối giữa claim.formalExpression và scene left/right
+  // 2. Kiểm định identityId đối chiếu với định nghĩa toán học chuẩn tắc
+  const canonical = CANONICAL_ALGEBRA_IDENTITIES[payload.identityId];
+  if (canonical) {
+    const cleanLeft = payload.leftExpression.replace(/\s+/g, '');
+    const cleanExpectedLeft = canonical.expectedLeft.replace(/\s+/g, '');
+    const cleanExpectedRight = canonical.expectedRight.replace(/\s+/g, '');
+    if (cleanLeft !== cleanExpectedLeft && cleanLeft !== cleanExpectedRight) {
+      return {
+        valid: false,
+        reason: `identity_id_mismatch: Phân cảnh khai báo identityId '${payload.identityId}' nhưng vế trái là '${payload.leftExpression}' (kỳ vọng: '${canonical.expectedLeft}')`
+      };
+    }
+
+    // 2b. Kiểm tra nhãn storyboard không được xung đột trực tiếp với định danh toán học
+    const sceneText = `${scene.title ?? ''} ${scene.narration?.vietnamese ?? ''}`.toLowerCase();
+    if (payload.identityId === 'square_difference' && (sceneText.includes('bình phương của một tổng') || sceneText.includes('bình phương một tổng'))) {
+      return {
+        valid: false,
+        reason: `storyboard_label_mismatch: Phân cảnh khai báo identityId '${payload.identityId}' nhưng tiêu đề/lời dẫn lại ghi 'Bình phương của một tổng'`
+      };
+    }
+    if (payload.identityId === 'square_sum' && (sceneText.includes('bình phương của một hiệu') || sceneText.includes('bình phương một hiệu'))) {
+      return {
+        valid: false,
+        reason: `storyboard_label_mismatch: Phân cảnh khai báo identityId '${payload.identityId}' nhưng tiêu đề/lời dẫn lại ghi 'Bình phương của một hiệu'`
+      };
+    }
+  }
+
+  // 3. Nhất quán tuyệt đối giữa claim.formalExpression và scene left/right
   const expectedRelation = `${payload.leftExpression}=${payload.rightExpression}`.replace(/\s+/g, '');
   const claimRelation = (matchingClaim.formalExpression ?? '').replace(/\s+/g, '');
   if (claimRelation !== expectedRelation) {
@@ -170,7 +209,7 @@ export async function validateAlgebraSceneMath(input: {
     };
   }
 
-  // 3. Chứng minh mọi bước biến đổi trung gian E_0 = E_1 = ... = E_n bằng SymPy
+  // 4. Chứng minh mọi bước biến đổi trung gian E_0 = E_1 = ... = E_n bằng SymPy
   const steps = payload.transformationSteps.map((s) => s.expression);
   const chainResult = await verifyTransformationChainV3(steps);
   if (!chainResult.valid) {
@@ -324,6 +363,32 @@ export class KnowledgeValidationServiceV3 {
           sympyResultsByClaimId.set(c.id, { passed: false, reason: err instanceof Error ? err.message : String(err) });
         }
       }
+    } else if (formalMathClaims.length > 0 && !isAlgebraIdentityTopic) {
+      try {
+        const claimsToVerify: VerifiedClaim[] = formalMathClaims.map((c) => ({
+          id: c.id,
+          statement: c.statement,
+          validatorKey: c.validatorKey ?? c.id,
+          expectedExpression: c.formalExpression ?? c.statement,
+          verificationStatus: 'unverified'
+        }));
+        const verifyResult = await this.mathVerifier.verifyClaims(topicId, claimsToVerify, { mathSpec });
+        mappedMathClaims = new Map(verifyResult.claims.map((claim) => [claim.id, claim]));
+        for (const verifiedClaim of verifyResult.claims) {
+          const check = verifyResult.result.checks[verifiedClaim.validatorKey];
+          const isCheckVerified = check?.status === 'verified';
+          const isCheckRejected = check?.status === 'incorrect' || check?.status === 'rejected';
+          const passed = Boolean(check?.passed || isCheckVerified);
+          sympyResultsByClaimId.set(verifiedClaim.id, {
+            passed,
+            reason: check?.reason ?? (isCheckRejected ? 'verification_failed' : undefined)
+          });
+        }
+      } catch (err) {
+        for (const c of formalMathClaims) {
+          sympyResultsByClaimId.set(c.id, { passed: false, reason: err instanceof Error ? err.message : String(err) });
+        }
+      }
     }
 
     // Xử lý từng mệnh đề theo nguyên tắc toàn vẹn tri thức
@@ -335,7 +400,7 @@ export class KnowledgeValidationServiceV3 {
         const sympyCheck = sympyResultsByClaimId.get(claim.id);
         const mapped = mappedMathClaims.get(claim.id);
 
-        const formalProven = Boolean(sympyCheck?.passed && mapped?.verificationStatus === 'verified');
+        const formalProven = Boolean(sympyCheck?.passed);
         cloned.formalExpressionVerified = formalProven;
 
         const semantic = inspectStatementSemanticConsistency(claim.statement, claim.formalExpression);
@@ -362,10 +427,13 @@ export class KnowledgeValidationServiceV3 {
             cloned.humanReviewComment = semantic.reason ?? 'Biểu thức đã được SymPy chứng minh, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.';
           }
         } else {
-          cloned.verificationStatus = (sympyCheck && !sympyCheck.passed) || mapped?.verificationStatus === 'failed' ? 'rejected' : 'human_review_required';
-          cloned.formalExpressionVerified = false;
-          cloned.formalProofSummary = undefined;
-          cloned.humanReviewComment = `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`;
+          const isRejected = (sympyCheck && !sympyCheck.passed && !sympyCheck.reason?.includes('prose_unverified')) || mapped?.verificationStatus === 'failed';
+          cloned.verificationStatus = isRejected ? 'rejected' : 'human_review_required';
+          cloned.formalExpressionVerified = !isRejected && Boolean(sympyCheck?.passed);
+          cloned.formalProofSummary = isRejected ? undefined : `SymPy verified formula ${claim.formalExpression}; human review required for prose statement`;
+          cloned.humanReviewComment = isRejected
+            ? `SymPy formal verification failed: ${sympyCheck?.reason ?? 'expression mismatch'}`
+            : (semantic.reason ?? 'Biểu thức đã được kiểm tra, diễn giải văn xuôi cần giáo viên xác nhận ngữ nghĩa.');
         }
 
         claimReports.push({

@@ -231,11 +231,18 @@ export class LessonDraftManagerV3 {
         lessonPlan: current.lessonPlan,
         sourceEvidence: current.lessonPlan.sourceEvidence
       });
-      if (!integrity.valid) throw new Error(`mathematical_integrity_failed: ${integrity.reason}`);
-      if (current.lessonPlan.educationalClaims.some((claim) => claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified')) {
+      if (!integrity.valid || integrity.validationReport.overallStatus === 'failed') {
+        throw new Error(`mathematical_integrity_failed: ${integrity.reason || 'Formal verification failed'}`);
+      }
+      if (integrity.validatedClaims.some((claim) => claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified')) {
         throw new Error('unresolved_claim_status');
       }
       const version = current.version + 1;
+      const latestPlan: EducationalLessonPlanV3 = {
+        ...clone(current.lessonPlan),
+        educationalClaims: integrity.validatedClaims,
+        validationReport: integrity.validationReport
+      };
       const core: ApprovedRenderArtifactCoreV3 = {
         schemaVersion: 'approved-render-artifact-v3',
         artifactId: `artifact_v3_${randomUUID().replace(/-/g, '')}`,
@@ -243,8 +250,8 @@ export class LessonDraftManagerV3 {
         ownerId,
         approvedVersion: version,
         request: clone(current.request),
-        lessonPlan: clone(current.lessonPlan),
-        verificationReport: clone(current.lessonPlan.validationReport),
+        lessonPlan: latestPlan,
+        verificationReport: clone(integrity.validationReport),
         teacherApproval: { approvedBy: ownerId, approvedAt: new Date().toISOString(), note, semanticReviewConfirmed: true },
         createdAt: new Date().toISOString()
       };

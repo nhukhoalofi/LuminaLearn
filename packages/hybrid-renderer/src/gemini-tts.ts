@@ -79,35 +79,39 @@ export class GoogleGenAiAudioClient implements GeminiAudioClient {
             channels: interaction.output_audio.channels
           };
         }
+        throw new Error('tts_empty_audio: Gemini returned no interaction audio payload');
       } catch (err) {
-        // Fall back to generateContent with gemini-2.0-flash if interactions/3.8 model is not found (404)
-        if (!/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
-          throw err;
+        if (/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
+          throw new Error(`tts_model_unavailable: Gemini TTS model '${request.model}' is not available on this API key or endpoint`);
         }
+        throw err;
       }
     }
 
-    // Preview or standard Gemini multimodal models use generateContent with AUDIO response modality.
-    const effectiveModel = (request.model === 'gemini-3.8-flash-tts' || request.model === 'gemini-3.8-flash-lite-tts')
-      ? 'gemini-2.0-flash'
-      : request.model;
-
-    const response = await this.ai.models.generateContent({
-      model: effectiveModel,
-      contents: [{ parts: [{ text: request.text }] }],
-      config: {
-        abortSignal: request.signal,
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          languageCode: request.languageCode,
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: request.voice } }
-        },
-        systemInstruction: request.styleInstruction
+    // Preview Gemini TTS models use generateContent with exact requested model (no silent model switching)
+    try {
+      const response = await this.ai.models.generateContent({
+        model: request.model,
+        contents: [{ parts: [{ text: request.text }] }],
+        config: {
+          abortSignal: request.signal,
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            languageCode: request.languageCode,
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: request.voice } }
+          },
+          systemInstruction: request.styleInstruction
+        }
+      });
+      const inlineData = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData;
+      if (!inlineData?.data) throw new Error('tts_empty_audio: Gemini returned no inline audio payload');
+      return { data: inlineData.data, mimeType: inlineData.mimeType, modelVersion: response.modelVersion };
+    } catch (err) {
+      if (/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
+        throw new Error(`tts_model_unavailable: Gemini TTS model '${request.model}' is not available on this API key or endpoint`);
       }
-    });
-    const inlineData = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData;
-    if (!inlineData?.data) throw new Error('tts_empty_audio: Gemini returned no inline audio payload');
-    return { data: inlineData.data, mimeType: inlineData.mimeType, modelVersion: response.modelVersion };
+      throw err;
+    }
   }
 }
 
@@ -125,8 +129,6 @@ export interface GeminiTtsProviderOptions {
 }
 
 const SUPPORTED_GEMINI_TTS_MODELS = new Set([
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-exp',
   'gemini-3.8-flash-tts',
   'gemini-3.8-flash-lite-tts',
   'gemini-3.1-flash-tts-preview',

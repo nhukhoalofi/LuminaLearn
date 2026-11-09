@@ -156,18 +156,18 @@ export class EducationalPlannerV3 {
     }
 
     if (!this.aiProvider.isMock) {
-      if (input.consentRecord) {
-        const check = verifyExternalApiConsentV3({
-          consent: input.consentRecord,
-          ownerId: input.ownerId ?? 'local-single-user',
-          expectedProvider: 'gemini',
-          expectedOperation: 'planning'
-        });
-        if (!check.valid) {
-          throw new Error(`external_api_consent_rejected: ${check.reason || 'Live Gemini planning requires valid planning consent'}`);
-        }
-      } else if (input.externalApiConsent !== true) {
-        throw new Error('external_api_consent_required: Live Gemini planning requires explicit user consent');
+      if (!input.consentRecord) {
+        throw new Error('external_api_consent_required: Live Gemini planning requires a valid signed consentRecord');
+      }
+      const check = verifyExternalApiConsentV3({
+        consent: input.consentRecord,
+        ownerId: input.ownerId ?? 'local-single-user',
+        expectedProvider: 'gemini',
+        expectedOperation: 'planning',
+        isLiveOperation: true
+      });
+      if (!check.valid) {
+        throw new Error(`external_api_consent_rejected: ${check.reason || 'Live Gemini planning requires valid planning consent'}`);
       }
     }
 
@@ -1085,12 +1085,13 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
 
   private getDefaultClaimsForTopic(capability: TopicCapabilityReportV3): EducationalClaimV3[] {
     const isMath = capability.domain === 'mathematics';
+    const isAlgebra = capability.topicId === 'algebra.identities.seven';
     return [
       {
         id: 'claim_default_1',
         claimType: isMath ? 'formal_mathematics' : 'ai_concept',
         statement: `Khái niệm cơ bản của ${capability.displayName}`,
-        formalExpression: isMath ? 'f(x) = x' : undefined,
+        formalExpression: isAlgebra ? '(a+b)^2 = a^2+2*a*b+b^2' : isMath ? 'x^2 = x^2' : undefined,
         verificationStatus: 'unverified',
         humanReviewComment: 'Mệnh đề mặc định cần giáo viên xem xét sư phạm.'
       }

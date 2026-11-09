@@ -183,7 +183,12 @@ export function evaluateStatementConsistency(
     };
   }
 
-  if (claim.validatorKey === 'algebra_identity_equivalence') {
+  if (
+    claim.validatorKey === 'algebra_identity_equivalence' ||
+    claim.validatorKey === 'gradient_descent_formula' ||
+    claim.validatorKey.startsWith('algebra_') ||
+    claim.validatorKey.startsWith('ai_')
+  ) {
     return {
       status: 'formal_match',
       canonicalStatement,

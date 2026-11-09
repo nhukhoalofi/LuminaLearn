@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 type Claim = { id: string; statement: string; verificationStatus: string; claimType: string };
 type Scene = { sceneId: string; title: string; sceneType: string; durationSeconds: number; narration: { vietnamese: string; subtitleVietnamese: string }; visualPayload: unknown };
+type AgentTask = { taskId: string; role: string; title: string; status: string; validationStatus: string; durationMs?: number };
+type SupervisorTrace = { supervisorRunId: string; status: string; elapsedMs: number; humanReadableSummary: string; tasks: AgentTask[] };
 type Draft = {
   draftId: string; version: number; status: string; semanticReviewConfirmed: boolean;
   approvedArtifact?: { artifactId: string; contentHash: string };
@@ -23,6 +25,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
+  const [trace, setTrace] = useState<SupervisorTrace>();
   const [job, setJob] = useState<Job>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -44,14 +47,35 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   }
 
   async function generate() {
-    setBusy(true); setError(''); setJob(undefined);
+    setBusy(true); setError(''); setJob(undefined); setTrace(undefined);
     try {
-      setDraft(await jsonRequest('/api/v3/lessons/draft', 'POST', {
+      const responseData = await jsonRequest('/api/v3/supervisor', 'POST', {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
-        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
+        targetDurationSeconds: 40, narrationMode: 'none', subtitlesEnabled,
         fps: 24, width: 720, height: 1280, confirmExternalApi
-      }));
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+      });
+      if (responseData.trace) {
+        setTrace(responseData.trace);
+      }
+      setDraft({
+        draftId: responseData.draftId,
+        version: 1,
+        status: 'needs_review',
+        semanticReviewConfirmed: false,
+        lessonPlan: responseData.lessonPlan
+      });
+    } catch (err) {
+      // Fallback sang endpoint draft tiêu chuẩn nếu cần
+      try {
+        setDraft(await jsonRequest('/api/v3/lessons/draft', 'POST', {
+          requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
+          targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
+          fps: 24, width: 720, height: 1280, confirmExternalApi
+        }));
+      } catch (fallbackErr) {
+        setError(fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
+      }
+    }
     finally { setBusy(false); }
   }
 
@@ -146,6 +170,45 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       {mode === 'live' && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini cho yêu cầu này.</label>}
       <button className="btn-generate" disabled={busy || (mode === 'live' && !confirmExternalApi)} onClick={generate}>Tạo bài học V3</button>
       {error && <p role="alert" className="error-message">{error}</p>}
+
+      {trace && (
+        <div className="job-panel" style={{ borderLeft: '3px solid var(--accent-cyan, #22d3ee)', marginTop: '14px' }} data-testid="v3-supervisor-trace">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, color: 'var(--accent-cyan, #22d3ee)' }}>🤖 Điều phối Đa Agent (Educational Supervisor V3)</h3>
+            <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(34, 211, 238, 0.2)', color: '#22d3ee' }}>
+              {trace.elapsedMs}ms · {trace.tasks.length} Agent Tasks
+            </span>
+          </div>
+          <p style={{ fontSize: '13px', color: '#cbd5e1', marginTop: '6px' }}>{trace.humanReadableSummary}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '8px', marginTop: '10px' }}>
+            {trace.tasks.map((task) => (
+              <div
+                key={task.taskId}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  background: 'rgba(15, 23, 42, 0.7)',
+                  border: task.status === 'completed' ? '1px solid rgba(74, 222, 128, 0.3)' : '1px solid rgba(248, 113, 113, 0.3)',
+                  fontSize: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <strong style={{ color: '#93c5fd' }}>{task.role}</strong>
+                  <span style={{ color: task.status === 'completed' ? '#4ade80' : '#f87171', fontWeight: 600 }}>
+                    {task.status === 'completed' ? '✓ Hoàn thành' : task.status}
+                  </span>
+                </div>
+                <div style={{ color: '#e2e8f0', fontSize: '11px' }}>{task.title}</div>
+                {task.durationMs !== undefined && (
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                    {task.durationMs}ms · {task.validationStatus}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {draft && <div className="job-panel" data-testid="v3-draft">
         <p><strong>Nguồn tạo:</strong> {draft.lessonPlan.generationProvenance}</p>

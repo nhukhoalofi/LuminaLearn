@@ -15,5 +15,6 @@ export * from './educational-planner-v3';
 export * from './knowledge-validation-v3';
 export * from './algebra-verifier-v3';
 export * from './draft-manager-v3';
+export * from './educational-supervisor-v3';
 
 

@@ -2,17 +2,44 @@ import { z } from 'zod';
 import { SafeIdString } from '../v2/document';
 
 function generateConsentId(): string {
-  const chars = '0123456789abcdef';
-  let id = '';
-  for (let i = 0; i < 24; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(12);
+    globalThis.crypto.getRandomValues(bytes);
+    return `cst_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
   }
-  return `cst_${id}`;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodeCrypto = require('node:crypto');
+    return `cst_${nodeCrypto.randomBytes(12).toString('hex')}`;
+  } catch {
+    throw new Error('secure_random_unavailable: Cryptographically secure random number generator is required');
+  }
 }
 
-export const DEFAULT_CONSENT_SIGNING_SECRET =
-  (typeof process !== 'undefined' && process.env?.CONSENT_SIGNING_SECRET) ||
-  'luminalearn_v3_consent_signing_secret_dev';
+export const DEV_TEST_CONSENT_SIGNING_SECRET = 'luminalearn_v3_consent_dev_test_only_secret';
+
+export function resolveConsentSigningSecret(providedSecret?: string, isLiveOperation = false): string {
+  if (providedSecret) return providedSecret;
+  const envSecret =
+    (typeof process !== 'undefined' && (process.env?.LUMINA_CONSENT_SIGNING_KEY || process.env?.CONSENT_SIGNING_SECRET)) ||
+    undefined;
+  if (envSecret) return envSecret;
+  if (isLiveOperation) {
+    throw new Error('consent_server_secret_missing: Live external operations require an explicitly configured LUMINA_CONSENT_SIGNING_KEY or CONSENT_SIGNING_SECRET server environment variable');
+  }
+  return DEV_TEST_CONSENT_SIGNING_SECRET;
+}
+
+export const DEFAULT_CONSENT_SIGNING_SECRET = resolveConsentSigningSecret();
+
+export function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 // Pure JS SHA256 and HMAC implementation (zero dependencies, 100% portable)
 function sha256Bytes(bytes: number[]): number[] {
@@ -144,6 +171,7 @@ export interface IssueConsentV3Options {
   contentHash?: string;
   validitySeconds?: number;
   signingSecret?: string;
+  isLiveOperation?: boolean;
   now?: Date;
 }
 
@@ -151,7 +179,7 @@ export function issueExternalApiConsentV3(options: IssueConsentV3Options): Exter
   const now = options.now ?? new Date();
   const validitySeconds = options.validitySeconds ?? 900; // Exactly 15 minutes default
   const expiresAt = new Date(now.getTime() + validitySeconds * 1000);
-  const secret = options.signingSecret ?? DEFAULT_CONSENT_SIGNING_SECRET;
+  const secret = resolveConsentSigningSecret(options.signingSecret, options.isLiveOperation);
 
   const core = {
     consentId: generateConsentId(),
@@ -185,6 +213,7 @@ export interface VerifyConsentV3Options {
   expectedContentHash?: string;
   expectedDraftId?: string;
   signingSecret?: string;
+  isLiveOperation?: boolean;
   now?: Date;
 }
 
@@ -213,11 +242,20 @@ export function verifyExternalApiConsentV3(options: VerifyConsentV3Options): {
   }
 
   const record = parsed.data;
-  const secret = options.signingSecret ?? DEFAULT_CONSENT_SIGNING_SECRET;
+  let secret: string;
+  try {
+    secret = resolveConsentSigningSecret(options.signingSecret, options.isLiveOperation);
+  } catch (err) {
+    return {
+      valid: false,
+      code: 'consent_server_secret_missing',
+      reason: err instanceof Error ? err.message : String(err)
+    };
+  }
   const payloadString = computeConsentPayloadString(record);
   const expectedSignature = hmacSha256Hex(secret, payloadString);
 
-  if (record.signature !== expectedSignature) {
+  if (!constantTimeEqual(record.signature, expectedSignature)) {
     return {
       valid: false,
       code: 'consent_signature_invalid',
