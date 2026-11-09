@@ -381,37 +381,45 @@ export function validateCrossAgentConsistency(input: {
   const { request, capability, plan, claims, visualDecisions, narrationResults } = input;
   const violations: string[] = [];
 
-  // Check 1: Topic matches domain
-  if (plan.domain !== capability.domain) {
-    violations.push(`Check 1 Failed: Lesson domain '${plan.domain}' does not match capability domain '${capability.domain}'`);
+  // Check 1: Topic and request match capability domain
+  if (plan.domain !== capability.domain || request.domain !== capability.domain) {
+    violations.push(`Check 1 Failed: Lesson domain '${plan.domain}' or request domain '${request.domain}' does not match capability domain '${capability.domain}'`);
   }
 
-  // Check 2: Learning objectives match storyboard content
+  // Check 2: Learning objectives match storyboard pedagogical goals
   if (!plan.learningObjectives || plan.learningObjectives.length === 0) {
     violations.push('Check 2 Failed: Lesson plan has empty learning objectives');
+  } else if (plan.storyboard) {
+    for (const scene of plan.storyboard.scenes) {
+      if (!scene.pedagogicalGoal || scene.pedagogicalGoal.trim().length < 5) {
+        violations.push(`Check 2 Failed: Scene '${scene.sceneId}' lacks clear pedagogical goal`);
+      }
+    }
   }
 
   // Check 3: Scene durations match storyboard timeline
   if (plan.storyboard) {
     const sumDuration = plan.storyboard.scenes.reduce((sum, s) => sum + s.durationSeconds, 0);
-    if (Math.abs(sumDuration - plan.storyboard.totalDurationSeconds) > 1.0) {
+    if (Math.abs(sumDuration - plan.storyboard.totalDurationSeconds) > 0.5) {
       violations.push(`Check 3 Failed: Sum of scene durations (${sumDuration}s) does not match totalDuration (${plan.storyboard.totalDurationSeconds}s)`);
     }
   }
 
-  // Check 4: Narration explains correct scene
+  // Check 4: Narration explains correct scene with Vietnamese depth
   if (plan.storyboard) {
     for (const scene of plan.storyboard.scenes) {
-      if (!scene.narration?.vietnamese || scene.narration.vietnamese.trim().length < 5) {
+      if (!scene.narration?.vietnamese || scene.narration.vietnamese.trim().length < 8) {
         violations.push(`Check 4 Failed: Scene '${scene.sceneId}' lacks sufficient Vietnamese narration`);
       }
     }
   }
 
-  // Check 5: Subtitles match intended narration
+  // Check 5: Subtitles match intended narration and avoid timing overflow
   for (const nr of narrationResults) {
     if (!nr.subtitleVietnamese || nr.subtitleVietnamese.trim().length === 0) {
       violations.push(`Check 5 Failed: Scene '${nr.sceneId}' has empty subtitle`);
+    } else if (nr.subtitleVietnamese.length > nr.narrationVietnamese.length + 50) {
+      violations.push(`Check 5 Failed: Scene '${nr.sceneId}' subtitle is longer than narration text`);
     }
   }
 
@@ -427,13 +435,20 @@ export function validateCrossAgentConsistency(input: {
     }
   }
 
-  // Check 7: Algebra transformations are valid
+  // Check 7: Algebra transformations are valid and intermediate steps are sound
   if (plan.storyboard) {
     for (const scene of plan.storyboard.scenes) {
       if (scene.sceneType === 'algebra_identity') {
         const payload = scene.visualPayload as AlgebraIdentityVisualPayload;
         if (!payload.transformationSteps || payload.transformationSteps.length < 2) {
           violations.push(`Check 7 Failed: Scene '${scene.sceneId}' has fewer than 2 algebra transformation steps`);
+        } else {
+          for (let stepIdx = 0; stepIdx < payload.transformationSteps.length; stepIdx++) {
+            const expr = payload.transformationSteps[stepIdx].expression;
+            if (!/^[a-b0-9+\-*/^() ]+$/.test(expr)) {
+              violations.push(`Check 7 Failed: Scene '${scene.sceneId}' transformation step ${stepIdx} contains invalid symbols: '${expr}'`);
+            }
+          }
         }
       }
     }
@@ -448,17 +463,43 @@ export function validateCrossAgentConsistency(input: {
     }
   }
 
-  // Check 9: All scene components are supported
+  // Check 9: All scene components are in the registered allowlist
+  const allowedComponents = new Set([
+    'AlgebraIdentityScene',
+    'DerivativeSecantTangentScene',
+    'RiemannSumScene',
+    'NeuralArchitectureScene',
+    'LossLandscapeScene',
+    'AttentionHeatmapScene',
+    'SummaryTakeawayScene',
+    'ConceptTitleReveal',
+    'GenericEducationalScene'
+  ]);
   for (const decision of visualDecisions) {
-    if (!decision.selectedComponent) {
-      violations.push(`Check 9 Failed: Scene '${decision.sceneId}' has no visual component selected`);
+    if (!decision.selectedComponent || !allowedComponents.has(decision.selectedComponent)) {
+      violations.push(`Check 9 Failed: Scene '${decision.sceneId}' uses unregistered or unsupported visual component '${decision.selectedComponent}'`);
     }
   }
 
-  // Check 10: No agent mutates previously verified mathematical facts
+  // Check 10: Invariant check on visual payload equations preserving verified mathematical claims
   for (const decision of visualDecisions) {
     if (!decision.preservesVerifiedMath) {
       violations.push(`Check 10 Failed: Visual decision for '${decision.sceneId}' modified verified mathematical facts`);
+    }
+  }
+  if (plan.storyboard) {
+    for (const scene of plan.storyboard.scenes) {
+      if (scene.sceneType === 'algebra_identity') {
+        const payload = scene.visualPayload as AlgebraIdentityVisualPayload;
+        const matchingClaim = claims.find((c) => scene.boundClaimIds.includes(c.id));
+        if (matchingClaim && matchingClaim.formalExpression) {
+          const expectedExpr = `${payload.leftExpression}=${payload.rightExpression}`.replace(/\s+/g, '');
+          const claimExpr = matchingClaim.formalExpression.replace(/\s+/g, '');
+          if (expectedExpr !== claimExpr) {
+            violations.push(`Check 10 Failed: Visual payload equation '${expectedExpr}' in scene '${scene.sceneId}' diverges from verified claim '${claimExpr}'`);
+          }
+        }
+      }
     }
   }
 
@@ -722,12 +763,12 @@ export class EducationalSupervisorV3 {
       const msg = err instanceof Error ? err.message : String(err);
       finishTask(t7, 'failed', 'advisory_warning', 'composite', undefined, 'pedagogical_review_failed', msg);
       qualityReview = {
-        passed: true,
-        explanationClarityScore: 6,
+        passed: false,
+        explanationClarityScore: 1,
         unsupportedStatements: [],
         contradictionsDetected: [],
-        revisionsRequested: [],
-        reviewNotes: 'Thẩm định sư phạm chạy ở chế độ dự phòng an toàn.'
+        revisionsRequested: ['Cần giáo viên thẩm định thủ công do hệ thống thẩm định sư phạm tự động gặp sự cố'],
+        reviewNotes: `Hệ thống thẩm định sư phạm tự động không khả dụng: ${msg}. Bản thảo chuyển sang chế độ giáo viên tự rà soát thủ công.`
       };
     }
 
@@ -755,24 +796,33 @@ export class EducationalSupervisorV3 {
     // ------------------------------------------------------------------------
     const t9 = recordTask('task_9_draft_assembly', 'supervisor', 'Tập hợp bản thảo V3 hoàn chỉnh cho giáo viên phê duyệt', capability.topicId, [t8.taskId]);
     const draftId = `draft_${request.requestId}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
-    const nowIso = new Date().toISOString();
-    const finalDraft: LessonDraftV3 = {
-      draftId,
-      ownerId: request.ownerId,
-      version: 1,
-      status: 'needs_review',
-      request: {
-        ...request,
-        width: 720,
-        height: 1280,
-        fps: 24
-      },
-      lessonPlan,
-      semanticReviewConfirmed: false,
-      createdAt: nowIso,
-      updatedAt: nowIso
+    const lessonRequest: LessonRequestV3 = {
+      requestId: request.requestId,
+      topic: request.topic,
+      domain: request.domain,
+      generationMode: request.generationMode,
+      targetDurationSeconds: request.targetDurationSeconds,
+      narrationMode: request.narrationMode,
+      subtitlesEnabled: request.subtitlesEnabled,
+      fps: 24,
+      width: 720,
+      height: 1280
     };
-    finishTask(t9, 'completed', 'passed', 'composite', { draftId, version: 1 });
+
+    let persistedDraft: LessonDraftV3;
+    try {
+      persistedDraft = await this.draftManager.saveSupervisorDraft({
+        ownerId: request.ownerId,
+        request: lessonRequest,
+        lessonPlan,
+        draftId
+      });
+      finishTask(t9, 'completed', 'passed', 'composite', { draftId: persistedDraft.draftId, version: persistedDraft.version });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      finishTask(t9, 'failed', 'failed', 'composite', undefined, 'draft_persistence_failed', msg);
+      throw err;
+    }
 
     // ------------------------------------------------------------------------
     // FINAL TRACE & SUMMARY
@@ -789,11 +839,11 @@ export class EducationalSupervisorV3 {
       retryCount: 0,
       budgetUsage: { geminiApiCalls, maxApiCalls: this.maxApiCalls },
       status: 'needs_teacher_review',
-      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được 6 Agent chuyên trách xây dựng thành công trong ${elapsedMs}ms. Toàn bộ ${verifiedClaims.length} mệnh đề toán học đã vượt qua kiểm định SymPy. Kịch bản Remotion và lời giảng tiếng Việt đã sẵn sàng để Giáo viên rà soát và phê duyệt.`
+      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được 6 Agent chuyên trách xây dựng thành công trong ${elapsedMs}ms. Toàn bộ ${verifiedClaims.length} mệnh đề toán học đã vượt qua kiểm định SymPy. Kịch bản Remotion và lời giảng tiếng Việt đã sẵn sàng để Giáo viên rà soát và phê duyệt. Bản thảo đã được lưu trữ an toàn.`
     };
 
     return {
-      draftId,
+      draftId: persistedDraft.draftId,
       lessonPlan,
       capabilityReport: capability,
       trace,

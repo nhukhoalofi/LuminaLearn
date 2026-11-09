@@ -151,6 +151,47 @@ export class LessonDraftManagerV3 {
     return clone(draft);
   }
 
+  public async saveSupervisorDraft(params: {
+    ownerId: string;
+    request: LessonRequestV3;
+    lessonPlan: EducationalLessonPlanV3;
+    draftId?: string;
+  }): Promise<LessonDraftV3> {
+    const { ownerId } = params;
+    if (!ownerId || typeof ownerId !== 'string' || ownerId.trim().length === 0) {
+      throw new Error('invalid_owner_id');
+    }
+    const request = LessonRequestV3Schema.parse(params.request);
+    const lessonPlan = EducationalLessonPlanV3Schema.parse(params.lessonPlan);
+    if (!lessonPlan.storyboard || !lessonPlan.storyboard.scenes || lessonPlan.storyboard.scenes.length === 0) {
+      throw new Error('invalid_storyboard_scenes');
+    }
+    if (!lessonPlan.validationReport) {
+      throw new Error('missing_mathematical_verification');
+    }
+    if (lessonPlan.domain !== request.domain) {
+      throw new Error('requested_domain_mismatch');
+    }
+    const draftId = params.draftId ?? `draft_v3_${randomUUID().replace(/-/g, '')}`;
+    return this.locked(draftId, async () => {
+      const now = new Date().toISOString();
+      const draft: LessonDraftV3 = {
+        draftId,
+        ownerId,
+        version: 1,
+        status: 'needs_review',
+        request,
+        lessonPlan,
+        semanticReviewConfirmed: false,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.drafts.set(draftId, clone(draft));
+      await this.persist(draft);
+      return clone(draft);
+    });
+  }
+
   public async update(draftId: string, ownerId: string, expectedVersion: number, patch: UpdateLessonDraftV3): Promise<LessonDraftV3> {
     return this.locked(draftId, async () => {
       const current = await this.load(draftId);
