@@ -39,6 +39,7 @@ export interface UpdateLessonDraftV3 {
   claimStatements?: Record<string, string>;
   narrationTexts?: Record<string, string>;
   subtitleTexts?: Record<string, string>;
+  sceneTitles?: Record<string, string>;
   visualPayloads?: Record<string, unknown>;
 }
 
@@ -207,6 +208,7 @@ export class LessonDraftManagerV3 {
       if (plan.storyboard) {
         plan.storyboard.scenes = plan.storyboard.scenes.map((scene) => ({
           ...scene,
+          title: patch.sceneTitles?.[scene.sceneId] ?? scene.title,
           narration: {
             vietnamese: patch.narrationTexts?.[scene.sceneId] ?? scene.narration.vietnamese,
             subtitleVietnamese: patch.subtitleTexts?.[scene.sceneId] ?? scene.narration.subtitleVietnamese

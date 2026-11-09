@@ -522,7 +522,7 @@ export function validateCrossAgentConsistency(input: {
     'NeuralArchitectureScene',
     'LossLandscapeScene',
     'AttentionHeatmapScene',
-    'SummaryTakeawayScene',
+    'SummaryScene',
     'ConceptTitleReveal',
     'GenericEducationalScene'
   ]);

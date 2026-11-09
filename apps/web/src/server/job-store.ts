@@ -45,6 +45,8 @@ export interface JobRecord {
   subtitlesEnabled: boolean;
   failureType?: 'ai' | 'tts' | 'validation' | 'render' | 'interrupted';
   artifactId?: string;
+  artifactContentHash?: string;
+  draftId?: string;
 }
 
 const progressByState: Record<JobState, number> = {
@@ -335,6 +337,8 @@ export async function createV3JobFromArtifact(
       visualStyleId: 'clean_educational_infographic',
       subtitlesEnabled: artifact.request.subtitlesEnabled,
       artifactId: artifact.artifactId,
+      artifactContentHash: artifact.contentHash,
+      draftId: artifact.draftId,
       createdAt: now,
       updatedAt: now
     };
@@ -359,7 +363,8 @@ export async function resumeV3Job(
   jobId: string,
   ownerId: string,
   authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
-  artifactOverride?: ApprovedRenderArtifactV3
+  artifactOverride: ApprovedRenderArtifactV3,
+  expected: { artifactId: string; contentHash: string }
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const job = store.jobs.get(jobId);
   if (!job) throw new SecurityError(404, 'job_not_found', `Job '${jobId}' not found`);
@@ -379,9 +384,12 @@ export async function resumeV3Job(
     throw new Error('job_missing_artifact_id: Cannot resume job without associated artifactId');
   }
 
-  const artifact = artifactOverride || artifactStore.get(artifactId);
-  if (!artifact) {
-    throw new Error('job_missing_artifact: Cannot resume job without approved artifact');
+  if (expected.artifactId !== artifactId || expected.contentHash !== job.artifactContentHash) {
+    throw new SecurityError(409, 'resume_artifact_mismatch', 'Resume identifiers do not match the original job');
+  }
+  const artifact = artifactOverride;
+  if (artifact.artifactId !== artifactId || artifact.contentHash !== expected.contentHash || artifact.draftId !== job.draftId) {
+    throw new SecurityError(409, 'resume_artifact_mismatch', 'Persisted approved artifact does not match the original job');
   }
 
   if (!verifyArtifactIntegrityV3(artifact)) {
@@ -391,11 +399,14 @@ export async function resumeV3Job(
     throw new SecurityError(403, 'artifact_unauthorized', 'Artifact is no longer authorized for rendering');
   }
 
-  assertQueueCapacity();
-
   return withArtifactEnqueueLock(artifactId, async () => {
+    const latest = store.jobs.get(jobId);
+    if (!latest || (latest.status !== 'failed' && latest.status !== 'interrupted')) {
+      throw new SecurityError(409, 'job_not_resumable', 'Job was already resumed or is no longer resumable');
+    }
+    assertQueueCapacity();
     const resumedJob: JobRecord = {
-      ...job,
+      ...latest,
       status: 'queued',
       progress: job.progress || 0,
       message: 'Đang xếp hàng tiếp tục kết xuất từ Checkpoint',

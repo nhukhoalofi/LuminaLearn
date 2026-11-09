@@ -15,7 +15,7 @@ export interface TimelineProps {
   fps?: number;
 }
 
-export function TimelineEditorV3({
+export function TimelineViewerV3({
   scenes,
   totalDurationSeconds,
   selectedSceneId,
@@ -33,11 +33,11 @@ export function TimelineEditorV3({
         borderRadius: '8px',
         border: '1px solid rgba(148, 163, 184, 0.2)'
       }}
-      data-testid="v3-timeline-editor"
+      data-testid="v3-timeline-viewer"
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
         <h4 style={{ margin: 0, color: '#F8FAFC', fontSize: '13px' }}>
-          ⏱️ Trục thời gian (Timeline: {totalDurationSeconds}s · {totalFrames} frames @ {fps}fps)
+          ⏱️ Trình xem thời gian — chỉ đọc ({totalDurationSeconds}s · {totalFrames} frames @ {fps}fps)
         </h4>
         <span style={{ fontSize: '11px', color: '#94A3B8' }}>
           An toàn phụ đề: Đáy 80px
@@ -115,4 +115,7 @@ export function TimelineEditorV3({
     </div>
   );
 }
+
+/** @deprecated Phase 8 exposes this read-only control honestly as TimelineViewerV3. */
+export const TimelineEditorV3 = TimelineViewerV3;
 

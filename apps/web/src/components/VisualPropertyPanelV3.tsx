@@ -25,7 +25,7 @@ export function VisualPropertyPanelV3({
   function handleAlgebraFieldChange(field: string, value: any) {
     const updated = { ...visualPayload, [field]: value };
     onChange(updated);
-    if (field === 'leftExpression' || field === 'rightExpression' || field === 'transformationSteps') {
+    if (field === 'leftExpression' || field === 'rightExpression' || field === 'transformationSteps' || field === 'identityId') {
       onMathModified?.();
     }
   }
@@ -233,12 +233,11 @@ export function VisualPropertyPanelV3({
               <label style={{ fontSize: '11px', color: '#94A3B8' }}>Hàm mất mát (Function Type)</label>
               <select
                 className="form-input"
-                value={visualPayload.functionType || 'bowl'}
+                value={visualPayload.functionType || 'convex_quadratic'}
                 onChange={(e) => onChange({ ...visualPayload, functionType: e.target.value })}
               >
-                <option value="bowl">Dạng chảo lồi đơn giản (Convex Bowl)</option>
-                <option value="saddle">Điểm yên ngựa (Saddle Point)</option>
-                <option value="multimodal">Đa cực tiểu địa phương (Multimodal)</option>
+                <option value="convex_quadratic">Parabol lồi (Convex Quadratic)</option>
+                <option value="1d_curve">Đường cong một chiều (1D Curve)</option>
               </select>
             </div>
             <div>
@@ -290,6 +289,7 @@ export function VisualPropertyPanelV3({
               try {
                 const parsed = JSON.parse(e.target.value);
                 onChange(parsed);
+                onMathModified?.();
                 setJsonError('');
               } catch (err) {
                 setJsonError('JSON không hợp lệ');

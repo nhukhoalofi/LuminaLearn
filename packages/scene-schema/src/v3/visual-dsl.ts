@@ -531,5 +531,47 @@ export const VisualSceneDefinitionV3Schema = z.object({
   mathBindings: z.array(VerifiedMathBindingV3Schema).default([]),
   dataBindings: z.array(VisualDataBindingV3Schema).default([]),
   legacyPayload: EducationalVisualPayloadSchema.optional()
-}).strict();
+}).strict().superRefine((scene, ctx) => {
+  const ids = new Set<string>();
+  scene.elements.forEach((element, index) => {
+    if (ids.has(element.elementId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'elementId'], message: `Trùng elementId '${element.elementId}'` });
+    ids.add(element.elementId);
+    if ('position' in element && element.position && typeof element.position === 'object' && (element.position.x < 0 || element.position.x > 720 || element.position.y < 0 || element.position.y > 1280)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'position'], message: 'Vị trí phải nằm trong canvas an toàn 720x1280' });
+    }
+    if (element.elementType === 'matrix' && (element.values.length !== element.rows || element.values.some((row) => row.length !== element.cols))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index, 'values'], message: 'Kích thước values phải khớp rows x cols' });
+    }
+    if (element.elementType === 'graph' && (element.xRange[0] >= element.xRange[1] || element.yRange[0] >= element.yRange[1])) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index], message: 'Miền đồ thị phải tăng nghiêm ngặt' });
+    }
+  });
+  scene.elements.forEach((element, index) => {
+    if (element.elementType === 'arrow' && (!ids.has(element.fromElementId) || !ids.has(element.toElementId))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index], message: 'Arrow tham chiếu element không tồn tại' });
+    }
+    if (element.elementType === 'neural_connection') {
+      const nodes = scene.elements.filter((candidate) => candidate.elementType === 'neural_node');
+      const from = nodes.some((node) => node.layerIndex === element.fromLayer && node.nodeIndex === element.fromNode);
+      const to = nodes.some((node) => node.layerIndex === element.toLayer && node.nodeIndex === element.toNode);
+      if (!from || !to || element.toLayer <= element.fromLayer) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['elements', index], message: 'Neural connection phải nối xuôi giữa hai node tồn tại' });
+    }
+  });
+  scene.mathBindings.forEach((binding, index) => {
+    const element = scene.elements.find((candidate) => candidate.elementId === binding.elementId);
+    if (!element || element.elementType !== 'formula') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mathBindings', index, 'elementId'], message: 'Math binding phải tham chiếu formula element tồn tại' });
+  });
+  scene.dataBindings.forEach((binding, index) => {
+    if (!ids.has(binding.targetElementId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dataBindings', index, 'targetElementId'], message: 'Data binding tham chiếu element không tồn tại' });
+  });
+  scene.timeline?.markers.forEach((marker, index) => {
+    if (marker.frame >= scene.timeline!.durationFrames) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['timeline', 'markers', index, 'frame'], message: 'Timeline marker nằm ngoài durationFrames' });
+  });
+});
 export type VisualSceneDefinitionV3 = z.infer<typeof VisualSceneDefinitionV3Schema>;
+
+export const VISUAL_PRIMITIVE_READINESS_V3 = {
+  text: 'render_ready', formula: 'render_ready', graph: 'render_ready', axes: 'render_ready', point: 'render_ready',
+  arrow: 'render_ready', matrix: 'render_ready', labeled_step: 'render_ready', neural_node: 'render_ready', neural_connection: 'render_ready',
+  vector: 'schema_only', chart: 'schema_only', shape: 'schema_only', callout: 'schema_only', highlighted_region: 'schema_only', timeline_marker: 'schema_only'
+} as const satisfies Record<VisualElementV3['elementType'], 'schema_only' | 'preview_ready' | 'render_ready' | 'end_to_end_verified'>;

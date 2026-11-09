@@ -13,7 +13,8 @@ import {
   NeuralArchitectureVisualPayloadSchema,
   LossLandscapeVisualPayloadSchema,
   AttentionHeatmapVisualPayloadSchema,
-  SummaryVisualPayloadSchema
+  SummaryVisualPayloadSchema,
+  REGISTERED_TOPICS_V3
 } from '@luminalearn/scene-schema';
 import { VisualDirectorAgent } from '../../../packages/agent/src/orchestration/educational-supervisor-v3';
 import { EducationalPlannerV3 } from '../../../packages/agent/src/orchestration/educational-planner-v3';
@@ -173,12 +174,7 @@ test('PHASE 7 ACCEPTANCE SUITE — UNIVERSAL MATH/AI VISUAL DSL & ADVANCED TEACH
     });
 
     const director = new VisualDirectorAgent();
-    const capability = {
-      topicId: 'seven_algebraic_identities',
-      domain: 'mathematics' as const,
-      renderReadiness: 'render_ready' as const,
-      limitations: []
-    };
+    const capability = REGISTERED_TOPICS_V3['algebra.identities.seven'];
 
     const { decisions, updatedScenes } = await director.directVisuals(plan, capability);
     assert.ok(decisions.length > 0);
@@ -202,49 +198,23 @@ test('PHASE 7 ACCEPTANCE SUITE — UNIVERSAL MATH/AI VISUAL DSL & ADVANCED TEACH
   // ==========================================================================
   // LEVEL 3: REAL REMOTION PREVIEW ENGINE (/api/v3/preview)
   // ==========================================================================
-  await t.test('5. POST /api/v3/preview renders genuine single-frame PNG via Remotion', async () => {
-    const testScene = {
-      sceneId: 'scene_prev_01',
-      sceneType: 'concept_intro',
-      title: 'Giới thiệu Perceptron',
-      pedagogicalGoal: 'Nắm vững khái niệm tế bào nơ-ron nhân tạo',
-      durationSeconds: 10,
-      boundClaimIds: [],
-      rendererTarget: 'remotion_infographic',
-      narration: {
-        vietnamese: 'Chào mừng các bạn đến với mô hình Perceptron.',
-        subtitleVietnamese: 'Chào mừng đến với mô hình Perceptron.'
-      },
-      visualPayload: {
-        sceneType: 'concept_intro',
-        centralQuestion: 'Perceptron học và phân loại dữ liệu như thế nào?',
-        keyConcept: 'Mô hình Perceptron',
-        accentColor: '#22D3EE',
-        visualStyleId: 'clean_educational_infographic',
-        reducedMotion: false
-      }
-    };
-
+  await t.test('5. POST /api/v3/preview rejects a client-supplied arbitrary scene', async () => {
     const req = new NextRequest('http://localhost:3000/api/v3/preview', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        scene: testScene,
+        scene: { sceneId: 'scene_prev_01' },
         frame: 24,
         subtitlesEnabled: true
       })
     });
 
     const res = await previewHandler(req);
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 400);
 
     const data = await res.json();
-    assert.equal(data.success, true);
-    assert.equal(data.frame, 24);
-    assert.equal(data.sceneId, 'scene_prev_01');
-    assert.ok(data.previewDataUrl, 'Must return a preview data URL');
-    assert.ok(data.previewDataUrl.startsWith('data:image/png;base64,'), 'Preview must be a PNG data URL');
-    assert.ok(data.previewDataUrl.length > 5000, 'Rendered PNG must contain substantial graphic payload');
+    assert.equal(data.success, false);
+    assert.equal(data.error, 'invalid_preview_request');
   });
 
   await t.test('6. POST /api/v3/preview rejects invalid scene schema fail-closed', async () => {
@@ -269,6 +239,6 @@ test('PHASE 7 ACCEPTANCE SUITE — UNIVERSAL MATH/AI VISUAL DSL & ADVANCED TEACH
 
     const data = await res.json();
     assert.equal(data.success, false);
-    assert.ok(data.error.includes('invalid_scene_payload'));
+    assert.equal(data.error, 'invalid_preview_request');
   });
 });

@@ -198,6 +198,7 @@ test('CHECKPOINTS A, F, G, I, L: Phase 6.1 Real Educational Remotion Rendering &
       const firstRunPromise = coordinator.render({
         manifest,
         artifact,
+        authorizeArtifact: (cand) => manager.isArtifactAuthorized(cand),
         jobId,
         outputDir: join(tempDir, 'out1'),
         simulateFailureAtSegment: 0 // Fail fast to release lock
@@ -208,6 +209,7 @@ test('CHECKPOINTS A, F, G, I, L: Phase 6.1 Real Educational Remotion Rendering &
         coordinator.render({
           manifest,
           artifact,
+          authorizeArtifact: (cand) => manager.isArtifactAuthorized(cand),
           jobId,
           outputDir: join(tempDir, 'out2')
         }),

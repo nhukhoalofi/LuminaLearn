@@ -85,14 +85,32 @@ test('CHECKPOINT L: Educational Content Multi-Tier Video Acceptance', async (t) 
       const cache = new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') });
       const checkpointRepo = new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') });
       const worker = new SegmentRenderWorkerV3();
-      const coordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo, worker });
-
       const jobId = 'job_tier2_gd_180s';
-      const result = await coordinator.render({
+      const firstCoordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo, worker });
+      await assert.rejects(() => firstCoordinator.render({
         manifest,
         artifact,
         authorizeArtifact: (cand) => manager.isArtifactAuthorized(cand),
         jobId,
+        outputDir: join(tempDir, 'output'),
+        simulateFailureAtSegment: 2,
+        subtitlesSrtContent: '1\n00:00:00,000 --> 00:00:25,000\nBản chất Gradient Descent.\n\n2\n00:00:25,000 --> 00:01:00,000\nBề mặt hàm mất mát.\n'
+      }), /simulated_render_interruption_at_segment_2/);
+      const interrupted = await checkpointRepo.load(jobId);
+      assert.ok(interrupted);
+      assert.strictEqual(interrupted.completedSegments, 2);
+      assert.ok(interrupted.completedSegmentRecords);
+      const preservedRecords = structuredClone(interrupted.completedSegmentRecords);
+
+      // Recreate the coordinator to model a worker/server restart, while using
+      // only durable checkpoint/cache state and the same approved artifact.
+      const restartedCoordinator = new LongFormRenderCoordinatorV3({
+        cache: new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') }),
+        checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+        worker: new SegmentRenderWorkerV3()
+      });
+      const result = await restartedCoordinator.render({
+        manifest, artifact, authorizeArtifact: (cand) => manager.isArtifactAuthorized(cand), jobId,
         outputDir: join(tempDir, 'output'),
         subtitlesSrtContent: '1\n00:00:00,000 --> 00:00:25,000\nBản chất Gradient Descent.\n\n2\n00:00:25,000 --> 00:01:00,000\nBề mặt hàm mất mát.\n'
       });
@@ -100,6 +118,12 @@ test('CHECKPOINT L: Educational Content Multi-Tier Video Acceptance', async (t) 
       assert.strictEqual(result.job.status, 'completed');
       assert.strictEqual(result.job.progress, 100);
       assert.ok(result.finalMp4Path);
+      const completed = await checkpointRepo.load(jobId);
+      assert.deepStrictEqual(
+        Object.fromEntries(Object.entries(completed!.completedSegmentRecords ?? {}).slice(0, 2)),
+        preservedRecords,
+        'The first two validated segment records must be reused unchanged after restart'
+      );
 
       // 4. Inspect final video with FFprobe
       const probe = await probeMediaWithFFprobe(result.finalMp4Path);

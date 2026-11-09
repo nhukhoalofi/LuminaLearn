@@ -6,6 +6,8 @@ import { EducationalPreviewPanelV3 } from './EducationalPreviewPanelV3';
 import { visualRegistryV3 } from '@luminalearn/scene-schema';
 
 export interface SceneInspectorProps {
+  draftId: string;
+  draftVersion: number;
   scene: {
     sceneId: string;
     title: string;
@@ -17,13 +19,17 @@ export interface SceneInspectorProps {
   onUpdateScene: (updated: any) => void;
   onMathModified?: () => void;
   subtitlesEnabled?: boolean;
+  isDraftDirty?: boolean;
 }
 
 export function SceneInspectorV3({
+  draftId,
+  draftVersion,
   scene,
   onUpdateScene,
   onMathModified,
-  subtitlesEnabled = true
+  subtitlesEnabled = true,
+  isDraftDirty = false
 }: SceneInspectorProps) {
   const allComponents = visualRegistryV3.listAll();
 
@@ -61,10 +67,8 @@ export function SceneInspectorV3({
           <select
             className="form-input"
             value={scene.sceneType}
-            onChange={(e) => {
-              const newType = e.target.value;
-              onUpdateScene({ ...scene, sceneType: newType });
-            }}
+            disabled
+            aria-label="Loại cảnh chỉ đọc"
           >
             {allComponents.map((c) => (
               <option key={c.componentId} value={c.componentId}>
@@ -74,14 +78,14 @@ export function SceneInspectorV3({
           </select>
         </div>
         <div>
-          <label style={{ fontSize: '11px', color: '#94A3B8' }}>Thời lượng (giây)</label>
+          <label style={{ fontSize: '11px', color: '#94A3B8' }}>Thời lượng (giây, chỉ đọc)</label>
           <input
             type="number"
             min={1}
             max={120}
             className="form-input"
             value={scene.durationSeconds}
-            onChange={(e) => onUpdateScene({ ...scene, durationSeconds: Number(e.target.value) })}
+            disabled
           />
         </div>
       </div>
@@ -132,8 +136,11 @@ export function SceneInspectorV3({
 
       {/* Frame Preview Panel */}
       <EducationalPreviewPanelV3
+        draftId={draftId}
+        draftVersion={draftVersion}
         scene={scene}
         subtitlesEnabled={subtitlesEnabled}
+        isDraftDirty={isDraftDirty}
       />
     </div>
   );

@@ -20,7 +20,7 @@ export interface LuminaSceneV3Props {
 /**
  * SceneDispatcherV3: Dispatch từng phân cảnh theo sceneType với contract visualPayload nghiêm ngặt.
  */
-const SceneDispatcher: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean }> = ({ scene, subtitlesEnabled }) => {
+export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean }> = ({ scene, subtitlesEnabled }) => {
   const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
 
@@ -48,6 +48,16 @@ const SceneDispatcher: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: b
     }
   }
 };
+
+export const LuminaBrandOverlayV3: React.FC = () => (
+  <div style={{ position: 'absolute', top: 36, left: 40, right: 40, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 50, pointerEvents: 'none' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: '#22D3EE', boxShadow: '0 0 10px #22D3EE' }} />
+      <span style={{ fontSize: 22, fontWeight: 900, color: '#F8FAFC', letterSpacing: 0.5 }}>Lumina<span style={{ color: '#22D3EE' }}>Learn</span></span>
+    </div>
+    <div style={{ border: '1px solid rgba(34, 211, 238, 0.4)', backgroundColor: 'rgba(15, 23, 42, 0.75)', borderRadius: 9999, padding: '6px 14px', fontSize: 13, fontWeight: 800, letterSpacing: 1.2, color: '#22D3EE' }}>STUDIO V3</div>
+  </div>
+);
 
 /**
  * LuminaSceneV3: Trình dựng phân cảnh giáo dục Remotion thế hệ mới V3.
@@ -77,12 +87,14 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({ storyboard, subtit
             durationInFrames={sceneDurationFrames}
             name={`${idx + 1}. ${scene.title}`}
           >
-            <SceneDispatcher scene={scene} subtitlesEnabled={subtitlesEnabled} />
+            <SceneDispatcherV3 scene={scene} subtitlesEnabled={subtitlesEnabled} />
           </Sequence>
         );
       })}
 
       {/* 2. Brand Overlay cố định trên cùng */}
+      <LuminaBrandOverlayV3 />
+      {/*
       <div
         style={{
           position: 'absolute',
@@ -124,7 +136,7 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({ storyboard, subtit
         >
           STUDIO V3
         </div>
-      </div>
+      </div> */}
     </AbsoluteFill>
   );
 };

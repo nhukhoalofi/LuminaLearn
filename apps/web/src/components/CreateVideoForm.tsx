@@ -1038,24 +1038,24 @@ export function CreateVideoForm({
                 fontSize: '12px',
                 fontWeight: 700,
                 backgroundColor:
-                  draft.mathVerification?.status === 'verified'
+                  draft.mathVerification?.status === 'failed'
+                    ? 'rgba(239, 68, 68, 0.2)'
+                    : draft.mathVerification?.status === 'verified'
                     ? 'rgba(34, 197, 94, 0.2)'
-                    : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
-                    ? 'rgba(245, 158, 11, 0.2)'
-                    : 'rgba(239, 68, 68, 0.2)',
+                    : 'rgba(245, 158, 11, 0.2)',
                 color:
-                  draft.mathVerification?.status === 'verified'
+                  draft.mathVerification?.status === 'failed'
+                    ? '#f87171'
+                    : draft.mathVerification?.status === 'verified'
                     ? '#4ade80'
-                    : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
-                    ? '#fbbf24'
-                    : '#f87171'
+                    : '#fbbf24'
               }}
             >
-              {draft.mathVerification?.status === 'verified'
+              {draft.mathVerification?.status === 'failed'
+                ? '✗ Verification Failed'
+                : draft.mathVerification?.status === 'verified'
                 ? '✓ SymPy Verified'
-                : (draft.mathVerification?.status === 'needs_review' || draft.status === 'reviewing' || draft.lessonPlan.mathematicalClaims.some((c) => c.statementVerification === 'prose_unverified'))
-                ? '⚠️ Cần giáo viên xác nhận (Needs Review)'
-                : '✗ Verification Failed'}
+                : '⚠️ Cần giáo viên xác nhận (Needs Review)'}
             </span>
           </div>
 

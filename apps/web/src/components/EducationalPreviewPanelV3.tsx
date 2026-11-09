@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 
 export interface PreviewPanelProps {
+  draftId: string;
+  draftVersion: number;
   scene: {
     sceneId: string;
     title: string;
@@ -12,11 +14,15 @@ export interface PreviewPanelProps {
     visualPayload: unknown;
   };
   subtitlesEnabled?: boolean;
+  isDraftDirty?: boolean;
 }
 
 export function EducationalPreviewPanelV3({
+  draftId,
+  draftVersion,
   scene,
-  subtitlesEnabled = true
+  subtitlesEnabled = true,
+  isDraftDirty = false
 }: PreviewPanelProps) {
   const [frame, setFrame] = useState(24);
   const [loading, setLoading] = useState(false);
@@ -33,7 +39,9 @@ export function EducationalPreviewPanelV3({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scene,
+          draftId,
+          draftVersion,
+          sceneId: scene.sceneId,
           frame,
           subtitlesEnabled
         })
@@ -88,12 +96,18 @@ export function EducationalPreviewPanelV3({
           type="button"
           className="quick-chip"
           style={{ background: '#0284C7', color: '#FFFFFF', padding: '4px 10px' }}
-          disabled={loading}
+          disabled={loading || isDraftDirty}
           onClick={handleRenderPreview}
         >
           {loading ? 'Đang render...' : '📸 Render Preview Frame'}
         </button>
       </div>
+
+      {isDraftDirty && (
+        <div role="status" style={{ fontSize: '11px', color: '#FBBF24', marginBottom: '8px' }}>
+          Hãy lưu và tái kiểm định bản nháp trước khi preview để khung hình luôn lấy từ phiên bản máy chủ đã xác thực.
+        </div>
+      )}
 
       {error && (
         <div style={{ fontSize: '11px', color: '#F87171', background: 'rgba(248, 113, 113, 0.1)', padding: '6px', borderRadius: '4px', marginBottom: '8px' }}>

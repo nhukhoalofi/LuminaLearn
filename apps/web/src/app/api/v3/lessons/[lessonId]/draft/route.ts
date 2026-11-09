@@ -31,6 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       claimStatements: body.claimStatements && typeof body.claimStatements === 'object' ? body.claimStatements as Record<string, string> : undefined,
       narrationTexts: body.narrationTexts && typeof body.narrationTexts === 'object' ? body.narrationTexts as Record<string, string> : undefined,
       subtitleTexts: body.subtitleTexts && typeof body.subtitleTexts === 'object' ? body.subtitleTexts as Record<string, string> : undefined,
+      sceneTitles: body.sceneTitles && typeof body.sceneTitles === 'object' ? body.sceneTitles as Record<string, string> : undefined,
       visualPayloads: body.visualPayloads && typeof body.visualPayloads === 'object' ? body.visualPayloads as Record<string, unknown> : undefined
     });
     return NextResponse.json(draft);
