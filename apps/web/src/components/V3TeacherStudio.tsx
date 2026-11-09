@@ -6,12 +6,13 @@ type Claim = { id: string; statement: string; verificationStatus: string; claimT
 type Scene = { sceneId: string; title: string; sceneType: string; durationSeconds: number; narration: { vietnamese: string; subtitleVietnamese: string }; visualPayload: unknown };
 type AgentTask = { taskId: string; role: string; title: string; status: string; validationStatus: string; durationMs?: number };
 type SupervisorTrace = { supervisorRunId: string; status: string; elapsedMs: number; humanReadableSummary: string; tasks: AgentTask[] };
+type Chapter = { chapterId: string; chapterTitle: string; durationSeconds: number; sceneIds?: string[] };
 type Draft = {
   draftId: string; version: number; status: string; semanticReviewConfirmed: boolean;
   approvedArtifact?: { artifactId: string; contentHash: string };
   lessonPlan: {
     title: string; generationProvenance: string; learningObjectives: string[];
-    educationalClaims: Claim[]; storyboard?: { totalDurationSeconds: number; scenes: Scene[] };
+    educationalClaims: Claim[]; storyboard?: { totalDurationSeconds: number; scenes: Scene[]; chapters?: Chapter[] };
     validationReport?: { overallStatus: string; requiresHumanPedagogicalSignoff: boolean };
     capabilityReport: { renderReadiness: string; limitations: string[] };
   };
@@ -261,6 +262,19 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           }} />
           <small>{claim.claimType}: {claim.verificationStatus}</small>
         </div>)}
+        {Boolean(draft.lessonPlan.storyboard?.chapters && draft.lessonPlan.storyboard.chapters.length > 0) && (
+          <div style={{ marginTop: '12px', marginBottom: '16px', padding: '10px 14px', background: 'rgba(30, 41, 59, 0.5)', borderRadius: '6px' }}>
+            <h4 style={{ margin: '0 0 8px 0', color: '#38BDF8' }}>📑 Mục lục các chương ({draft.lessonPlan.storyboard?.chapters?.length} chương)</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {draft.lessonPlan.storyboard?.chapters?.map((ch: any, idx: number) => (
+                <div key={ch.chapterId || idx} style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', color: '#E2E8F0' }}>
+                  <span><strong>{idx + 1}. {ch.chapterTitle}</strong></span>
+                  <span style={{ color: '#94A3B8' }}>{ch.durationSeconds}s ({ch.sceneIds?.length ?? 0} cảnh)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <h3>Storyboard ({draft.lessonPlan.storyboard?.totalDurationSeconds}s)</h3>
         {draft.lessonPlan.storyboard?.scenes.map((scene, sceneIndex) => <article key={scene.sceneId}>
           <strong>{scene.title}</strong> — {scene.sceneType}, {scene.durationSeconds}s
@@ -290,7 +304,36 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         </div>
       </div>}
 
-      {job && <div className="job-panel" data-testid="v3-job"><p>{job.message} — {job.progress}%</p>{job.error && <p role="alert">{job.error}</p>}{job.status === 'completed' && job.videoUrl && <><video controls src={job.videoUrl} /><a className="download-link" href={`${job.videoUrl}?download=1`}>Tải MP4 V3</a><a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`}>Tải phụ đề V3</a></>}</div>}
+      {job && (
+        <div className="job-panel" data-testid="v3-job">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <strong>{job.message}</strong>
+            <span>{job.progress}%</span>
+          </div>
+          <div style={{ width: '100%', height: '8px', background: 'rgba(51, 65, 85, 0.5)', borderRadius: '4px', overflow: 'hidden', marginBottom: '12px' }}>
+            <div style={{ width: `${job.progress}%`, height: '100%', background: 'linear-gradient(90deg, #38BDF8, #818CF8)', transition: 'width 0.3s ease' }} />
+          </div>
+          {job.error && (
+            <div style={{ marginBottom: '10px' }}>
+              <p role="alert" className="error-message">{job.error}</p>
+              {(job.status === 'failed' || job.status === 'interrupted') && draft?.approvedArtifact && (
+                <button type="button" className="quick-chip" style={{ marginTop: '6px' }} disabled={busy} onClick={retryEnqueue}>
+                  🔄 Tiếp tục Render (Resume từ Checkpoint)
+                </button>
+              )}
+            </div>
+          )}
+          {job.status === 'completed' && job.videoUrl && (
+            <>
+              <video controls src={job.videoUrl} style={{ width: '100%', maxHeight: '480px', borderRadius: '8px', marginTop: '10px' }} />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <a className="download-link" href={`${job.videoUrl}?download=1`}>Tải MP4 V3</a>
+                <a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`}>Tải phụ đề V3</a>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </section>
   );
 }

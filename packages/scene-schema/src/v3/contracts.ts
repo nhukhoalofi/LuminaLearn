@@ -151,8 +151,9 @@ export type EducationalSceneV3 = z.infer<typeof EducationalSceneV3Schema>;
 export const EducationalStoryboardV3Schema = z.object({
   storyboardId: SafeIdString,
   lessonId: SafeIdString,
-  scenes: z.array(EducationalSceneV3Schema).min(2).max(12),
-  totalDurationSeconds: z.number().positive().max(600)
+  scenes: z.array(EducationalSceneV3Schema).min(2).max(60),
+  totalDurationSeconds: z.number().positive().max(600),
+  chapters: z.array(z.record(z.string(), z.unknown())).optional()
 }).strict().superRefine((sb, ctx) => {
   const sumDuration = sb.scenes.reduce((acc, sc) => acc + sc.durationSeconds, 0);
   if (Math.abs(sumDuration - sb.totalDurationSeconds) > 1.0) {

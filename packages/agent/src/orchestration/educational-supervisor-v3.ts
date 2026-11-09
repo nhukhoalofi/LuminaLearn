@@ -60,29 +60,58 @@ export class CurriculumPlanningAgent {
     // Derive chapters from the planned duration and topic structure
     const totalDuration = rawPlan.storyboard?.totalDurationSeconds ?? request.targetDurationSeconds;
     const isMath = capability.domain === 'mathematics';
-    const chapters: EducationalChapterPlanV3[] = [
-      {
-        chapterIndex: 0,
-        chapterTitle: `Giới thiệu & Đặt vấn đề: ${capability.displayName}`,
-        targetDurationSeconds: Math.round(totalDuration * 0.25),
-        pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu của học viên',
-        keyFormulasOrConcepts: isMath ? [capability.displayName] : ['Trực giác mô hình', capability.displayName]
-      },
-      {
-        chapterIndex: 1,
-        chapterTitle: `Bản chất cốt lõi: ${capability.displayName}`,
-        targetDurationSeconds: Math.round(totalDuration * 0.5),
-        pedagogicalIntent: 'Phân tích cơ chế tính toán, công thức hình thức hoặc cấu trúc thuật toán',
-        keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 4)
-      },
-      {
-        chapterIndex: 2,
-        chapterTitle: `Tổng kết & Ứng dụng thực tiễn`,
-        targetDurationSeconds: Math.round(totalDuration * 0.25),
-        pedagogicalIntent: 'Củng cố kiến thức và liên kết với bức tranh tổng thể',
-        keyFormulasOrConcepts: ['Ứng dụng', 'Tổng kết sư phạm']
-      }
-    ];
+    let chapters: EducationalChapterPlanV3[];
+
+    if (totalDuration >= 300) {
+      const dur1 = Math.round(totalDuration * 0.1);
+      const dur2 = Math.round(totalDuration * 0.15);
+      const remainder = totalDuration - (dur1 * 2 + dur2 * 5);
+      chapters = [
+        { chapterIndex: 0, chapterTitle: 'Mục tiêu & Đặt vấn đề', targetDurationSeconds: dur1, pedagogicalIntent: 'Kích hoạt tri thức nền tảng', keyFormulasOrConcepts: [capability.displayName] },
+        { chapterIndex: 1, chapterTitle: 'Mô hình & Định nghĩa cốt lõi', targetDurationSeconds: dur2, pedagogicalIntent: 'Trình bày mô hình hình thức', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 2) },
+        { chapterIndex: 2, chapterTitle: 'Phân tích trực giác hình học', targetDurationSeconds: dur2, pedagogicalIntent: 'Trực quan hóa cơ chế hoạt động', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(1, 3) },
+        { chapterIndex: 3, chapterTitle: 'Động lực học & Tham số', targetDurationSeconds: dur2, pedagogicalIntent: 'Phân tích tham số và biến đổi', keyFormulasOrConcepts: ['Tham số', 'Quy tắc cập nhật'] },
+        { chapterIndex: 4, chapterTitle: 'Ví dụ tính toán từng bước', targetDurationSeconds: dur2, pedagogicalIntent: 'Ví dụ số cụ thể kiểm chứng', keyFormulasOrConcepts: ['Ví dụ số', 'Tính toán'] },
+        { chapterIndex: 5, chapterTitle: 'Trực quan hóa tối ưu hóa', targetDurationSeconds: dur2, pedagogicalIntent: 'Mô phỏng hành vi động', keyFormulasOrConcepts: ['Mô phỏng', 'Đường đi nghiệm'] },
+        { chapterIndex: 6, chapterTitle: 'Phân tích sai lầm thường gặp', targetDurationSeconds: dur1, pedagogicalIntent: 'Cảnh báo ngộ nhận và điểm yếu', keyFormulasOrConcepts: ['Sai lầm', 'Ngộ nhận'] },
+        { chapterIndex: 7, chapterTitle: 'Tổng kết & Ghi nhớ bản chất', targetDurationSeconds: remainder, pedagogicalIntent: 'Củng cố và tổng kết toàn diện', keyFormulasOrConcepts: ['Tổng kết', 'Ghi nhớ'] }
+      ];
+    } else if (totalDuration >= 180) {
+      chapters = [
+        { chapterIndex: 0, chapterTitle: 'Giới thiệu & Đặt vấn đề', targetDurationSeconds: 25, pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu', keyFormulasOrConcepts: [capability.displayName] },
+        { chapterIndex: 1, chapterTitle: 'Bản chất cơ chế tính toán', targetDurationSeconds: 35, pedagogicalIntent: 'Phân tích cơ chế và công thức hình thức', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 2) },
+        { chapterIndex: 2, chapterTitle: 'Trực quan hóa quy luật', targetDurationSeconds: 40, pedagogicalIntent: 'Trực quan hóa hoạt động và chuyển động tham số', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(1, 3) },
+        { chapterIndex: 3, chapterTitle: 'Ví dụ chi tiết từng bước', targetDurationSeconds: 45, pedagogicalIntent: 'Tính toán từng bước có kiểm định toán học', keyFormulasOrConcepts: ['Ví dụ số', 'Biến đổi'] },
+        { chapterIndex: 4, chapterTitle: 'Tổng kết sư phạm & Ứng dụng', targetDurationSeconds: totalDuration - (25 + 35 + 40 + 45), pedagogicalIntent: 'Củng cố bài học và lưu ý sư phạm', keyFormulasOrConcepts: ['Tổng kết', 'Ứng dụng'] }
+      ];
+    } else {
+      const part1 = Math.round(totalDuration * 0.25);
+      const part2 = Math.round(totalDuration * 0.5);
+      const part3 = totalDuration - (part1 + part2);
+      chapters = [
+        {
+          chapterIndex: 0,
+          chapterTitle: `Giới thiệu & Đặt vấn đề: ${capability.displayName}`,
+          targetDurationSeconds: part1,
+          pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu của học viên',
+          keyFormulasOrConcepts: isMath ? [capability.displayName] : ['Trực giác mô hình', capability.displayName]
+        },
+        {
+          chapterIndex: 1,
+          chapterTitle: `Bản chất cốt lõi: ${capability.displayName}`,
+          targetDurationSeconds: part2,
+          pedagogicalIntent: 'Phân tích cơ chế tính toán, công thức hình thức hoặc cấu trúc thuật toán',
+          keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 4)
+        },
+        {
+          chapterIndex: 2,
+          chapterTitle: `Tổng kết & Ứng dụng thực tiễn`,
+          targetDurationSeconds: part3,
+          pedagogicalIntent: 'Củng cố kiến thức và liên kết với bức tranh tổng thể',
+          keyFormulasOrConcepts: ['Ứng dụng', 'Tổng kết sư phạm']
+        }
+      ];
+    }
 
     return { lessonPlan: rawPlan, chapters };
   }

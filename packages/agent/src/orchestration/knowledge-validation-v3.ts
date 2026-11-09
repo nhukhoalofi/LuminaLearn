@@ -122,11 +122,11 @@ export function inspectStatementSemanticConsistency(
     return { status: 'formal_match' };
   }
 
-  // Nếu coreStatement có dạng "LHS = RHS" mà vế RHS khớp với biểu thức cần chứng minh
+  // Nếu coreStatement có dạng "... = RHS" mà vế RHS khớp với biểu thức cần chứng minh
   const eqParts = coreStatement.split(/(?:==|=|bằng|là)/);
-  if (eqParts.length === 2) {
-    const rhs = eqParts[1].trim();
-    if (normalizeMath(rhs) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
+  if (eqParts.length >= 2) {
+    const lastPart = eqParts[eqParts.length - 1].trim();
+    if (normalizeMath(lastPart) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
       return { status: 'formal_match' };
     }
   }

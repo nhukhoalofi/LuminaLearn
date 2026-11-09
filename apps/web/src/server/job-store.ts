@@ -6,6 +6,7 @@ import {
   runHybridPipeline,
   runHybridPipelineV2,
   runRenderPipelineV3,
+  LongFormRenderCoordinatorV3,
   type HybridRenderRequest,
   type JobState,
   LocalJobRepository
@@ -14,12 +15,13 @@ import {
   ApprovedRenderArtifactV2Schema,
   ApprovedRenderArtifactV3Schema,
   LessonRequestV2Schema,
+  isLongFormDuration,
   type ApprovedRenderArtifactV2,
   type ApprovedRenderArtifactV3,
   type LessonRequestV2,
   type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
-import { verifyArtifactIntegrity, verifyArtifactIntegrityV3 } from '@luminalearn/agent';
+import { verifyArtifactIntegrity, verifyArtifactIntegrityV3, LongFormSegmentPlannerV3 } from '@luminalearn/agent';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { documentStore } from './v2-services';
@@ -109,12 +111,50 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       if (!entry.authorizeV3Artifact) throw new Error('v3_authorization_callback_missing');
       transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
       transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
-      result = await runRenderPipelineV3(entry.v3Artifact, {
-        jobId: entry.jobId,
-        authorizeArtifact: entry.authorizeV3Artifact,
-        consentRecord: entry.consentRecord,
-        onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
-      });
+
+      if (isLongFormDuration(entry.v3Artifact.request.targetDurationSeconds)) {
+        transition(entry.jobId, 'planning', { message: 'Đang lập kế hoạch phân đoạn bài giảng dài' });
+        const planner = new LongFormSegmentPlannerV3();
+        const manifest = planner.planSegments({
+          artifactId: entry.v3Artifact.artifactId,
+          storyboard: entry.v3Artifact.lessonPlan.storyboard!,
+          targetSegmentDurationSeconds: 30,
+          fps: entry.v3Artifact.request.fps,
+          width: entry.v3Artifact.request.width,
+          height: entry.v3Artifact.request.height
+        });
+
+        transition(entry.jobId, 'rendering_remotion', { message: 'Đang render phân đoạn Remotion' });
+        const coordinator = new LongFormRenderCoordinatorV3();
+        const res = await coordinator.render({
+          manifest,
+          artifact: entry.v3Artifact,
+          authorizeArtifact: entry.authorizeV3Artifact,
+          jobId: entry.jobId,
+          onProgress: (renderJob) => {
+            const current = store.jobs.get(entry.jobId);
+            if (current && current.status !== 'completed' && current.status !== 'failed') {
+              const progress = Math.min(
+                95,
+                Math.round((renderJob.completedSegments / renderJob.totalSegments) * 80) + 15
+              );
+              store.jobs.set(entry.jobId, {
+                ...current,
+                progress,
+                message: `Đang render phân đoạn ${renderJob.completedSegments}/${renderJob.totalSegments}`
+              });
+            }
+          }
+        });
+        result = { outputPath: res.finalMp4Path };
+      } else {
+        result = await runRenderPipelineV3(entry.v3Artifact, {
+          jobId: entry.jobId,
+          authorizeArtifact: entry.authorizeV3Artifact,
+          consentRecord: entry.consentRecord,
+          onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
+        });
+      }
     } else if (entry.v2Artifact) {
       if (entry.authorizeArtifact && !(await entry.authorizeArtifact(entry.v2Artifact))) {
         throw new Error('artifact_revoked: Approved artifact is no longer authorized for rendering');

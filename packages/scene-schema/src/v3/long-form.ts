@@ -26,6 +26,10 @@ export function framesToSeconds(frames: number, fps: number = 24): number {
   return Number((frames / fps).toFixed(3));
 }
 
+export function isLongFormDuration(seconds: number): boolean {
+  return seconds >= 60;
+}
+
 // 1. Long-Form Lesson Request
 export const LongFormLessonRequestV3Schema = z.object({
   requestId: SafeIdString,

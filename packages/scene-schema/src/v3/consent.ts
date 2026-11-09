@@ -9,7 +9,7 @@ function generateConsentId(): string {
   }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeCrypto = require('node:crypto');
+    const nodeCrypto = require('crypto');
     return `cst_${nodeCrypto.randomBytes(12).toString('hex')}`;
   } catch {
     throw new Error('secure_random_unavailable: Cryptographically secure random number generator is required');

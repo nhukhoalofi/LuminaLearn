@@ -13,7 +13,7 @@ export const LessonRequestV3Schema = z.object({
   topic: NoExecutableString,
   domain: z.enum(['mathematics', 'artificial_intelligence']),
   generationMode: GenerationModeV3Schema,
-  targetDurationSeconds: z.number().int().min(20).max(300).default(35),
+  targetDurationSeconds: z.number().int().min(20).max(600).default(35),
   narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   // Phase 4 exposes one honest, fully tested vertical-video profile. Supporting

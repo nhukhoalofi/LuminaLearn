@@ -10,7 +10,7 @@ import {
   LongFormRenderCoordinatorV3,
   SegmentCacheV3,
   RenderCheckpointRepositoryV3,
-  SegmentRenderWorkerV3,
+  SyntheticMediaFixtureWorkerV3,
   LongFormMediaAssemblerV3,
   probeMediaWithFFprobe
 } from '../src';
@@ -45,7 +45,10 @@ function makeMockStoryboard(totalSeconds: number): EducationalStoryboardV3 {
       visualPayload: {
         sceneType: 'concept_intro',
         centralQuestion: 'Khái niệm là gì?',
-        keyConcept: 'Trực quan hóa'
+        keyConcept: 'Trực quan hóa',
+        visualStyleId: 'clean_educational_infographic',
+        accentColor: '#38BDF8',
+        reducedMotion: false
       }
     });
   }
@@ -106,7 +109,7 @@ test('PHASE 6: SegmentCacheV3 content-addressable caching, hit/miss, and corrupt
     assert.equal(initialGet, undefined);
 
     // 2. Render dummy valid segment file and set into cache
-    const worker = new SegmentRenderWorkerV3();
+    const worker = new SyntheticMediaFixtureWorkerV3();
     const rendered = await worker.renderSegment(segment, manifest, tempDir);
     const cachedPath = await cache.set(cacheKey, rendered.outputPath);
     assert.ok(cachedPath);
@@ -141,7 +144,8 @@ test('PHASE 6: End-to-End Resumable Segment Rendering & FFmpeg Concatenation (60
 
     const cache = new SegmentCacheV3({ cacheDir });
     const checkpointRepo = new RenderCheckpointRepositoryV3({ storageDir: checkpointDir });
-    const coordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo });
+    const worker = new SyntheticMediaFixtureWorkerV3();
+    const coordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo, worker });
 
     const jobId = 'job_test_resume_60s';
 
@@ -197,7 +201,8 @@ test('PHASE 6: 180-second multi-segment render acceptance', async () => {
 
     const coordinator = new LongFormRenderCoordinatorV3({
       cache: new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') }),
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
@@ -227,7 +232,8 @@ test('PHASE 6: 300-second (5 min) long-form multi-segment render acceptance with
     const cache = new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') });
     const coordinator = new LongFormRenderCoordinatorV3({
       cache,
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
@@ -260,7 +266,8 @@ test('PHASE 6: 600-second (10 min) masterclass segmented render and manifest con
 
     const coordinator = new LongFormRenderCoordinatorV3({
       cache: new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') }),
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
