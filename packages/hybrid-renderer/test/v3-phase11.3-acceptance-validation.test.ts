@@ -53,6 +53,10 @@ function createBaseValidInput(mode: 'offline' | 'real-tts' = 'offline'): Validat
       audioClassification: mode === 'offline' ? 'silent_fixture' : 'audible_voice'
     },
     srtContent: `1\n00:00:01,000 --> 00:00:05,000\nChào mừng các bạn đến với bài học.\n\n2\n00:00:06,000 --> 00:00:10,000\nNội dung tiếp theo.\n`,
+    burnedSubtitleCues: [
+      { sceneId: 'scene_1', text: 'Chào mừng các bạn đến với bài học.', startFrame: 24, endFrame: 120 },
+      { sceneId: 'scene_1', text: 'Nội dung tiếp theo.', startFrame: 144, endFrame: 240 }
+    ],
     resolvedTimelineContent: JSON.stringify({
       schemaVersion: 'resolved-presentation-timeline-v1',
       sourceArtifactId: 'art_valid_123',
@@ -60,7 +64,17 @@ function createBaseValidInput(mode: 'offline' | 'real-tts' = 'offline'): Validat
       approvedDraftVersion: 1,
       fps: 24,
       totalFrames: 1440,
-      scenes: []
+      audioProvenance: {
+        audioClassification: mode === 'offline' ? 'silent_fixture' : 'audible_non_silent'
+      },
+      scenes: [{
+        sceneId: 'scene_1',
+        startFrame: 0,
+        durationFrames: 1440,
+        endFrame: 1440,
+        speechStartFrame: 24,
+        speechEndFrame: 240
+      }]
     })
   };
 }
@@ -70,7 +84,7 @@ describe('Phase 11.3 — Acceptance Artifacts Validation & Fail-Closed Checks', 
     const input = createBaseValidInput('offline');
     const result = validateAcceptanceArtifactsV3(input);
 
-    assert.equal(result.valid, true);
+    assert.equal(result.valid, true, result.errors.join('\n'));
     assert.equal(result.errors.length, 0);
     assert.equal(result.metrics.videoCodec, 'h264');
     assert.equal(result.metrics.audioCodec, 'aac');
@@ -83,7 +97,7 @@ describe('Phase 11.3 — Acceptance Artifacts Validation & Fail-Closed Checks', 
     const input = createBaseValidInput('real-tts');
     const result = validateAcceptanceArtifactsV3(input);
 
-    assert.equal(result.valid, true);
+    assert.equal(result.valid, true, result.errors.join('\n'));
     assert.equal(result.errors.length, 0);
     assert.equal(result.metrics.audioClassification, 'audible_voice');
   });
@@ -209,5 +223,52 @@ describe('Phase 11.3 — Acceptance Artifacts Validation & Fail-Closed Checks', 
 
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((e) => e.includes('unexpected_silent_signal_in_real_tts_mode')));
+  });
+
+  it('15. Rejects out-of-order and overlapping SRT cues', () => {
+    const input = createBaseValidInput();
+    input.srtContent = `1\n00:00:06,000 --> 00:00:10,000\nMột\n\n2\n00:00:04,000 --> 00:00:08,000\nHai\n`;
+    input.burnedSubtitleCues = [
+      { sceneId: 'scene_1', text: 'Một', startFrame: 144, endFrame: 240 },
+      { sceneId: 'scene_1', text: 'Hai', startFrame: 96, endFrame: 192 }
+    ];
+    const result = validateAcceptanceArtifactsV3(input);
+    assert.ok(result.errors.some((error) => error.includes('subtitle_cue_out_of_order')));
+    assert.ok(result.errors.some((error) => error.includes('subtitle_cue_overlap')));
+  });
+
+  it('16. Rejects subtitle cues outside presentation and scene bounds', () => {
+    const input = createBaseValidInput();
+    input.srtContent = `1\n00:00:59,000 --> 00:01:01,000\nNgoài biên\n`;
+    input.burnedSubtitleCues = [{ sceneId: 'scene_1', text: 'Ngoài biên', startFrame: 1416, endFrame: 1464 }];
+    const result = validateAcceptanceArtifactsV3(input);
+    assert.ok(result.errors.some((error) => error.includes('subtitle_cue_out_of_bounds')));
+    assert.ok(result.errors.some((error) => error.includes('subtitle_scene_bounds_error')));
+  });
+
+  it('17. Rejects burned subtitle text/timing that differs from SRT', () => {
+    const input = createBaseValidInput();
+    input.burnedSubtitleCues[0].text = 'Nội dung đã bị đổi';
+    const result = validateAcceptanceArtifactsV3(input);
+    assert.ok(result.errors.some((error) => error.includes('subtitle_parity_mismatch')));
+  });
+
+  it('18. Rejects discontinuous resolved scene timing', () => {
+    const input = createBaseValidInput();
+    const timeline = JSON.parse(input.resolvedTimelineContent);
+    timeline.scenes = [
+      { sceneId: 'scene_1', startFrame: 0, durationFrames: 700, endFrame: 700, speechStartFrame: 24, speechEndFrame: 240 },
+      { sceneId: 'scene_2', startFrame: 701, durationFrames: 739, endFrame: 1440, speechStartFrame: 701, speechEndFrame: 800 }
+    ];
+    input.resolvedTimelineContent = JSON.stringify(timeline);
+    const result = validateAcceptanceArtifactsV3(input);
+    assert.ok(result.errors.some((error) => error.includes('timeline_scene_continuity_error')));
+  });
+
+  it('19. Rejects contradictory audio classification metadata', () => {
+    const input = createBaseValidInput('offline');
+    input.audioSignal = { meanVolumeDb: -20, maxVolumeDb: -2, isSilent: false, audioClassification: 'audible_voice' };
+    const result = validateAcceptanceArtifactsV3(input);
+    assert.ok(result.errors.some((error) => error.includes('unexpected_audible_signal_in_offline_mock')));
   });
 });

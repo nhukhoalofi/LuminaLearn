@@ -26,6 +26,10 @@ type Scene = {
 type AgentTask = { taskId: string; role: string; title: string; status: string; validationStatus: string; durationMs?: number };
 type SupervisorTrace = { supervisorRunId: string; status: string; elapsedMs: number; humanReadableSummary: string; tasks: AgentTask[] };
 type Chapter = { chapterId: string; chapterTitle: string; durationSeconds: number; sceneIds?: string[] };
+type PedagogicalBeat = { beatId: string; sceneId: string; learningObjective: string; pedagogicalIntent: string; educationalQuestion: string; visualIntent: string; expectedLearnerTakeaway: string; contentValidationStatus: string };
+type WorkedExample = { exampleId: string; title: string; sourceExpression: string; verificationStatus: string; steps: Array<{ stepId: string; displayExpression: string; narrationText: string; verificationStatus: string }> };
+type QualityFinding = { findingId: string; code: string; status: string; message: string; sceneId?: string; remediation?: string };
+type VisualIntentMapping = { visualIntent: string; recommendedActions: string[]; readiness: string; reviewReason?: string };
 type Draft = {
   draftId: string;
   version: number;
@@ -40,6 +44,13 @@ type Draft = {
     storyboard?: { totalDurationSeconds: number; scenes: Scene[]; chapters?: Chapter[] };
     validationReport?: { overallStatus: string; requiresHumanPedagogicalSignoff: boolean };
     capabilityReport: { renderReadiness: string; limitations: string[] };
+    learningMode?: string;
+    targetLearners?: string;
+    pedagogicalBeats?: PedagogicalBeat[];
+    workedExamples?: WorkedExample[];
+    educationalQuality?: { overallStatus: string; findings: QualityFinding[] };
+    visualIntentMappings?: VisualIntentMapping[];
+    retrievalQuestion?: string;
   };
 };
 type Job = { jobId: string; status: string; progress: number; message: string; videoUrl?: string; error?: string };
@@ -529,6 +540,48 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             const objectives = draft.lessonPlan.learningObjectives.map((item, i) => i === index ? event.target.value : item);
             setDraft({ ...draft, lessonPlan: { ...draft.lessonPlan, learningObjectives: objectives } });
           }} />)}
+
+          <section aria-label="Cấu trúc sư phạm V3" style={{ margin: '16px 0', padding: 14, border: '1px solid #334155', borderRadius: 10, background: 'rgba(15, 23, 42, 0.55)' }}>
+            <h3 style={{ marginTop: 0 }}>Đề cương sư phạm & chất lượng</h3>
+            <p><strong>Chế độ học:</strong> {draft.lessonPlan.learningMode ?? 'chưa phân loại'}{draft.lessonPlan.targetLearners ? ` · ${draft.lessonPlan.targetLearners}` : ''}</p>
+            <details open>
+              <summary style={{ cursor: 'pointer', color: '#7DD3FC' }}>Pedagogical beats ({draft.lessonPlan.pedagogicalBeats?.length ?? 0})</summary>
+              <ol style={{ paddingLeft: 22 }}>
+                {(draft.lessonPlan.pedagogicalBeats ?? []).map((beat) => (
+                  <li key={beat.beatId} style={{ margin: '8px 0' }}>
+                    <strong>{beat.learningObjective}</strong>
+                    <div style={{ color: '#CBD5E1', fontSize: 13 }}>{beat.educationalQuestion}</div>
+                    <small>{beat.pedagogicalIntent} · {beat.visualIntent} · {beat.contentValidationStatus}</small>
+                  </li>
+                ))}
+              </ol>
+            </details>
+            <details>
+              <summary style={{ cursor: 'pointer', color: '#7DD3FC' }}>Worked examples ({draft.lessonPlan.workedExamples?.length ?? 0})</summary>
+              {(draft.lessonPlan.workedExamples ?? []).map((example) => (
+                <article key={example.exampleId} style={{ marginTop: 8, padding: 10, borderLeft: '3px solid #38BDF8' }}>
+                  <strong>{example.title}</strong> · {example.verificationStatus}
+                  <code style={{ display: 'block', margin: '6px 0', overflowWrap: 'anywhere' }}>{example.sourceExpression}</code>
+                  <ol>{example.steps.map((step) => <li key={step.stepId}><code>{step.displayExpression}</code> — {step.narrationText} ({step.verificationStatus})</li>)}</ol>
+                </article>
+              ))}
+            </details>
+            <details open={draft.lessonPlan.educationalQuality?.overallStatus === 'BLOCKED' || draft.lessonPlan.educationalQuality?.overallStatus === 'NEEDS_REVIEW'}>
+              <summary style={{ cursor: 'pointer', color: '#7DD3FC' }}>Educational quality: {draft.lessonPlan.educationalQuality?.overallStatus ?? 'chưa kiểm tra'}</summary>
+              <ul>
+                {(draft.lessonPlan.educationalQuality?.findings ?? []).map((finding) => (
+                  <li key={finding.findingId} style={{ color: finding.status === 'BLOCKED' ? '#F87171' : finding.status === 'NEEDS_REVIEW' ? '#FBBF24' : '#CBD5E1' }}>
+                    <strong>{finding.status}</strong> · {finding.message}{finding.remediation ? ` — ${finding.remediation}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </details>
+            <details>
+              <summary style={{ cursor: 'pointer', color: '#7DD3FC' }}>Visual explanation intents</summary>
+              <ul>{(draft.lessonPlan.visualIntentMappings ?? []).map((mapping) => <li key={mapping.visualIntent}><strong>{mapping.visualIntent}</strong>: {mapping.recommendedActions.join(', ')} · {mapping.readiness}{mapping.reviewReason ? ` — ${mapping.reviewReason}` : ''}</li>)}</ul>
+            </details>
+            {draft.lessonPlan.retrievalQuestion && <p><strong>Câu hỏi truy hồi:</strong> {draft.lessonPlan.retrievalQuestion}</p>}
+          </section>
 
           {/* CHECKPOINT F: SymPy Mathematical Verification Panel */}
           <MathematicalVerificationPanelV3

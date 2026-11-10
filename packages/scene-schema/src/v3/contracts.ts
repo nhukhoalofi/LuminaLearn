@@ -6,6 +6,13 @@ import {
   TopicCapabilityReportV3Schema
 } from './capability';
 import { EducationalVisualPayloadSchema, VisualSceneDefinitionV3Schema, type EducationalVisualPayload } from './visual-dsl';
+import {
+  EducationalQualityReportV1Schema,
+  LearningModeV1Schema,
+  PedagogicalBeatV1Schema,
+  VerifiedScientificExampleV1Schema,
+  VisualIntentMappingV1Schema
+} from './pedagogy';
 
 export const LESSON_SCHEMA_VERSION_V3 = 'lesson-v3' as const;
 export const GenerationProvenanceV3Schema = z.enum(['deterministic_mock', 'ai_generated_live']);
@@ -219,7 +226,15 @@ export const EducationalLessonPlanV3Schema = z.object({
   capabilityReport: TopicCapabilityReportV3Schema,
   validationReport: KnowledgeValidationReportV3Schema.optional(),
   sourceEvidence: z.array(GroundingEvidenceSchema).default([]),
-  storyboard: EducationalStoryboardV3Schema.optional()
+  storyboard: EducationalStoryboardV3Schema.optional(),
+  learningMode: LearningModeV1Schema.optional(),
+  targetLearners: NoExecutableString.optional(),
+  commonMisconceptions: z.array(NoExecutableString).max(8).optional(),
+  pedagogicalBeats: z.array(PedagogicalBeatV1Schema).max(120).optional(),
+  workedExamples: z.array(VerifiedScientificExampleV1Schema).max(12).optional(),
+  visualIntentMappings: z.array(VisualIntentMappingV1Schema).max(24).optional(),
+  educationalQuality: EducationalQualityReportV1Schema.optional(),
+  retrievalQuestion: NoExecutableString.optional()
 }).strict().superRefine((plan, ctx) => {
   // Đảm bảo không trùng ID mệnh đề
   const seenIds = new Set<string>();
@@ -251,6 +266,20 @@ export const EducationalLessonPlanV3Schema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['validationReport', 'claimReports'], message: 'Validation report phải ánh xạ chính xác một lần cho mọi claim' });
     }
   }
+  const sceneIds = new Set(plan.storyboard?.scenes.map((scene) => scene.sceneId) ?? []);
+  const exampleIds = new Set(plan.workedExamples?.map((example) => example.exampleId) ?? []);
+  plan.pedagogicalBeats?.forEach((beat, beatIndex) => {
+    if (!sceneIds.has(beat.sceneId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pedagogicalBeats', beatIndex, 'sceneId'], message: `Beat tham chiếu scene không tồn tại: ${beat.sceneId}` });
+    beat.conceptOrClaimIds.forEach((id, idIndex) => {
+      if (!claimIds.has(id) && !plan.keyConcepts.includes(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pedagogicalBeats', beatIndex, 'conceptOrClaimIds', idIndex], message: `Beat tham chiếu claim hoặc khái niệm không tồn tại: ${id}` });
+    });
+    beat.workedExampleReferences.forEach((id, idIndex) => {
+      if (!exampleIds.has(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pedagogicalBeats', beatIndex, 'workedExampleReferences', idIndex], message: `Beat tham chiếu ví dụ không tồn tại: ${id}` });
+    });
+  });
+  plan.workedExamples?.forEach((example, exampleIndex) => example.conceptOrClaimIds.forEach((id, idIndex) => {
+    if (!claimIds.has(id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['workedExamples', exampleIndex, 'conceptOrClaimIds', idIndex], message: `Ví dụ tham chiếu claim không tồn tại: ${id}` });
+  }));
 });
 
 export type EducationalLessonPlanV3 = z.infer<typeof EducationalLessonPlanV3Schema>;

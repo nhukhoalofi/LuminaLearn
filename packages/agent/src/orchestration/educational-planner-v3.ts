@@ -15,6 +15,7 @@ import type { AIProvider } from './ai-provider';
 import type { DocumentAnalysisResult } from './types';
 import { KnowledgeValidationServiceV3, validateAlgebraSceneMath } from './knowledge-validation-v3';
 import { normalizeStoryboardTimelineV3, buildChaptersForScenes } from './timeline-normalizer-v3';
+import { directEducationalLessonV3 } from './universal-educational-director-v3';
 export { buildChaptersForScenes };
 
 export interface EducationalPlannerV3Options {
@@ -157,7 +158,11 @@ export class EducationalPlannerV3 {
     }
 
     // Bước 5: Xác thực qua Zod Schema V3 chặt chẽ
-    return EducationalLessonPlanV3Schema.parse(candidatePlan);
+    const directedPlan = directEducationalLessonV3(candidatePlan, {
+      targetLearners: audience,
+      targetDurationSeconds
+    });
+    return EducationalLessonPlanV3Schema.parse(directedPlan);
   }
 
   /**

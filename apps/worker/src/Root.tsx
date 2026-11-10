@@ -22,6 +22,7 @@ import { perceptronStoryboardV3 } from './fixtures/v3/perceptron-v3';
 import { gradientDescentStoryboardV3 } from './fixtures/v3/gradient-descent-v3';
 import { attentionStoryboardV3 } from './fixtures/v3/attention-v3';
 import { visualDslFixtureV3 } from './fixtures/v3/visual-dsl-v3';
+import { mathTypographySceneV3 } from './fixtures/v3/math-typography-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -145,6 +146,16 @@ export const Root: React.FC = () => {
         height={1280}
         schema={VisualDslCompositionV3Schema}
         defaultProps={{ definition: visualDslFixtureV3 }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="MathTypographyQaV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={240}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: mathTypographySceneV3, subtitlesEnabled: true }}
       />
     </>
   );

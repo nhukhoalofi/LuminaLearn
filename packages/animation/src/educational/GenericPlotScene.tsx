@@ -1,6 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { GenericSceneVisualPayload } from '@luminalearn/scene-schema';
+import { MathExpression } from './MathExpression';
 
 export interface GenericPlotSceneProps {
   title: string;
@@ -92,15 +93,13 @@ export const GenericPlotScene: React.FC<GenericPlotSceneProps> = ({
               color: '#F8FAFC',
               fontSize: 28,
               fontWeight: 800,
-              fontFamily: 'monospace',
-              letterSpacing: 1,
               textAlign: 'center',
               marginBottom: 16,
               maxWidth: '100%',
               overflowWrap: 'break-word'
             }}
           >
-            {payload.formulaTex}
+            <MathExpression expression={payload.formulaTex} fontSize={32} maxWidthPx={560} />
           </div>
         )}
 

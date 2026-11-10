@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LessonDraftManagerV3 } from '@luminalearn/agent';
+import { issueExternalApiConsentV3 } from '@luminalearn/scene-schema';
 import {
   MockTtsProvider,
   isTrustedOfflineTtsFixture,
@@ -85,6 +86,78 @@ test('STEP 5 & 6: Provider Consent Hardening & Subtitle Cue Synchronization (Pha
         return true;
       }
     );
+  });
+
+  await t.test('2b. Artifact-bound consent is checked at the pipeline boundary before injected synthesis', async () => {
+    const signingKeyBefore = process.env.LUMINA_CONSENT_SIGNING_KEY;
+    process.env.LUMINA_CONSENT_SIGNING_KEY = 'quality_sprint_a_test_signing_key_at_least_32_chars';
+    try {
+      const manager = new LessonDraftManagerV3();
+      let draft = await manager.create({
+        requestId: `req_consent_boundary_${Date.now()}`,
+        topic: '7 hằng đẳng thức đáng nhớ',
+        domain: 'mathematics',
+        generationMode: 'mock',
+        targetDurationSeconds: 60,
+        narrationMode: 'google_cloud_tts',
+        subtitlesEnabled: true,
+        fps: 24,
+        width: 720,
+        height: 1280
+      }, 'teacher_consent_boundary');
+      draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_consent_boundary', draft.version);
+      draft = await manager.approve(draft.draftId, 'teacher_consent_boundary', draft.version, 'Consent boundary regression');
+      const artifact = draft.approvedArtifact!;
+      let synthesisReached = false;
+      const injectedProvider: TtsProvider = {
+        id: 'fake_external_provider',
+        requiresExternalConsent: true,
+        synthesize: async () => {
+          synthesisReached = true;
+          throw new Error('fake_synthesis_reached');
+        }
+      };
+      const consentRecord = issueExternalApiConsentV3({
+        ownerId: artifact.ownerId,
+        provider: 'google_cloud_tts',
+        operation: 'narration',
+        artifactId: artifact.artifactId,
+        artifactVersion: artifact.approvedVersion,
+        contentHash: artifact.contentHash,
+        isLiveOperation: true
+      });
+      await assert.rejects(
+        () => runRenderPipelineV3(artifact, {
+          jobId: `job_consent_boundary_${Date.now()}`,
+          authorizeArtifact: async () => true,
+          ttsProvider: injectedProvider,
+          consentRecord
+        }),
+        /fake_synthesis_reached/
+      );
+      assert.equal(synthesisReached, true, 'A valid artifact-bound record must pass the real pipeline boundary');
+
+      const unbound = issueExternalApiConsentV3({
+        ownerId: artifact.ownerId,
+        provider: 'google_cloud_tts',
+        operation: 'narration',
+        isLiveOperation: true
+      });
+      synthesisReached = false;
+      await assert.rejects(
+        () => runRenderPipelineV3(artifact, {
+          jobId: `job_consent_unbound_${Date.now()}`,
+          authorizeArtifact: async () => true,
+          ttsProvider: injectedProvider,
+          consentRecord: unbound
+        }),
+        /external_api_consent_rejected/
+      );
+      assert.equal(synthesisReached, false, 'Unbound consent must fail before provider execution');
+    } finally {
+      if (signingKeyBefore === undefined) delete process.env.LUMINA_CONSENT_SIGNING_KEY;
+      else process.env.LUMINA_CONSENT_SIGNING_KEY = signingKeyBefore;
+    }
   });
 
   await t.test('3. Remotion props and subtitles.srt share exact authoritative speech cues', async () => {

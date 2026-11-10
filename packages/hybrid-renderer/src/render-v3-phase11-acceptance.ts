@@ -22,7 +22,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LessonDraftManagerV3 } from '@luminalearn/agent';
-import { issueExternalApiConsentV3 } from '@luminalearn/scene-schema';
+import { issueExternalApiConsentV3, type ExternalApiConsentRecordV3 } from '@luminalearn/scene-schema';
 import { runRenderPipelineV3 } from './pipeline-v3';
 import { MockTtsProvider, probeAudioSignal } from './audio';
 import { GeminiTtsProvider } from './gemini-tts';
@@ -70,6 +70,12 @@ export interface ValidateAcceptanceInput {
   };
   srtContent: string;
   resolvedTimelineContent: string;
+  burnedSubtitleCues: Array<{
+    sceneId: string;
+    text: string;
+    startFrame: number;
+    endFrame: number;
+  }>;
 }
 
 export interface AcceptanceValidationReport {
@@ -92,6 +98,28 @@ export interface AcceptanceValidationReport {
   };
 }
 
+interface ParsedSrtCue {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
+function parseSrtCues(content: string): ParsedSrtCue[] | null {
+  const blocks = content.replace(/\r/g, '').trim().split(/\n{2,}/).filter(Boolean);
+  const cues: ParsedSrtCue[] = [];
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const timestampIndex = lines.findIndex((line) => line.includes('-->'));
+    if (timestampIndex < 0) return null;
+    const match = lines[timestampIndex].match(/^(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})$/);
+    if (!match) return null;
+    const text = lines.slice(timestampIndex + 1).join('\n').trim();
+    if (!text) return null;
+    cues.push({ text, startMs: parseSrtTimestampToMs(match[1]), endMs: parseSrtTimestampToMs(match[2]) });
+  }
+  return cues;
+}
+
 /**
  * Pure, fail-closed media & timeline acceptance assertion function.
  * Validates codec, resolution, framerate, duration tolerance, subtitles, and audio classification.
@@ -108,7 +136,8 @@ export function validateAcceptanceArtifactsV3(
     probeData,
     audioSignal,
     srtContent,
-    resolvedTimelineContent
+    resolvedTimelineContent,
+    burnedSubtitleCues
   } = input;
 
   const errors: string[] = [];
@@ -172,23 +201,36 @@ export function validateAcceptanceArtifactsV3(
   }
 
   // 4. Subtitle Checks
+  let parsedSrtCues: ParsedSrtCue[] = [];
   if (!srtContent || srtContent.trim().length === 0) {
     errors.push('empty_subtitles_srt: subtitles.srt is missing or empty');
   } else {
-    const cues = srtContent.match(/-->/g) || [];
-    if (cues.length === 0) {
-      errors.push('invalid_subtitles_srt: No valid subtitle cues found in subtitles.srt');
-    }
-
-    // Check timestamps ordering
-    const timestampMatches = [...srtContent.matchAll(/(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/g)];
-    for (let i = 0; i < timestampMatches.length; i++) {
-      const startMs = parseSrtTimestampToMs(timestampMatches[i][1]);
-      const endMs = parseSrtTimestampToMs(timestampMatches[i][2]);
-      if (endMs <= startMs) {
-        errors.push(`invalid_subtitle_cue_timestamp: Cue ${i + 1} has start (${timestampMatches[i][1]}) >= end (${timestampMatches[i][2]})`);
+    const parsed = parseSrtCues(srtContent);
+    if (!parsed || parsed.length === 0) {
+      errors.push('invalid_subtitles_srt: No complete subtitle cues found in subtitles.srt');
+    } else {
+      parsedSrtCues = parsed;
+      for (let i = 0; i < parsed.length; i++) {
+        const cue = parsed[i];
+        if (cue.endMs <= cue.startMs) errors.push(`invalid_subtitle_cue_timestamp: Cue ${i + 1} has start >= end`);
+        if (cue.startMs < 0 || cue.endMs > targetDurationSeconds * 1000 + 1) errors.push(`subtitle_cue_out_of_bounds: Cue ${i + 1} exceeds the presentation timeline`);
+        if (i > 0 && cue.startMs < parsed[i - 1].startMs) errors.push(`subtitle_cue_out_of_order: Cue ${i + 1} starts before cue ${i}`);
+        if (i > 0 && cue.startMs < parsed[i - 1].endMs) errors.push(`subtitle_cue_overlap: Cue ${i + 1} overlaps cue ${i}`);
       }
     }
+  }
+
+  if (!Array.isArray(burnedSubtitleCues) || burnedSubtitleCues.length !== parsedSrtCues.length) {
+    errors.push(`subtitle_parity_count_mismatch: Burned cues and SRT cues differ in count`);
+  } else {
+    parsedSrtCues.forEach((cue, index) => {
+      const burned = burnedSubtitleCues[index];
+      const startFrame = Math.round(cue.startMs * expectedFps / 1000);
+      const endFrame = Math.round(cue.endMs * expectedFps / 1000);
+      if (burned.text.trim() !== cue.text.trim() || Math.abs(burned.startFrame - startFrame) > 1 || Math.abs(burned.endFrame - endFrame) > 1) {
+        errors.push(`subtitle_parity_mismatch: Burned cue ${index + 1} does not match SRT text/timing`);
+      }
+    });
   }
 
   // 5. Resolved Presentation Timeline Audit
@@ -209,17 +251,40 @@ export function validateAcceptanceArtifactsV3(
     if (Math.abs(resolvedTimelineJson.totalFrames - targetDurationSeconds * expectedFps) > 1) {
       errors.push(`timeline_total_frames_mismatch: Expected ${targetDurationSeconds * expectedFps}, found ${resolvedTimelineJson.totalFrames}`);
     }
+    if (resolvedTimelineJson.fps !== expectedFps) errors.push(`timeline_fps_mismatch: Expected ${expectedFps}, found ${resolvedTimelineJson.fps}`);
+    if (!Array.isArray(resolvedTimelineJson.scenes) || resolvedTimelineJson.scenes.length === 0) {
+      errors.push('timeline_scenes_missing: Resolved timeline must contain measured scene timings');
+    } else {
+      let cursor = 0;
+      const sceneIds = new Set<string>();
+      for (let index = 0; index < resolvedTimelineJson.scenes.length; index++) {
+        const scene = resolvedTimelineJson.scenes[index];
+        if (!scene || typeof scene.sceneId !== 'string' || sceneIds.has(scene.sceneId)) errors.push(`timeline_scene_invalid: Scene ${index + 1} has a missing or duplicate ID`);
+        else sceneIds.add(scene.sceneId);
+        if (!Number.isInteger(scene.startFrame) || !Number.isInteger(scene.endFrame) || !Number.isInteger(scene.durationFrames)) errors.push(`timeline_scene_frames_invalid: Scene ${scene.sceneId ?? index + 1} has non-integer frame bounds`);
+        if (scene.startFrame !== cursor || scene.endFrame !== scene.startFrame + scene.durationFrames || scene.durationFrames <= 0) errors.push(`timeline_scene_continuity_error: Scene ${scene.sceneId ?? index + 1} is not contiguous`);
+        if (scene.speechStartFrame < scene.startFrame || scene.speechEndFrame > scene.endFrame || scene.speechEndFrame < scene.speechStartFrame) errors.push(`timeline_speech_bounds_error: Scene ${scene.sceneId ?? index + 1} has speech outside scene bounds`);
+        cursor = scene.endFrame;
+      }
+      if (cursor !== resolvedTimelineJson.totalFrames) errors.push(`timeline_scene_coverage_error: Resolved scenes end at frame ${cursor}, expected ${resolvedTimelineJson.totalFrames}`);
+      burnedSubtitleCues.forEach((cue, index) => {
+        const scene = resolvedTimelineJson.scenes.find((item: any) => item.sceneId === cue.sceneId);
+        if (!scene || cue.startFrame < scene.startFrame || cue.endFrame > scene.endFrame) errors.push(`subtitle_scene_bounds_error: Cue ${index + 1} is outside its resolved scene`);
+      });
+    }
   }
 
   // 6. Audio Signal Classification Checks
   if (expectedMode === 'offline') {
-    if (!audioSignal.isSilent && audioSignal.audioClassification !== 'silent_fixture') {
+    if (!audioSignal.isSilent || audioSignal.audioClassification !== 'silent_fixture') {
       errors.push(`unexpected_audible_signal_in_offline_mock: Expected silent_fixture, got ${audioSignal.audioClassification} (meanVolume: ${audioSignal.meanVolumeDb}dB)`);
     }
+    if (resolvedTimelineJson?.audioProvenance?.audioClassification !== 'silent_fixture') errors.push('audio_classification_mismatch: Offline timeline provenance must be silent_fixture');
   } else if (expectedMode === 'real-tts') {
-    if (audioSignal.isSilent || audioSignal.meanVolumeDb < -50 || audioSignal.audioClassification === 'silent_fixture') {
+    if (audioSignal.isSilent || audioSignal.meanVolumeDb < -50 || !['audible_voice', 'audible_non_silent'].includes(audioSignal.audioClassification)) {
       errors.push(`unexpected_silent_signal_in_real_tts_mode: Real TTS output is silent (meanVolume: ${audioSignal.meanVolumeDb}dB, classification: ${audioSignal.audioClassification})`);
     }
+    if (resolvedTimelineJson?.audioProvenance?.audioClassification !== 'audible_non_silent') errors.push('audio_classification_mismatch: Real-TTS timeline provenance must be audible_non_silent');
   }
 
   return {
@@ -234,7 +299,7 @@ export function validateAcceptanceArtifactsV3(
       audioDuration,
       durationDelta,
       totalFrames: Math.round(videoDuration * expectedFps),
-      srtCueCount: (srtContent.match(/-->/g) || []).length,
+      srtCueCount: parsedSrtCues.length,
       audioClassification: audioSignal.audioClassification,
       meanVolumeDb: audioSignal.meanVolumeDb,
       maxVolumeDb: audioSignal.maxVolumeDb,
@@ -333,6 +398,7 @@ export async function runScenarioA(
   const artifact = draft.approvedArtifact!;
 
   let ttsProvider: any;
+  let consentRecord: ExternalApiConsentRecordV3 | undefined;
   let realNarrationStatus: 'REAL_TTS_PASSED' | 'BLOCKED_REAL_TTS' | 'REAL_TTS_FAILED' = 'BLOCKED_REAL_TTS';
   let realNarrationBlockReason: string | undefined;
 
@@ -372,16 +438,18 @@ export async function runScenarioA(
       };
     }
 
-    const consentRecord = issueExternalApiConsentV3({
+    consentRecord = issueExternalApiConsentV3({
       ownerId: 'teacher_math_pilot',
-      provider: 'gemini',
+      provider: 'gemini_tts',
       operation: 'narration',
       requestId: `req_speech_${Date.now()}`,
+      artifactId: artifact.artifactId,
+      artifactVersion: artifact.approvedVersion,
+      contentHash: artifact.contentHash,
       isLiveOperation: true
     });
     ttsProvider = new GeminiTtsProvider({
-      apiKey: process.env.GEMINI_API_KEY,
-      consentRecord
+      apiKey: process.env.GEMINI_API_KEY
     });
   } else {
     ttsProvider = new MockTtsProvider(2.5);
@@ -393,6 +461,7 @@ export async function runScenarioA(
     jobId,
     authorizeArtifact: async () => true,
     ttsProvider,
+    consentRecord,
     onStage: (stage) => console.log(`   [Pipeline Stage]: ${stage}`)
   });
 
@@ -402,6 +471,15 @@ export async function runScenarioA(
   const srtContent = await readFile(srtPath, 'utf8').catch(() => '');
   const resolvedTimelinePath = resolve(dirname(outputPath), 'resolved-presentation-timeline.json');
   const resolvedTimelineContent = await readFile(resolvedTimelinePath, 'utf8').catch(() => '');
+  const propsContent = await readFile(resolve(dirname(outputPath), 'v3-input-props.json'), 'utf8').catch(() => '{}');
+  const burnedSubtitleCues = (() => {
+    try {
+      const value = JSON.parse(propsContent).subtitleCues;
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
+  })();
   const audioSignal = await probeAudioSignal(outputPath);
 
   console.log(`[4/4] Executing fail-closed acceptance assertions...`);
@@ -415,7 +493,8 @@ export async function runScenarioA(
     probeData,
     audioSignal,
     srtContent,
-    resolvedTimelineContent
+    resolvedTimelineContent,
+    burnedSubtitleCues
   });
 
   if (!validation.valid) {
@@ -504,6 +583,7 @@ export async function runScenarioB(
   const artifact = draft.approvedArtifact!;
 
   let ttsProvider: any;
+  let consentRecord: ExternalApiConsentRecordV3 | undefined;
   let realNarrationStatus: 'REAL_TTS_PASSED' | 'BLOCKED_REAL_TTS' | 'REAL_TTS_FAILED' = 'BLOCKED_REAL_TTS';
   let realNarrationBlockReason: string | undefined;
 
@@ -542,16 +622,18 @@ export async function runScenarioB(
       };
     }
 
-    const consentRecord = issueExternalApiConsentV3({
+    consentRecord = issueExternalApiConsentV3({
       ownerId: 'teacher_ai_pilot',
-      provider: 'gemini',
+      provider: 'gemini_tts',
       operation: 'narration',
       requestId: `req_speech_${Date.now()}`,
+      artifactId: artifact.artifactId,
+      artifactVersion: artifact.approvedVersion,
+      contentHash: artifact.contentHash,
       isLiveOperation: true
     });
     ttsProvider = new GeminiTtsProvider({
-      apiKey: process.env.GEMINI_API_KEY,
-      consentRecord
+      apiKey: process.env.GEMINI_API_KEY
     });
   } else {
     ttsProvider = new MockTtsProvider(2.5);
@@ -563,6 +645,7 @@ export async function runScenarioB(
     jobId,
     authorizeArtifact: async () => true,
     ttsProvider,
+    consentRecord,
     onStage: (stage) => console.log(`   [Pipeline Stage]: ${stage}`)
   });
 
@@ -572,6 +655,15 @@ export async function runScenarioB(
   const srtContent = await readFile(srtPath, 'utf8').catch(() => '');
   const resolvedTimelinePath = resolve(dirname(outputPath), 'resolved-presentation-timeline.json');
   const resolvedTimelineContent = await readFile(resolvedTimelinePath, 'utf8').catch(() => '');
+  const propsContent = await readFile(resolve(dirname(outputPath), 'v3-input-props.json'), 'utf8').catch(() => '{}');
+  const burnedSubtitleCues = (() => {
+    try {
+      const value = JSON.parse(propsContent).subtitleCues;
+      return Array.isArray(value) ? value : [];
+    } catch {
+      return [];
+    }
+  })();
   const audioSignal = await probeAudioSignal(outputPath);
 
   console.log(`[4/4] Executing fail-closed acceptance assertions...`);
@@ -585,7 +677,8 @@ export async function runScenarioB(
     probeData,
     audioSignal,
     srtContent,
-    resolvedTimelineContent
+    resolvedTimelineContent,
+    burnedSubtitleCues
   });
 
   if (!validation.valid) {
