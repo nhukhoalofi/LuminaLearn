@@ -127,6 +127,21 @@ export class MockTtsProvider implements TtsProvider {
   }
 }
 
+/**
+ * Server-controlled allowlist for offline test fixtures (Checkpoint STEP 6).
+ * Custom / injected providers cannot bypass consent by merely setting self-declared flags.
+ * Only explicitly registered deterministic offline fixtures may bypass external API consent.
+ */
+export function isTrustedOfflineTtsFixture(provider?: TtsProvider | null): boolean {
+  if (!provider) return false;
+  return (
+    provider instanceof MockTtsProvider &&
+    provider.id === 'mock_tts' &&
+    provider.isSilentFixture === true &&
+    provider.requiresExternalConsent === false
+  );
+}
+
 function runFfprobeAudio(filePath: string, timeoutMs = 30_000): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     execFile('ffprobe', [

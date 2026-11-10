@@ -60,26 +60,8 @@ function runCommand(
   });
 }
 
-/** Resolve an interpreter that can actually import the installed math engine.
- * An explicit PYTHON_EXECUTABLE is authoritative and never silently falls back.
- */
-export async function resolveMathEnginePython(timeoutMs = 10_000): Promise<string> {
-  const configured = process.env.PYTHON_EXECUTABLE?.trim();
-  const localVenv = process.platform === 'win32'
-    ? resolve(packageRoot, 'services/math-engine/.venv/Scripts/python.exe')
-    : resolve(packageRoot, 'services/math-engine/.venv/bin/python');
-  const candidates = configured ? [configured] : [localVenv, process.platform === 'win32' ? 'python' : 'python3', 'python'];
-  const failures: string[] = [];
-  for (const candidate of [...new Set(candidates)]) {
-    try {
-      await runCommand(candidate, ['-c', 'import luminalearn_math_engine; print(luminalearn_math_engine.__file__)'], timeoutMs);
-      return candidate;
-    } catch (error) {
-      failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  throw new Error(`math_engine_python_unavailable: No Python interpreter can import luminalearn_math_engine. ${failures.join(' | ')}`);
-}
+import { resolveMathEnginePython, clearPythonResolverCache } from './python-resolver';
+export { resolveMathEnginePython, clearPythonResolverCache };
 
 function assertUniqueFormalClaimKeys(claims: VerifiedClaim[]): void {
   const ids = new Set<string>();
@@ -418,7 +400,7 @@ abstract class BaseSymPyVerifier implements MathVerifier {
     const timeoutMs = options?.timeoutMs ?? 15_000;
     let python: string;
     try {
-      python = await resolveMathEnginePython(Math.min(timeoutMs, 10_000));
+      python = await resolveMathEnginePython({ timeoutMs: Math.min(timeoutMs, 10_000) });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return {

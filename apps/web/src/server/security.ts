@@ -18,6 +18,7 @@ export class SecurityError extends Error {
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 function extractHostname(hostHeaderOrUrl: string): string {
   const trimmed = hostHeaderOrUrl.trim().toLowerCase();
@@ -26,6 +27,22 @@ function extractHostname(hostHeaderOrUrl: string): string {
     return endBracket >= 0 ? trimmed.slice(0, endBracket + 1) : trimmed;
   }
   return trimmed.split(':', 1)[0];
+}
+
+function normalizeForwardedAddress(value: string): string {
+  let normalized = value.trim().toLowerCase();
+  if (normalized.startsWith('for=')) normalized = normalized.slice(4).trim();
+  if (normalized.startsWith('"') && normalized.endsWith('"')) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  if (normalized.startsWith('[')) {
+    const endBracket = normalized.indexOf(']');
+    return endBracket >= 0 ? normalized.slice(1, endBracket) : normalized;
+  }
+  if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(normalized)) {
+    return normalized.slice(0, normalized.lastIndexOf(':'));
+  }
+  return normalized;
 }
 
 export function isLoopbackRequest(req: Request): boolean {
@@ -46,12 +63,11 @@ export function isLoopbackRequest(req: Request): boolean {
 
   const forwardedFor = req.headers.get('x-forwarded-for');
   if (forwardedFor) {
-    if (process.env.LUMINA_TRUST_PROXY !== 'true') {
-      // Proxy headers are untrusted unless explicitly enabled via LUMINA_TRUST_PROXY
-      return false;
-    }
-    const hops = forwardedFor.split(',').map((ip) => ip.trim().toLowerCase());
-    if (hops.some((ip) => ip && !LOOPBACK_HOSTS.has(ip) && ip !== '::ffff:127.0.0.1')) {
+    // Next.js may add x-forwarded-for even for a direct development request.
+    // The header never establishes identity here: it is accepted only when every
+    // advertised hop is also loopback, and any external hop fails closed.
+    const hops = forwardedFor.split(',').map(normalizeForwardedAddress);
+    if (hops.length === 0 || hops.some((ip) => !ip || !LOOPBACK_ADDRESSES.has(ip))) {
       return false;
     }
   }

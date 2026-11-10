@@ -10,11 +10,19 @@ import {
   type ExternalApiConsentRecordV3,
   type EducationalStoryboardV3
 } from '@luminalearn/scene-schema';
-import { GoogleCloudTtsProvider, probeAudio, probeAudioSignal, type TtsProvider } from './audio';
+import { GoogleCloudTtsProvider, isTrustedOfflineTtsFixture, probeAudio, probeAudioSignal, type TtsProvider } from './audio';
 import { GeminiTtsProvider } from './gemini-tts';
 import { defaultSceneAudioSynchronizer } from './scene-audio-synchronizer';
 import type { SynchronizedStoryboardAudio } from './scene-audio-synchronizer';
-import { generateSrtFromStoryboardV3 } from './subtitles';
+import { srtTimestamp } from './subtitles';
+
+export interface SubtitleCueV3 {
+  cueId?: string;
+  sceneId: string;
+  text: string;
+  startFrame: number;
+  endFrame: number;
+}
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -44,15 +52,6 @@ function execute(command: string, args: string[], cwd = repositoryRoot): Promise
         ? reject(new Error(`v3_remotion_render_failed: ${stderr || stdout || error.message}`, { cause: error }))
         : resolvePromise());
   });
-}
-
-function srtTimestamp(seconds: number): string {
-  const ms = Math.round(seconds * 1000);
-  const hours = Math.floor(ms / 3_600_000);
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  const secs = Math.floor((ms % 60_000) / 1000);
-  const millis = ms % 1000;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
 }
 
 async function probeVideoDuration(videoPath: string): Promise<number> {
@@ -118,6 +117,7 @@ export async function runRenderPipelineV3(
   if (!verifyV3ArtifactIntegrity(artifact)) throw new Error('artifact_tampered: V3 content hash mismatch');
   if (!(await options.authorizeArtifact(artifact))) throw new Error('artifact_revoked: V3 artifact is no longer authorized');
   if (!artifact.lessonPlan.storyboard) throw new Error('v3_storyboard_missing');
+  const approvedStoryboard = artifact.lessonPlan.storyboard;
 
   const outputDir = resolve(repositoryRoot, 'outputs', options.jobId);
   await mkdir(outputDir, { recursive: true });
@@ -126,8 +126,9 @@ export async function runRenderPipelineV3(
   const rawVideoPath = resolve(outputDir, 'raw-video.mp4');
 
   const trustedProofContext = deriveTrustedProofContextV3(artifact);
-  let resolvedStoryboard: EducationalStoryboardV3 = structuredClone(artifact.lessonPlan.storyboard);
+  let resolvedStoryboard: EducationalStoryboardV3 = structuredClone(approvedStoryboard);
   let resolvedTimelineAudit: Record<string, unknown> | undefined;
+  let subtitleCues: SubtitleCueV3[] = [];
 
   // Audio handling
   let audioTrackPath: string | undefined;
@@ -171,9 +172,9 @@ export async function runRenderPipelineV3(
     const providerId = isGemini ? 'gemini_tts' : 'google_cloud_tts';
 
     const suppliedProvider = options.ttsProvider;
-    const requiresConsent = suppliedProvider?.requiresExternalConsent !== false && suppliedProvider?.isSilentFixture !== true;
+    const isOfflineFixture = isTrustedOfflineTtsFixture(suppliedProvider);
     // Consent is mandatory for every real/custom external provider, including injected providers.
-    if (requiresConsent) {
+    if (!isOfflineFixture) {
       if (!options.consentRecord) {
         throw new Error(`external_api_consent_required: Live narration mode '${artifact.request.narrationMode}' requires a valid signed consentRecord`);
       }
@@ -196,7 +197,7 @@ export async function runRenderPipelineV3(
     );
 
     const syncResult = await defaultSceneAudioSynchronizer.synchronizeStoryboard(
-      artifact.lessonPlan.storyboard.scenes.map((s) => ({
+      approvedStoryboard.scenes.map((s) => ({
         id: s.sceneId,
         durationSeconds: s.durationSeconds,
         narration: s.narration
@@ -218,7 +219,7 @@ export async function runRenderPipelineV3(
     }
     audioTrackPath = syncResult.masterAudioPath;
 
-    resolvedStoryboard = resolvePresentationStoryboardV3(artifact.lessonPlan.storyboard, syncResult);
+    resolvedStoryboard = resolvePresentationStoryboardV3(approvedStoryboard, syncResult);
     resolvedTimelineAudit = {
       schemaVersion: 'resolved-presentation-timeline-v1',
       sourceArtifactId: artifact.artifactId,
@@ -238,22 +239,59 @@ export async function runRenderPipelineV3(
     };
     await writeFile(resolve(outputDir, 'resolved-presentation-timeline.json'), JSON.stringify(resolvedTimelineAudit, null, 2), 'utf8');
 
-    // Overwrite SRT with frame-accurate speech timing
-    if (artifact.request.subtitlesEnabled && syncResult.srtContent) {
-      await writeFile(resolve(outputDir, 'subtitles.srt'), syncResult.srtContent, 'utf8');
-    }
+    // Build frame-accurate speech cues matching audio timing
+    subtitleCues = syncResult.sceneTimings
+      .filter((timing) => timing.speechEndFrame > timing.speechStartFrame)
+      .map((timing, idx) => {
+        const scene = approvedStoryboard.scenes.find((s) => s.sceneId === timing.sceneId);
+        const text = (scene?.narration?.subtitleVietnamese || scene?.narration?.vietnamese || timing.normalizedText || '').trim();
+        return {
+          cueId: `cue_${idx + 1}`,
+          sceneId: timing.sceneId,
+          text,
+          startFrame: timing.speechStartFrame,
+          endFrame: timing.speechEndFrame
+        };
+      })
+      .filter((cue) => cue.text.length > 0);
+  }
+
+  // Fallback: build contiguous scene cues if not derived from audio synchronization
+  if (subtitleCues.length === 0 && artifact.request.subtitlesEnabled) {
+    let currentFrame = 0;
+    subtitleCues = resolvedStoryboard.scenes.map((scene, idx) => {
+      const durationFrames = Math.max(1, Math.round(scene.durationSeconds * artifact.request.fps));
+      const startFrame = currentFrame;
+      const endFrame = startFrame + durationFrames;
+      currentFrame = endFrame;
+      const text = (scene.narration?.subtitleVietnamese || scene.narration?.vietnamese || '').trim();
+      return {
+        cueId: `cue_${idx + 1}`,
+        sceneId: scene.sceneId,
+        text,
+        startFrame,
+        endFrame
+      };
+    }).filter((cue) => cue.text.length > 0);
   }
 
   // Remotion, subtitles and muxing consume the same derived integer-frame timeline.
   await writeFile(propsPath, JSON.stringify({
     storyboard: resolvedStoryboard,
     subtitlesEnabled: artifact.request.subtitlesEnabled,
-    trustedProofContext
+    trustedProofContext,
+    subtitleCues
   }), 'utf8');
 
-  if (artifact.request.subtitlesEnabled && !resolvedTimelineAudit) {
-    const srt = generateSrtFromStoryboardV3(resolvedStoryboard, artifact.request.fps);
-    if (srt) await writeFile(resolve(outputDir, 'subtitles.srt'), srt, 'utf8');
+  // Authoritative dual subtitle export (burned-in and independent SRT share exact cues)
+  if (artifact.request.subtitlesEnabled && subtitleCues.length > 0) {
+    const srt = subtitleCues.map((cue, index) => [
+      String(index + 1),
+      `${srtTimestamp(cue.startFrame, artifact.request.fps)} --> ${srtTimestamp(cue.endFrame, artifact.request.fps)}`,
+      cue.text,
+      ''
+    ].join('\n')).join('\n') + '\n';
+    await writeFile(resolve(outputDir, 'subtitles.srt'), srt, 'utf8');
   }
 
   options.onStage?.('rendering_remotion');

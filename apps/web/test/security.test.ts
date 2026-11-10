@@ -118,6 +118,59 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
     }
   });
 
+  it('accepts Next.js loopback forwarding headers without trusting external proxy hops', () => {
+    const original = {
+      public: process.env.LUMINA_PUBLIC_DEPLOYMENT,
+      local: process.env.LUMINA_LOCAL_DEMO,
+      trustProxy: process.env.LUMINA_TRUST_PROXY,
+      nodeEnv: process.env.NODE_ENV
+    };
+    const mutableEnv = process.env as Record<string, string | undefined>;
+
+    try {
+      delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
+      process.env.LUMINA_LOCAL_DEMO = 'true';
+      delete process.env.LUMINA_TRUST_PROXY;
+      mutableEnv.NODE_ENV = 'development';
+
+      for (const forwardedFor of ['::1', '127.0.0.1', '::ffff:127.0.0.1', '[::1]:3000']) {
+        const request = new Request('http://localhost:3000/api/v3/supervisor', {
+          method: 'POST',
+          headers: { host: 'localhost:3000', 'x-forwarded-for': forwardedFor }
+        });
+        assert.doesNotThrow(() => assertRequestAuthorized(request), forwardedFor);
+        assert.equal(resolveOwnerId(request), 'local-single-user');
+      }
+
+      for (const trustProxy of [undefined, 'true']) {
+        if (trustProxy === undefined) delete process.env.LUMINA_TRUST_PROXY;
+        else process.env.LUMINA_TRUST_PROXY = trustProxy;
+        const externalHop = new Request('http://localhost:3000/api/v3/supervisor', {
+          method: 'POST',
+          headers: { host: 'localhost:3000', 'x-forwarded-for': '127.0.0.1, 203.0.113.7' }
+        });
+        assert.throws(
+          () => assertRequestAuthorized(externalHop),
+          (error: unknown) => error instanceof SecurityError && error.code === 'local_demo_loopback_only'
+        );
+      }
+
+      const hostileHost = new Request('http://localhost:3000/api/v3/supervisor', {
+        method: 'POST',
+        headers: { host: 'example.test', 'x-forwarded-for': '::1' }
+      });
+      assert.throws(
+        () => assertRequestAuthorized(hostileHost),
+        (error: unknown) => error instanceof SecurityError && error.code === 'local_demo_loopback_only'
+      );
+    } finally {
+      if (original.public === undefined) delete process.env.LUMINA_PUBLIC_DEPLOYMENT; else process.env.LUMINA_PUBLIC_DEPLOYMENT = original.public;
+      if (original.local === undefined) delete process.env.LUMINA_LOCAL_DEMO; else process.env.LUMINA_LOCAL_DEMO = original.local;
+      if (original.trustProxy === undefined) delete process.env.LUMINA_TRUST_PROXY; else process.env.LUMINA_TRUST_PROXY = original.trustProxy;
+      if (original.nodeEnv === undefined) delete mutableEnv.NODE_ENV; else mutableEnv.NODE_ENV = original.nodeEnv;
+    }
+  });
+
   it('enforces session/owner isolation on documents, drafts, and jobs', () => {
     const reqA = new Request('http://localhost:3000/api/lessons/draft', {
       headers: { 'x-lumina-owner-id': 'teacher_session_a' }

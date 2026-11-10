@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveMathEnginePython } from './python-resolver';
 
 export interface AlgebraIdentityVerificationV3 {
   status: 'verified' | 'incorrect';
@@ -11,19 +9,10 @@ export interface AlgebraIdentityVerificationV3 {
   verifier: string;
 }
 
-function pythonExecutable(): string {
-  const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-  const configured = process.env.LUMINA_PYTHON_EXECUTABLE;
-  if (configured) return configured;
-  const windows = resolve(root, 'services/math-engine/.venv/Scripts/python.exe');
-  return process.platform === 'win32' && existsSync(windows)
-    ? windows
-    : resolve(root, 'services/math-engine/.venv/bin/python');
-}
-
-export function verifyAlgebraIdentityV3(left: string, right: string): Promise<AlgebraIdentityVerificationV3> {
+export async function verifyAlgebraIdentityV3(left: string, right: string): Promise<AlgebraIdentityVerificationV3> {
+  const python = await resolveMathEnginePython();
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(pythonExecutable(), ['-m', 'luminalearn_math_engine.cli', 'verify-algebra', '-'], {
+    const child = spawn(python, ['-m', 'luminalearn_math_engine.cli', 'verify-algebra', '-'], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 15_000

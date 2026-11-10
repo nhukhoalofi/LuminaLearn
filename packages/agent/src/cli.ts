@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { LiveGeminiAdapter } from './adapter';
 import { MockGeminiAdapter } from './mock-adapter';
 import { MathLessonPlanner, VisualStoryboardDirector } from './planner';
+import { resolveMathEnginePython } from './orchestration/python-resolver';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   }
 
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-  const python = options.python ?? resolve(repositoryRoot, 'services/math-engine/.venv/Scripts/python.exe');
+  const python = options.python ?? (await resolveMathEnginePython());
   const temporaryDirectory = await mkdtemp(resolve(tmpdir(), 'luminalearn-scene-'));
   const scenePath = resolve(temporaryDirectory, 'scene.json');
   try {
