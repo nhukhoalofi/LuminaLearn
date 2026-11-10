@@ -37,7 +37,16 @@ export interface AudioMetadata {
 export interface TtsProvider {
   readonly id: string;
   readonly isSilentFixture?: boolean;
-  synthesize(text: string, outputPath: string): Promise<void>;
+  readonly requiresExternalConsent?: boolean;
+  synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void>;
+}
+
+export interface TtsSynthesisSettings {
+  voice: string;
+  languageCode: string;
+  speakingRate: number;
+  pitch: number;
+  model?: string;
 }
 
 const VIETNAMESE_MATH_PRONUNCIATION_RULES: ReadonlyArray<readonly [RegExp, string]> = [
@@ -65,19 +74,20 @@ export function buildSpokenNarrationText(
 
 export class GoogleCloudTtsProvider implements TtsProvider {
   readonly id = 'google_cloud_tts';
+  readonly requiresExternalConsent = true;
   private readonly client: TextToSpeechClient;
   constructor(
     private readonly voiceName = process.env.GOOGLE_TTS_VOICE ?? 'vi-VN-Neural2-A',
     client?: TextToSpeechClient
   ) { this.client = client ?? new TextToSpeechClient(); }
 
-  async synthesize(text: string, outputPath: string): Promise<void> {
+  async synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const [response] = await this.client.synthesizeSpeech({
-          input: { text }, voice: { languageCode: 'vi-VN', name: this.voiceName },
-          audioConfig: { audioEncoding: 'MP3', speakingRate: 1, pitch: 0 }
+          input: { text }, voice: { languageCode: settings?.languageCode ?? 'vi-VN', name: settings?.voice ?? this.voiceName },
+          audioConfig: { audioEncoding: 'MP3', speakingRate: settings?.speakingRate ?? 1, pitch: settings?.pitch ?? 0 }
         });
         if (!response.audioContent) throw new Error('Google Cloud TTS returned no audio content');
         const bytes = typeof response.audioContent === 'string'
@@ -96,6 +106,7 @@ export class GoogleCloudTtsProvider implements TtsProvider {
 export class MockTtsProvider implements TtsProvider {
   readonly id = 'mock_tts';
   readonly isSilentFixture = true;
+  readonly requiresExternalConsent = false;
   constructor(private readonly defaultDurationSeconds?: number) {}
 
   async synthesize(text: string, outputPath: string): Promise<void> {

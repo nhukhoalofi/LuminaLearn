@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -95,7 +95,14 @@ test('Audio Cache Manager (Phase 11)', async (t) => {
     await cache.put(key, sampleAudioBuffer, sampleProbe, 'mock_tts', 'vi-VN-A', 'teacher_1');
 
     // Tamper the file on disk
-    const audioFilePath = join(tempDir, `${key}.mp3`);
+    const metaFiles = (await readdir(tempDir)).filter((file) => file.endsWith('.meta.json'));
+    let namespacedAudio: string | undefined;
+    for (const metaFile of metaFiles) {
+      const meta = JSON.parse(await readFile(join(tempDir, metaFile), 'utf8')) as { key?: string };
+      if (meta.key === key) namespacedAudio = metaFile.replace(/\.meta\.json$/, '.mp3');
+    }
+    assert.ok(namespacedAudio);
+    const audioFilePath = join(tempDir, namespacedAudio);
     await writeFile(audioFilePath, Buffer.from('TAMPERED_AUDIO_PAYLOAD'));
 
     const result = await cache.get(key, 'teacher_1');
@@ -162,5 +169,40 @@ test('Audio Cache Manager (Phase 11)', async (t) => {
       concurrentCache.init()
     ]);
     assert.ok(concurrentCache.getMetrics().totalEntries >= 0);
+  });
+
+  await t.test('8. Same logical key is physically isolated across teachers and survives restart', async () => {
+    const isolatedDir = await mkdtemp(join(tmpdir(), 'lumina-audio-owner-'));
+    try {
+      const cache = new AudioCacheManager({ cacheDir: isolatedDir });
+      const key = 'same_logical_key';
+      const teacherA = Buffer.from('TEACHER_A_AUDIO');
+      const teacherB = Buffer.from('TEACHER_B_AUDIO');
+      await Promise.all([
+        cache.put(key, teacherA, { ...sampleProbe, sizeBytes: teacherA.length }, 'mock_tts', 'v1', 'teacher_a'),
+        cache.put(key, teacherB, { ...sampleProbe, sizeBytes: teacherB.length }, 'mock_tts', 'v1', 'teacher_b')
+      ]);
+      assert.equal((await cache.get(key, 'teacher_a'))?.data.toString(), teacherA.toString());
+      assert.equal((await cache.get(key, 'teacher_b'))?.data.toString(), teacherB.toString());
+      assert.equal((await readdir(isolatedDir)).filter((file) => file.endsWith('.mp3')).length, 2);
+      const restarted = new AudioCacheManager({ cacheDir: isolatedDir });
+      assert.equal((await restarted.get(key, 'teacher_a'))?.data.toString(), teacherA.toString());
+      assert.equal((await restarted.get(key, 'teacher_b'))?.data.toString(), teacherB.toString());
+    } finally {
+      await rm(isolatedDir, { recursive: true, force: true });
+    }
+  });
+
+  await t.test('9. Simultaneous writes to one owner/key are atomic and recoverable', async () => {
+    const concurrentDir = await mkdtemp(join(tmpdir(), 'lumina-audio-write-'));
+    try {
+      const cache = new AudioCacheManager({ cacheDir: concurrentDir });
+      await Promise.all(Array.from({ length: 8 }, () => cache.put('shared', sampleAudioBuffer, sampleProbe, 'mock_tts', 'v1', 'teacher_a')));
+      const hit = await new AudioCacheManager({ cacheDir: concurrentDir }).get('shared', 'teacher_a');
+      assert.ok(hit);
+      assert.equal(hit.data.toString(), sampleAudioBuffer.toString());
+    } finally {
+      await rm(concurrentDir, { recursive: true, force: true });
+    }
   });
 });

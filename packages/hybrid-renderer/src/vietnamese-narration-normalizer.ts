@@ -20,6 +20,8 @@ export interface VietnameseNormalizationOptions {
 export interface VietnameseNormalizationResult {
   normalizedText: string;
   unsupportedTokens: string[];
+  requiresHumanReview: boolean;
+  validationFindings: Array<{ code: string; token?: string; message: string }>;
   wordCount: number;
   estimatedDurationSeconds: number;
 }
@@ -202,6 +204,8 @@ export function normalizeVietnameseNarration(
     return {
       normalizedText: '',
       unsupportedTokens: [],
+      requiresHumanReview: false,
+      validationFindings: [],
       wordCount: 0,
       estimatedDurationSeconds: 0
     };
@@ -263,6 +267,19 @@ export function normalizeVietnameseNarration(
     }
   }
 
+  const validationFindings = unsupportedTokens.map((token) => ({
+    code: 'unsupported_latex_command',
+    token,
+    message: `Không xác định được cách đọc an toàn cho lệnh LaTeX '${token}'. Giáo viên cần duyệt lời đọc.`
+  }));
+  const ambiguousTokens = [...new Set(text.match(/[{}_^]/g) ?? [])];
+  for (const token of ambiguousTokens) {
+    validationFindings.push({
+      code: 'ambiguous_math_notation', token,
+      message: `Ký hiệu '${token}' còn lại sau chuẩn hóa; không được tự động tổng hợp giọng đọc.`
+    });
+  }
+
   // If allowPassThroughUnknownLatex is not true, strip the backslash to prevent engine crash
   if (!options.allowPassThroughUnknownLatex) {
     text = text.replace(/\\([a-zA-Z]+)/g, '$1');
@@ -286,6 +303,8 @@ export function normalizeVietnameseNarration(
   return {
     normalizedText: text,
     unsupportedTokens,
+    requiresHumanReview: validationFindings.length > 0,
+    validationFindings,
     wordCount,
     estimatedDurationSeconds
   };

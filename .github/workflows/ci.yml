@@ -6,6 +6,7 @@ on:
       - main
       - dev
       - 'feat/**'
+      - 'fix/**'
   pull_request:
     branches:
       - main
@@ -19,12 +20,14 @@ jobs:
   quality-gates:
     name: Typecheck, Math Verification, Unit Tests & Production Build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Full real-SymPy agent regression plus Remotion/audio integration exceeds 20 minutes.
+    timeout-minutes: 60
 
     env:
       NODE_ENV: test
       LUMINA_LOCAL_DEMO: 'true'
       CI: 'true'
+      PYTHON_EXECUTABLE: python
 
     steps:
       - name: Checkout repository
@@ -84,6 +87,9 @@ jobs:
 
       - name: Run Multi-Agent Supervisor tests
         run: pnpm --filter @luminalearn/agent test
+
+      - name: Run Hybrid Renderer Audio & Timeline tests
+        run: pnpm --filter @luminalearn/hybrid-renderer test
 
       - name: Run Web Security & Multi-Teacher tests
         run: pnpm --filter @luminalearn/web test

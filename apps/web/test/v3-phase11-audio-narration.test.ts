@@ -140,7 +140,7 @@ test('Phase 11 — Vietnamese Narration, Audio Synchronization & Teacher Preview
     assert.strictEqual(data.error, 'stale_draft_version');
   });
 
-  await t.test('4. Generates audio preview with Vietnamese formula normalization', async () => {
+  await t.test('4. Generates clearly labeled offline timing simulation with Vietnamese normalization', async () => {
     const mathFormulaText = `Xét công thức (a + b)^2 = a^2 + 2ab + b^2 với bước nhảy 0.01 tại ${Date.now()}.`;
     const validReq = new Request(
       `http://127.0.0.1:3000/api/v3/lessons/${alphaDraft.draftId}/preview-audio`,
@@ -166,7 +166,9 @@ test('Phase 11 — Vietnamese Narration, Audio Synchronization & Teacher Preview
     assert.strictEqual(data.success, true);
     assert.ok(data.normalizedText.includes('a cộng b tất cả bình phương'));
     assert.ok(data.normalizedText.includes('không phẩy không một'));
-    assert.ok(data.audioDataUrl.startsWith('data:audio/mp3;base64,'));
+    assert.equal(data.audioDataUrl, undefined);
+    assert.equal(data.previewMode, 'offline_timing');
+    assert.equal(data.audioClassification, 'silent_fixture');
     assert.ok(data.durationSeconds > 0);
     assert.strictEqual(data.cacheHit, false);
 
@@ -192,6 +194,35 @@ test('Phase 11 — Vietnamese Narration, Audio Synchronization & Teacher Preview
     assert.strictEqual(cachedRes.status, 200);
     const cachedData = await cachedRes.json();
     assert.strictEqual(cachedData.cacheHit, true);
+  });
+
+  await t.test('4b. Real voice preview fails closed without explicit external consent', async () => {
+    const request = new Request(`http://127.0.0.1:3000/api/v3/lessons/${alphaDraft.draftId}/preview-audio`, {
+      method: 'POST',
+      headers: { host: '127.0.0.1:3000', authorization: `Bearer ${sessionAlpha!.token}` },
+      body: JSON.stringify({ draftVersion: alphaDraft.version, sceneId, previewMode: 'real_voice', provider: 'gemini_tts', confirmExternalApi: false })
+    });
+    const response = await previewAudioHandler(request, { params: Promise.resolve({ lessonId: alphaDraft.draftId }) });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error, 'external_api_consent_required');
+  });
+
+  await t.test('4c. Real voice preview fails before provider invocation when consent signing key is unavailable', async () => {
+    const previous = process.env.LUMINA_CONSENT_SIGNING_KEY;
+    delete process.env.LUMINA_CONSENT_SIGNING_KEY;
+    try {
+      const request = new Request(`http://127.0.0.1:3000/api/v3/lessons/${alphaDraft.draftId}/preview-audio`, {
+        method: 'POST',
+        headers: { host: '127.0.0.1:3000', authorization: `Bearer ${sessionAlpha!.token}` },
+        body: JSON.stringify({ draftVersion: alphaDraft.version, sceneId, previewMode: 'real_voice', provider: 'gemini_tts', confirmExternalApi: true })
+      });
+      const response = await previewAudioHandler(request, { params: Promise.resolve({ lessonId: alphaDraft.draftId }) });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error, 'consent_server_secret_missing');
+    } finally {
+      if (previous === undefined) delete process.env.LUMINA_CONSENT_SIGNING_KEY;
+      else process.env.LUMINA_CONSENT_SIGNING_KEY = previous;
+    }
   });
 
   await t.test('5. End-to-end V3 rendering with SceneAudioSynchronizer produces valid MP4 and SRT', async () => {

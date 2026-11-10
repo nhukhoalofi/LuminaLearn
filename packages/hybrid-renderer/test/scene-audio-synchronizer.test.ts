@@ -9,6 +9,7 @@ import {
   SceneAudioSynchronizer,
   type SceneNarrationInput
 } from '../src/scene-audio-synchronizer';
+import { resolvePresentationStoryboardV3 } from '../src/pipeline-v3';
 
 test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
   const tempDir = await mkdtemp(join(tmpdir(), 'lumina-sync-test-'));
@@ -144,6 +145,14 @@ test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
       `Scene duration should be extended to at least 5.0s, got ${s.adjustedDurationSeconds}`
     );
     assert.ok(s.durationFrames >= 120);
+    const approvedSource = {
+      storyboardId: 'storyboard_test', lessonId: 'lesson_test', totalDurationSeconds: 1,
+      scenes: [{ sceneId: 'scene_long_speech', durationSeconds: 1 }]
+    } as never;
+    const resolved = resolvePresentationStoryboardV3(approvedSource, result3);
+    assert.equal((approvedSource as { scenes: Array<{ durationSeconds: number }> }).scenes[0].durationSeconds, 1, 'approved source remains immutable');
+    assert.equal(resolved.scenes[0].durationSeconds, s.durationFrames / 24);
+    assert.equal(resolved.totalDurationSeconds, result3.totalFrames / 24);
   });
 });
 

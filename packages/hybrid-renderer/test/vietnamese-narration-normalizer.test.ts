@@ -87,6 +87,21 @@ test('Vietnamese Narration Normalizer (Phase 11)', async (t) => {
     // By default, unknown command backslash is stripped to prevent voice engine failure
     assert.ok(!unsupported.normalizedText.includes('\\fancyUnknownMacro'));
     assert.ok(unsupported.normalizedText.includes('fancyUnknownMacro'));
+    assert.equal(unsupported.requiresHumanReview, true);
+    assert.equal(unsupported.validationFindings[0]?.code, 'unsupported_latex_command');
+  });
+
+  await t.test('9. Covers all seven identities and rejects ambiguous residual notation', () => {
+    const identities = ['(a+b)^2', '(a-b)^2', 'a^2-b^2', '(a+b)^3', '(a-b)^3', 'a^3+b^3', 'a^3-b^3'];
+    for (const expression of identities) {
+      const result = normalizeVietnameseNarration(expression);
+      assert.equal(result.requiresHumanReview, false, `${expression}: ${JSON.stringify(result.validationFindings)}`);
+      assert.equal(result.unsupportedTokens.length, 0);
+    }
+    const ambiguous = normalizeVietnameseNarration('Đọc biểu thức x_{không rõ} và \\mystery{x}.');
+    assert.equal(ambiguous.requiresHumanReview, true);
+    assert.ok(ambiguous.validationFindings.some((finding) => finding.code === 'unsupported_latex_command'));
+    assert.ok(ambiguous.validationFindings.some((finding) => finding.code === 'ambiguous_math_notation'));
   });
 
   await t.test('8. Word count and estimated duration calculation', () => {

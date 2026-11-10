@@ -9,7 +9,7 @@ import {
   classifyGeminiError as classifySharedGeminiError,
   computeBackoffWithJitterMs
 } from '@luminalearn/scene-schema';
-import type { TtsProvider } from './audio';
+import type { TtsProvider, TtsSynthesisSettings } from './audio';
 
 export interface GeminiSpeechRequest {
   model: string;
@@ -192,6 +192,7 @@ function parseAudioFormat(response: GeminiSpeechResponse, bytes: Buffer): {
 
 export class GeminiTtsProvider implements TtsProvider {
   readonly id = 'gemini_tts';
+  readonly requiresExternalConsent = true;
   readonly model: string;
   readonly voice: string;
   readonly languageCode: string;
@@ -242,7 +243,7 @@ export class GeminiTtsProvider implements TtsProvider {
     return this.modelAvailability;
   }
 
-  async synthesize(text: string, outputPath: string): Promise<void> {
+  async synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void> {
     const narration = text.trim();
     if (!narration || narration.length > 5_000) throw new Error('tts_invalid_text: Narration must contain 1 to 5000 characters');
     if (extname(outputPath).toLowerCase() !== '.mp3') throw new Error('tts_output_invalid: Gemini TTS output path must end in .mp3');
@@ -267,8 +268,8 @@ export class GeminiTtsProvider implements TtsProvider {
         response = await this.withTimeout((signal) => this.client.generateSpeech({
           model: this.model,
           text: narration,
-          voice: this.voice,
-          languageCode: this.languageCode,
+          voice: settings?.voice ?? this.voice,
+          languageCode: settings?.languageCode ?? this.languageCode,
           styleInstruction: 'Giọng giáo viên Việt Nam tự nhiên, rõ ràng, tốc độ vừa phải. Đọc nguyên văn nội dung.',
           signal
         }));

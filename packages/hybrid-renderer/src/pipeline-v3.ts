@@ -7,11 +7,13 @@ import {
   ApprovedRenderArtifactV3Schema,
   verifyExternalApiConsentV3,
   type ApprovedRenderArtifactV3,
-  type ExternalApiConsentRecordV3
+  type ExternalApiConsentRecordV3,
+  type EducationalStoryboardV3
 } from '@luminalearn/scene-schema';
 import { GoogleCloudTtsProvider, probeAudio, probeAudioSignal, type TtsProvider } from './audio';
 import { GeminiTtsProvider } from './gemini-tts';
 import { defaultSceneAudioSynchronizer } from './scene-audio-synchronizer';
+import type { SynchronizedStoryboardAudio } from './scene-audio-synchronizer';
 import { generateSrtFromStoryboardV3 } from './subtitles';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -91,6 +93,23 @@ export function deriveTrustedProofContextV3(artifact: ApprovedRenderArtifactV3):
   };
 }
 
+export function resolvePresentationStoryboardV3(
+  source: EducationalStoryboardV3,
+  synchronization: Pick<SynchronizedStoryboardAudio, 'fps' | 'totalFrames' | 'sceneTimings'>
+): EducationalStoryboardV3 {
+  const timingsByScene = new Map(synchronization.sceneTimings.map((timing) => [timing.sceneId, timing]));
+  if (timingsByScene.size !== source.scenes.length) throw new Error('resolved_timeline_scene_count_mismatch');
+  return {
+    ...structuredClone(source),
+    scenes: source.scenes.map((scene) => {
+      const timing = timingsByScene.get(scene.sceneId);
+      if (!timing) throw new Error(`resolved_timeline_scene_missing: ${scene.sceneId}`);
+      return { ...structuredClone(scene), durationSeconds: timing.durationFrames / synchronization.fps };
+    }),
+    totalDurationSeconds: synchronization.totalFrames / synchronization.fps
+  };
+}
+
 export async function runRenderPipelineV3(
   artifactInput: unknown,
   options: RenderPipelineV3Options
@@ -107,22 +126,8 @@ export async function runRenderPipelineV3(
   const rawVideoPath = resolve(outputDir, 'raw-video.mp4');
 
   const trustedProofContext = deriveTrustedProofContextV3(artifact);
-  await writeFile(
-    propsPath,
-    JSON.stringify({
-      storyboard: artifact.lessonPlan.storyboard,
-      subtitlesEnabled: artifact.request.subtitlesEnabled,
-      trustedProofContext
-    }),
-    'utf8'
-  );
-
-  if (artifact.request.subtitlesEnabled) {
-    const srt = generateSrtFromStoryboardV3(artifact.lessonPlan.storyboard, artifact.request.fps);
-    if (srt) {
-      await writeFile(resolve(outputDir, 'subtitles.srt'), srt, 'utf8');
-    }
-  }
+  let resolvedStoryboard: EducationalStoryboardV3 = structuredClone(artifact.lessonPlan.storyboard);
+  let resolvedTimelineAudit: Record<string, unknown> | undefined;
 
   // Audio handling
   let audioTrackPath: string | undefined;
@@ -165,8 +170,10 @@ export async function runRenderPipelineV3(
     const isGemini = artifact.request.narrationMode === 'gemini_tts';
     const providerId = isGemini ? 'gemini_tts' : 'google_cloud_tts';
 
-    // Checkpoint 0 & A: Enforce signed consent before live provider invocation (no boolean-only bypass)
-    if (!options.ttsProvider) {
+    const suppliedProvider = options.ttsProvider;
+    const requiresConsent = suppliedProvider?.requiresExternalConsent !== false && suppliedProvider?.isSilentFixture !== true;
+    // Consent is mandatory for every real/custom external provider, including injected providers.
+    if (requiresConsent) {
       if (!options.consentRecord) {
         throw new Error(`external_api_consent_required: Live narration mode '${artifact.request.narrationMode}' requires a valid signed consentRecord`);
       }
@@ -184,7 +191,7 @@ export async function runRenderPipelineV3(
       }
     }
 
-    const provider: TtsProvider = options.ttsProvider ?? (
+    const provider: TtsProvider = suppliedProvider ?? (
       isGemini ? new GeminiTtsProvider() : new GoogleCloudTtsProvider()
     );
 
@@ -211,10 +218,42 @@ export async function runRenderPipelineV3(
     }
     audioTrackPath = syncResult.masterAudioPath;
 
+    resolvedStoryboard = resolvePresentationStoryboardV3(artifact.lessonPlan.storyboard, syncResult);
+    resolvedTimelineAudit = {
+      schemaVersion: 'resolved-presentation-timeline-v1',
+      sourceArtifactId: artifact.artifactId,
+      sourceContentHash: artifact.contentHash,
+      approvedDraftVersion: artifact.approvedVersion,
+      fps: syncResult.fps,
+      totalFrames: syncResult.totalFrames,
+      audioProvenance: {
+        providerId: provider.id,
+        model: 'model' in provider && typeof provider.model === 'string' ? provider.model : undefined,
+        voice: 'voice' in provider && typeof provider.voice === 'string' ? provider.voice : undefined,
+        language: 'languageCode' in provider && typeof provider.languageCode === 'string' ? provider.languageCode : 'vi-VN',
+        audioClassification: provider.isSilentFixture ? 'silent_fixture' : 'audible_non_silent'
+      },
+      scenes: syncResult.sceneTimings.map(({ audioPath: _audioPath, ...timing }) => timing),
+      createdAt: new Date().toISOString()
+    };
+    await writeFile(resolve(outputDir, 'resolved-presentation-timeline.json'), JSON.stringify(resolvedTimelineAudit, null, 2), 'utf8');
+
     // Overwrite SRT with frame-accurate speech timing
     if (artifact.request.subtitlesEnabled && syncResult.srtContent) {
       await writeFile(resolve(outputDir, 'subtitles.srt'), syncResult.srtContent, 'utf8');
     }
+  }
+
+  // Remotion, subtitles and muxing consume the same derived integer-frame timeline.
+  await writeFile(propsPath, JSON.stringify({
+    storyboard: resolvedStoryboard,
+    subtitlesEnabled: artifact.request.subtitlesEnabled,
+    trustedProofContext
+  }), 'utf8');
+
+  if (artifact.request.subtitlesEnabled && !resolvedTimelineAudit) {
+    const srt = generateSrtFromStoryboardV3(resolvedStoryboard, artifact.request.fps);
+    if (srt) await writeFile(resolve(outputDir, 'subtitles.srt'), srt, 'utf8');
   }
 
   options.onStage?.('rendering_remotion');

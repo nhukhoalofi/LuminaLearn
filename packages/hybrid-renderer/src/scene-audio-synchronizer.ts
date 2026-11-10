@@ -63,6 +63,7 @@ export interface SynchronizeAudioOptions {
   fps?: number;
   preRollSeconds?: number;
   postRollSeconds?: number;
+  maxSceneExtensionSeconds?: number;
   ownerId?: string;
   outputDir: string;
   onProgress?: (sceneIndex: number, totalScenes: number, sceneId: string) => void;
@@ -204,8 +205,12 @@ export class SceneAudioSynchronizer {
       options.onProgress?.(index + 1, scenes.length, scene.id);
 
       const targetDurationSeconds = Math.max(1, scene.durationSeconds);
+      const targetDurationFrames = Math.max(1, Math.round(targetDurationSeconds * fps));
       const rawText = (scene.narration?.vietnamese || '').trim();
       const normResult = normalizeVietnameseNarration(rawText);
+      if (normResult.requiresHumanReview) {
+        throw new Error(`narration_pronunciation_review_required: Scene '${scene.id}': ${normResult.validationFindings.map((finding) => finding.message).join(' ')}`);
+      }
       const normalizedText = normResult.normalizedText;
       const subtitleText = (scene.narration?.subtitleVietnamese || normalizedText || '').trim();
 
@@ -216,11 +221,12 @@ export class SceneAudioSynchronizer {
         await generateSilentAudioSegment(paddedSegmentPath, targetDurationSeconds);
         paddedSegmentPaths.push(paddedSegmentPath);
 
-        const durationFrames = Math.max(1, Math.round(targetDurationSeconds * fps));
+        const durationFrames = targetDurationFrames;
+        const frameDurationSeconds = durationFrames / fps;
         sceneTimings.push({
           sceneId: scene.id,
           targetDurationSeconds,
-          adjustedDurationSeconds: targetDurationSeconds,
+          adjustedDurationSeconds: frameDurationSeconds,
           startFrame: currentStartFrame,
           durationFrames,
           endFrame: currentStartFrame + durationFrames,
@@ -241,41 +247,42 @@ export class SceneAudioSynchronizer {
         voice,
         speakingRate,
         pitch,
-        language
+        language,
+        model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined
       });
 
       const rawSceneAudioPath = resolve(audioWorkDir, `scene_${index}_raw.mp3`);
       let audioDurationSeconds: number;
       let cacheHit = false;
 
-      const cached = await this.cache.get(cacheKey, options.ownerId);
-      if (cached) {
-        cacheHit = true;
-        await writeFile(rawSceneAudioPath, cached.data);
-        audioDurationSeconds = cached.meta.durationSeconds;
-      } else {
-        // Synthesize fresh audio
-        await options.ttsProvider.synthesize(normalizedText, rawSceneAudioPath);
+      audioDurationSeconds = await this.cache.withKeyLock(cacheKey, options.ownerId, async () => {
+        const cached = await this.cache.get(cacheKey, options.ownerId);
+        if (cached) {
+          cacheHit = true;
+          await writeFile(rawSceneAudioPath, cached.data);
+          return cached.meta.durationSeconds;
+        }
+        await options.ttsProvider.synthesize(normalizedText, rawSceneAudioPath, {
+          voice, speakingRate, pitch, languageCode: language,
+          model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined
+        });
         const probe = await probeAudio(rawSceneAudioPath, 120);
-        audioDurationSeconds = probe.durationSeconds;
-
         const buffer = await readFile(rawSceneAudioPath);
-        await this.cache.put(
-          cacheKey,
-          buffer,
-          probe,
-          options.ttsProvider.id,
-          voice,
-          options.ownerId
-        );
-      }
+        await this.cache.put(cacheKey, buffer, probe, options.ttsProvider.id, voice, options.ownerId, Date.now(), {
+          model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined,
+          language, speakingRate, pitch
+        });
+        return probe.durationSeconds;
+      });
 
       // Duration reconciliation: adjust scene presentation duration to fit speech
-      const minRequiredDuration = audioDurationSeconds + preRollSeconds + postRollSeconds;
-      const adjustedDurationSeconds = Math.max(
-        targetDurationSeconds,
-        Math.ceil(minRequiredDuration * 10) / 10
-      );
+      const minRequiredFrames = Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds) * fps);
+      const durationFrames = Math.max(targetDurationFrames, minRequiredFrames);
+      const extensionSeconds = (durationFrames - targetDurationFrames) / fps;
+      if (extensionSeconds > (options.maxSceneExtensionSeconds ?? 60)) {
+        throw new Error(`sync_audio_extension_unsupported: Scene '${scene.id}' requires ${extensionSeconds.toFixed(2)}s extension`);
+      }
+      const adjustedDurationSeconds = durationFrames / fps;
 
       // Pad audio segment to adjusted duration with pre-roll delay
       await padSceneAudioSegment(
@@ -287,7 +294,6 @@ export class SceneAudioSynchronizer {
       paddedSegmentPaths.push(paddedSegmentPath);
 
       // Frame calculations
-      const durationFrames = Math.max(1, Math.round(adjustedDurationSeconds * fps));
       const speechStartFrame = currentStartFrame + Math.round(preRollSeconds * fps);
       const speechDurationFrames = Math.max(1, Math.round(audioDurationSeconds * fps));
       const speechEndFrame = Math.min(
@@ -333,8 +339,8 @@ export class SceneAudioSynchronizer {
 
     // Verify master audio duration matches total presentation duration
     const masterProbe = await probeAudio(masterAudioPath, 1200);
-    const totalDurationSeconds = sceneTimings.reduce((sum, s) => sum + s.adjustedDurationSeconds, 0);
     const totalFrames = currentStartFrame;
+    const totalDurationSeconds = totalFrames / fps;
     const srtContent = srtCues.length > 0 ? srtCues.join('\n') + '\n' : '';
 
     return {

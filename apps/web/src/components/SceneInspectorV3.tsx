@@ -40,6 +40,9 @@ export function SceneInspectorV3({
   const [normalizedNarration, setNormalizedNarration] = useState<string | null>(null);
   const [audioCacheHit, setAudioCacheHit] = useState<boolean | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<'offline_timing' | 'real_voice'>('offline_timing');
+  const [confirmRealVoice, setConfirmRealVoice] = useState(false);
+  const [audioProvider, setAudioProvider] = useState<string | null>(null);
 
   const charCount = scene.narration.vietnamese.length;
   const wordCount = scene.narration.vietnamese.split(/\s+/).filter(Boolean).length;
@@ -54,7 +57,10 @@ export function SceneInspectorV3({
         body: JSON.stringify({
           draftVersion,
           sceneId: scene.sceneId,
-          customNarrationText: scene.narration.vietnamese
+          customNarrationText: scene.narration.vietnamese,
+          previewMode,
+          provider: 'gemini_tts',
+          confirmExternalApi: previewMode === 'real_voice' && confirmRealVoice
         })
       });
 
@@ -67,6 +73,7 @@ export function SceneInspectorV3({
       setAudioDuration(data.durationSeconds);
       setNormalizedNarration(data.normalizedText);
       setAudioCacheHit(data.cacheHit);
+      setAudioProvider(data.providerId);
     } catch (err) {
       setAudioError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -176,6 +183,11 @@ export function SceneInspectorV3({
         }}
         data-testid="v3-audio-preview-section"
       >
+        <div style={{ display: 'flex', gap: 12, marginBottom: 8, fontSize: 12, color: '#cbd5e1' }}>
+          <label><input type="radio" checked={previewMode === 'offline_timing'} onChange={() => { setPreviewMode('offline_timing'); setAudioUrl(null); }} /> Mô phỏng thời lượng (im lặng, offline)</label>
+          <label><input type="radio" checked={previewMode === 'real_voice'} onChange={() => { setPreviewMode('real_voice'); setAudioUrl(null); }} /> Nghe giọng thật Gemini TTS</label>
+        </div>
+        {previewMode === 'real_voice' && <label style={{ display: 'block', marginBottom: 8, fontSize: 12, color: '#fbbf24' }}><input type="checkbox" checked={confirmRealVoice} onChange={(event) => setConfirmRealVoice(event.target.checked)} /> Tôi cho phép một yêu cầu TTS bên ngoài có thể dùng quota.</label>}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
@@ -187,11 +199,11 @@ export function SceneInspectorV3({
                 color: '#38bdf8',
                 cursor: isPlayingAudio ? 'wait' : 'pointer'
               }}
-              disabled={isPlayingAudio || !scene.narration.vietnamese.trim()}
+              disabled={isPlayingAudio || !scene.narration.vietnamese.trim() || (previewMode === 'real_voice' && !confirmRealVoice)}
               onClick={handlePreviewAudio}
               data-testid="btn-preview-audio"
             >
-              {isPlayingAudio ? '⏳ Đang tạo audio...' : '🔊 Nghe thử giọng đọc (TTS Preview)'}
+              {isPlayingAudio ? '⏳ Đang xử lý...' : previewMode === 'offline_timing' ? '⏱️ Mô phỏng thời lượng (không có tiếng)' : '🔊 Tạo và nghe giọng thật'}
             </button>
             <span style={{ fontSize: '11px', color: '#94a3b8' }}>
               {charCount} ký tự · {wordCount} từ
@@ -206,6 +218,7 @@ export function SceneInspectorV3({
               <span style={{ color: audioCacheHit ? '#38bdf8' : '#fbbf24', background: 'rgba(15, 23, 42, 0.6)', padding: '2px 6px', borderRadius: '4px' }}>
                 {audioCacheHit ? '⚡ Cache HIT' : '🎙️ Cache MISS'}
               </span>
+              {audioProvider && <span style={{ color: '#cbd5e1' }}>{audioProvider}</span>}
             </div>
           )}
         </div>

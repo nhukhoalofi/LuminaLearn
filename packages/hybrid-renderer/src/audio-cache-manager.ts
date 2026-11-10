@@ -33,6 +33,10 @@ export interface AudioCacheEntryMeta {
   codec: string;
   providerId: string;
   voice: string;
+  model?: string;
+  language: string;
+  speakingRate: number;
+  pitch: number;
   createdAt: number;
   lastAccessedAt: number;
 }
@@ -71,6 +75,23 @@ export function computeAudioCacheKey(props: AudioCacheKeyProps): string {
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
+function storageKeyFor(key: string, ownerId?: string): string {
+  return createHash('sha256').update(`${ownerId ?? 'public'}\0${key}`, 'utf8').digest('hex');
+}
+
+function isValidMeta(meta: AudioCacheEntryMeta): boolean {
+  return typeof meta.key === 'string' && meta.key.length > 0 &&
+    typeof meta.contentHash === 'string' && /^[0-9a-f]{64}$/i.test(meta.contentHash) &&
+    Number.isInteger(meta.sizeBytes) && meta.sizeBytes > 0 &&
+    Number.isFinite(meta.durationSeconds) && meta.durationSeconds > 0 &&
+    Number.isInteger(meta.sampleRate) && meta.sampleRate >= 8_000 && meta.sampleRate <= 96_000 &&
+    Number.isInteger(meta.channels) && meta.channels >= 1 && meta.channels <= 2 &&
+    typeof meta.codec === 'string' && typeof meta.providerId === 'string' && meta.providerId.length > 0 &&
+    typeof meta.voice === 'string' && meta.voice.length > 0 && typeof meta.language === 'string' && meta.language.length > 0 &&
+    Number.isFinite(meta.speakingRate) && meta.speakingRate > 0 && Number.isFinite(meta.pitch) &&
+    Number.isFinite(meta.createdAt) && Number.isFinite(meta.lastAccessedAt);
+}
+
 export class AudioCacheManager {
   private readonly dir: string;
   private readonly maxBytes: number;
@@ -80,6 +101,8 @@ export class AudioCacheManager {
   private entries = new Map<string, AudioCacheEntryMeta>();
   private initialized = false;
   private initPromise?: Promise<void>;
+  private readonly keyLocks = new Map<string, Promise<void>>();
+  private readonly writeLocks = new Map<string, Promise<void>>();
   private metrics: AudioCacheMetrics = {
     totalEntries: 0,
     totalSizeBytes: 0,
@@ -93,6 +116,22 @@ export class AudioCacheManager {
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  }
+
+  public async withKeyLock<T>(key: string, ownerId: string | undefined, action: () => Promise<T>): Promise<T> {
+    const storageKey = storageKeyFor(key, ownerId);
+    const previous = this.keyLocks.get(storageKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+    const chain = previous.then(() => current);
+    this.keyLocks.set(storageKey, chain);
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.keyLocks.get(storageKey) === chain) this.keyLocks.delete(storageKey);
+    }
   }
 
   public async init(now = Date.now()): Promise<void> {
@@ -118,46 +157,44 @@ export class AudioCacheManager {
       const metaFiles = files.filter((f) => f.endsWith('.meta.json'));
 
       for (const metaFile of metaFiles) {
-        const key = metaFile.replace(/\.meta\.json$/, '');
+        const storageKey = metaFile.replace(/\.meta\.json$/, '');
         const metaPath = resolve(this.dir, metaFile);
-        const audioPath = resolve(this.dir, `${key}.mp3`);
+        const audioPath = resolve(this.dir, `${storageKey}.mp3`);
 
         try {
           const raw = await readFile(metaPath, 'utf8');
           const meta = JSON.parse(raw) as AudioCacheEntryMeta;
 
           // Validate metadata structure
-          if (
-            !meta.key ||
-            typeof meta.sizeBytes !== 'number' ||
-            typeof meta.createdAt !== 'number' ||
-            typeof meta.contentHash !== 'string' ||
-            !/^[0-9a-f]{64}$/i.test(meta.contentHash)
-          ) {
-            await this.evict(key);
+          if (!isValidMeta(meta)) {
+            await this.evictStorage(storageKey);
+            continue;
+          }
+          if (storageKeyFor(meta.key, meta.ownerId) !== storageKey) {
+            await this.evictStorage(storageKey);
             continue;
           }
 
           // Check TTL expiration
           if (now - meta.createdAt > this.ttlMs) {
-            await this.evict(key);
+            await this.evictStorage(storageKey);
             continue;
           }
 
           // Verify audio file exists and matches size and SHA-256
           const data = await readFile(audioPath);
           if (data.byteLength !== meta.sizeBytes) {
-            await this.evict(key);
+            await this.evictStorage(storageKey);
             continue;
           }
 
           const actualHash = createHash('sha256').update(data).digest('hex');
           if (actualHash !== meta.contentHash) {
-            await this.evict(key);
+            await this.evictStorage(storageKey);
             continue;
           }
 
-          this.entries.set(key, {
+          this.entries.set(storageKey, {
             ...meta,
             lastAccessedAt: meta.lastAccessedAt ?? meta.createdAt
           });
@@ -180,8 +217,8 @@ export class AudioCacheManager {
     now = Date.now()
   ): Promise<{ data: Buffer; meta: AudioCacheEntryMeta } | null> {
     await this.init(now);
-
-    const meta = this.entries.get(key);
+    const storageKey = storageKeyFor(key, ownerId);
+    const meta = this.entries.get(storageKey);
     if (!meta) {
       // Check disk fallback
       return this.readFromDiskFallback(key, ownerId, now);
@@ -195,12 +232,12 @@ export class AudioCacheManager {
 
     // TTL check
     if (now - meta.createdAt > this.ttlMs) {
-      await this.evict(key);
+      await this.evictStorage(storageKey);
       this.metrics.misses += 1;
       return null;
     }
 
-    const audioPath = resolve(this.dir, `${key}.mp3`);
+    const audioPath = resolve(this.dir, `${storageKey}.mp3`);
     try {
       const data = await readFile(audioPath);
       if (data.byteLength !== meta.sizeBytes) {
@@ -218,7 +255,7 @@ export class AudioCacheManager {
       this.metrics.hits += 1;
       return { data, meta };
     } catch {
-      await this.evict(key);
+      await this.evictStorage(storageKey);
       this.metrics.misses += 1;
       return null;
     }
@@ -229,20 +266,21 @@ export class AudioCacheManager {
     ownerId: string | undefined,
     now: number
   ): Promise<{ data: Buffer; meta: AudioCacheEntryMeta } | null> {
-    const metaPath = resolve(this.dir, `${key}.meta.json`);
-    const audioPath = resolve(this.dir, `${key}.mp3`);
+    const storageKey = storageKeyFor(key, ownerId);
+    const metaPath = resolve(this.dir, `${storageKey}.meta.json`);
+    const audioPath = resolve(this.dir, `${storageKey}.mp3`);
 
     try {
       const raw = await readFile(metaPath, 'utf8');
       const diskMeta = JSON.parse(raw) as AudioCacheEntryMeta;
 
-      if (diskMeta.ownerId && ownerId && diskMeta.ownerId !== ownerId) {
+      if (!isValidMeta(diskMeta) || diskMeta.key !== key || diskMeta.ownerId !== ownerId || storageKeyFor(diskMeta.key, diskMeta.ownerId) !== storageKey) {
         this.metrics.misses += 1;
         return null;
       }
 
       if (now - diskMeta.createdAt > this.ttlMs) {
-        await this.evict(key);
+        await this.evictStorage(storageKey);
         this.metrics.misses += 1;
         return null;
       }
@@ -260,7 +298,7 @@ export class AudioCacheManager {
       }
 
       diskMeta.lastAccessedAt = now;
-      this.entries.set(key, diskMeta);
+      this.entries.set(storageKey, diskMeta);
       this.recalculateTotals();
       this.metrics.hits += 1;
       return { data, meta: diskMeta };
@@ -277,55 +315,69 @@ export class AudioCacheManager {
     providerId: string,
     voice: string,
     ownerId?: string,
-    now = Date.now()
+    now = Date.now(),
+    synthesisSettings?: { model?: string; language?: string; speakingRate?: number; pitch?: number }
   ): Promise<AudioCacheEntryMeta> {
-    await this.init(now);
-    if (buffer.byteLength <= 0) {
-      throw new Error('audio_empty_buffer');
+    const storageKey = storageKeyFor(key, ownerId);
+    const writeLockKey = '__global_write__';
+    const previous = this.writeLocks.get(writeLockKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+    const chain = previous.then(() => current);
+    this.writeLocks.set(writeLockKey, chain);
+    await previous;
+    try {
+      await this.init(now);
+      if (buffer.byteLength <= 0) {
+        throw new Error('audio_empty_buffer');
+      }
+
+      await this.ensureCapacity(buffer.byteLength);
+
+      const token = randomUUID();
+      const targetAudio = resolve(this.dir, `${storageKey}.mp3`);
+      const tempAudio = resolve(this.dir, `${storageKey}.${now}.${token}.mp3.tmp`);
+
+      const targetMeta = resolve(this.dir, `${storageKey}.meta.json`);
+      const tempMeta = resolve(this.dir, `${storageKey}.${now}.${token}.meta.tmp`);
+
+      const contentHash = createHash('sha256').update(buffer).digest('hex');
+      const meta: AudioCacheEntryMeta = {
+        key, ownerId, contentHash, sizeBytes: buffer.byteLength,
+        durationSeconds: probe.durationSeconds, sampleRate: probe.sampleRate,
+        channels: probe.channels, codec: probe.codec, providerId, voice,
+        model: synthesisSettings?.model,
+        language: synthesisSettings?.language ?? 'vi-VN',
+        speakingRate: synthesisSettings?.speakingRate ?? 1,
+        pitch: synthesisSettings?.pitch ?? 0,
+        createdAt: now, lastAccessedAt: now
+      };
+
+      // Atomic write pattern: write temp files then rename
+      await writeFile(tempAudio, buffer);
+      await writeFile(tempMeta, JSON.stringify(meta, null, 2), 'utf8');
+
+      await rename(tempAudio, targetAudio);
+      await rename(tempMeta, targetMeta);
+
+      this.entries.set(storageKey, meta);
+      this.recalculateTotals();
+
+      return meta;
+    } finally {
+      release();
+      if (this.writeLocks.get(writeLockKey) === chain) this.writeLocks.delete(writeLockKey);
     }
-
-    await this.ensureCapacity(buffer.byteLength);
-
-    const token = randomUUID();
-    const targetAudio = resolve(this.dir, `${key}.mp3`);
-    const tempAudio = resolve(this.dir, `${key}.${now}.${token}.mp3.tmp`);
-
-    const targetMeta = resolve(this.dir, `${key}.meta.json`);
-    const tempMeta = resolve(this.dir, `${key}.${now}.${token}.meta.tmp`);
-
-    const contentHash = createHash('sha256').update(buffer).digest('hex');
-    const meta: AudioCacheEntryMeta = {
-      key,
-      ownerId,
-      contentHash,
-      sizeBytes: buffer.byteLength,
-      durationSeconds: probe.durationSeconds,
-      sampleRate: probe.sampleRate,
-      channels: probe.channels,
-      codec: probe.codec,
-      providerId,
-      voice,
-      createdAt: now,
-      lastAccessedAt: now
-    };
-
-    // Atomic write pattern: write temp files then rename
-    await writeFile(tempAudio, buffer);
-    await writeFile(tempMeta, JSON.stringify(meta, null, 2), 'utf8');
-
-    await rename(tempAudio, targetAudio);
-    await rename(tempMeta, targetMeta);
-
-    this.entries.set(key, meta);
-    this.recalculateTotals();
-
-    return meta;
   }
 
-  public async evict(key: string): Promise<boolean> {
-    const existed = this.entries.delete(key);
-    const audioPath = resolve(this.dir, `${key}.mp3`);
-    const metaPath = resolve(this.dir, `${key}.meta.json`);
+  public async evict(key: string, ownerId?: string): Promise<boolean> {
+    return this.evictStorage(storageKeyFor(key, ownerId));
+  }
+
+  private async evictStorage(storageKey: string): Promise<boolean> {
+    const existed = this.entries.delete(storageKey);
+    const audioPath = resolve(this.dir, `${storageKey}.mp3`);
+    const metaPath = resolve(this.dir, `${storageKey}.meta.json`);
 
     await rm(audioPath, { force: true }).catch(() => undefined);
     await rm(metaPath, { force: true }).catch(() => undefined);
@@ -355,7 +407,7 @@ export class AudioCacheManager {
       }
 
       if (oldestKey) {
-        await this.evict(oldestKey);
+        await this.evictStorage(oldestKey);
       } else {
         break;
       }

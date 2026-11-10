@@ -186,7 +186,7 @@ test('Phase 10 — Scientific Proof Integrity, Visual DSL & Authoritative Proven
     }, /visual_proof_claim_not_found|unresolved_claim_binding/);
   });
 
-  await t.test('4. Formula element with missing claim ID receives no proof binding', async () => {
+  await t.test('4. Formal-proof formula with missing claim ID is rejected fail-closed', async () => {
     let draft = await manager.create(
       {
         requestId: 'req_phase10_test',
@@ -233,12 +233,10 @@ test('Phase 10 — Scientific Proof Integrity, Visual DSL & Authoritative Proven
     });
 
     draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_alpha', draft.version);
-    draft = await manager.approve(draft.draftId, 'teacher_alpha', draft.version);
-
-    const artifact = draft.approvedArtifact!;
-    const approvedScene = artifact.lessonPlan.storyboard!.scenes.find((s) => s.sceneId === sceneId)!;
-    // Unbound formula must have 0 trusted bindings
-    assert.equal(approvedScene.visualDefinition?.trustedMathBindings.length, 0);
+    await assert.rejects(
+      () => manager.approve(draft.draftId, 'teacher_alpha', draft.version),
+      /formal_proof_missing_claim_id/
+    );
   });
 
   await t.test('5. Claim bound to mismatched visual formula expression is rejected', async () => {
