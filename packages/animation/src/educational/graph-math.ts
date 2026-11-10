@@ -22,6 +22,67 @@ export interface EvaluatedFunction {
   description: string;
 }
 
+export interface BoundedPolynomial {
+  /** Coefficients in ascending power order: c[0] + c[1]x + ... */
+  coefficients: readonly number[];
+  degree: number;
+}
+
+const DECIMAL_PATTERN = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)';
+
+export function parseBoundedPolynomial(expression: string): BoundedPolynomial {
+  const cleaned = expression.replace(/\s+/g, '').replace(/w/g, 'x');
+  if (!cleaned || cleaned.length > 100 || /[^0-9x+.*^\-]/.test(cleaned)) {
+    throw new Error(`unsupported_polynomial_expression: '${expression}'`);
+  }
+
+  const normalized = cleaned.startsWith('-') ? cleaned : `+${cleaned}`;
+  const terms = normalized.match(/[+-][^+-]+/g);
+  if (!terms || terms.join('') !== normalized) {
+    throw new Error(`unsupported_polynomial_expression: '${expression}'`);
+  }
+
+  const coefficients = [0, 0, 0, 0, 0];
+  const variableTerm = new RegExp(`^([+-])(${DECIMAL_PATTERN})?\\*?x(?:\\^([0-9]+))?$`);
+  const constantTerm = new RegExp(`^([+-])(${DECIMAL_PATTERN})$`);
+
+  for (const term of terms) {
+    const variable = variableTerm.exec(term);
+    if (variable) {
+      const power = variable[3] === undefined ? 1 : Number(variable[3]);
+      if (!Number.isInteger(power) || power < 0 || power > 4) {
+        throw new Error(`unsupported_polynomial_degree: Degree ${variable[3]} is outside 0..4`);
+      }
+      const magnitude = variable[2] === undefined ? 1 : Number(variable[2]);
+      const coefficient = variable[1] === '-' ? -magnitude : magnitude;
+      if (!Number.isFinite(coefficient)) throw new Error('invalid_polynomial_coefficient: Coefficients must be finite');
+      coefficients[power] += coefficient;
+      continue;
+    }
+
+    const constant = constantTerm.exec(term);
+    if (constant) {
+      const magnitude = Number(constant[2]);
+      const coefficient = constant[1] === '-' ? -magnitude : magnitude;
+      if (!Number.isFinite(coefficient)) throw new Error('invalid_polynomial_coefficient: Coefficients must be finite');
+      coefficients[0] += coefficient;
+      continue;
+    }
+    throw new Error(`unsupported_polynomial_term: '${term}'`);
+  }
+
+  const degree = coefficients.reduce((highest, coefficient, power) => coefficient !== 0 ? power : highest, 0);
+  return { coefficients, degree };
+}
+
+function evaluatePolynomial(coefficients: readonly number[], x: number): number {
+  if (!Number.isFinite(x)) throw new Error('invalid_polynomial_input: x must be finite');
+  let result = 0;
+  for (let power = coefficients.length - 1; power >= 0; power -= 1) result = result * x + coefficients[power];
+  if (!Number.isFinite(result)) throw new Error('polynomial_evaluation_overflow');
+  return result;
+}
+
 export interface ScreenBox {
   xMin: number;
   yMin: number;
@@ -187,14 +248,14 @@ export function parseGraphFunction(
     }
 
     case 'polynomial': {
-      // Handles degree 3 or 4 canonical polynomials e.g. x^3 - 3*x
-      const fn = (x: number) => Math.pow(x, 3) - 3 * x;
-      const df = (x: number) => 3 * Math.pow(x, 2) - 3;
+      const source = expression ?? 'x^3-3*x';
+      const polynomial = parseBoundedPolynomial(source);
+      const derivativeCoefficients = polynomial.coefficients.slice(1).map((coefficient, index) => coefficient * (index + 1));
       return {
         type: 'polynomial',
-        evaluate: fn,
-        derivative: df,
-        description: expression ?? 'y = x^3 - 3*x'
+        evaluate: (x: number) => evaluatePolynomial(polynomial.coefficients, x),
+        derivative: (x: number) => evaluatePolynomial(derivativeCoefficients, x),
+        description: `y = ${source}`
       };
     }
 

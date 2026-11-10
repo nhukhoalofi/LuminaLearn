@@ -362,7 +362,11 @@ export class SegmentRenderWorkerV3 implements ISegmentRenderWorkerV3 {
       propsPath,
       JSON.stringify({
         storyboard: segmentStoryboard,
-        subtitlesEnabled: context.subtitlesEnabled ?? true
+        subtitlesEnabled: context.subtitlesEnabled ?? true,
+        trustedProofContext: {
+          artifactIntegrityVerified: true,
+          approvedDraftVersion: context.approvedArtifact.approvedVersion
+        }
       }),
       'utf8'
     );

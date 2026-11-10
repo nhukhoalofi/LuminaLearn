@@ -29,8 +29,22 @@ const LuminaVideoSchema = z.object({
 
 const LuminaMathHybridSchema = z.object({ manifest: HybridVideoManifestSchema });
 const LuminaDynamicV2Schema = z.object({ manifest: RenderManifestV2Schema });
-const LuminaSceneV3Schema = z.object({ storyboard: EducationalStoryboardV3Schema, subtitlesEnabled: z.boolean().default(true) });
-const LuminaScenePreviewV3Schema = z.object({ scene: EducationalSceneV3Schema, subtitlesEnabled: z.boolean().default(true) });
+const LuminaSceneV3Schema = z.object({
+  storyboard: EducationalStoryboardV3Schema,
+  subtitlesEnabled: z.boolean().default(true),
+  trustedProofContext: z.object({
+    artifactIntegrityVerified: z.literal(true),
+    approvedDraftVersion: z.number().int().positive()
+  }).strict().optional()
+});
+const LuminaScenePreviewV3Schema = z.object({
+  scene: EducationalSceneV3Schema,
+  subtitlesEnabled: z.boolean().default(true),
+  trustedProofContext: z.object({
+    artifactIntegrityVerified: z.literal(true),
+    approvedDraftVersion: z.number().int().positive()
+  }).strict().optional()
+});
 const VisualDslCompositionV3Schema = z.object({ definition: VisualSceneDefinitionV3Schema });
 
 export const Root: React.FC = () => {

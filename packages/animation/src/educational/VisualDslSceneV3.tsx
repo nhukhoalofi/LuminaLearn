@@ -58,7 +58,12 @@ function renderKatexHtml(latex: string, displayMode = true): string {
   }
 }
 
-export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3 }> = ({ definition }) => {
+export interface TrustedProofContextV3 {
+  artifactIntegrityVerified: true;
+  approvedDraftVersion: number;
+}
+
+export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3 }> = ({ definition, trustedProofContext }) => {
   const supported = new Set<VisualElementV3['elementType']>([
     'text', 'formula', 'graph', 'axes', 'point', 'vector', 'arrow',
     'matrix', 'labeled_step', 'neural_node', 'neural_connection'
@@ -451,6 +456,14 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3 }>
 
         if (element.elementType === 'formula') {
           const html = renderKatexHtml(element.latex, true);
+          const trustedBinding = trustedProofContext && element.claimId
+            ? definition.trustedMathBindings.find((binding) =>
+                binding.elementId === element.elementId &&
+                binding.claimId === element.claimId &&
+                binding.approvedDraftVersion === trustedProofContext.approvedDraftVersion &&
+                binding.authority === 'server_sympy_v3'
+              )
+            : undefined;
           return (
             <div
               key={element.elementId}
@@ -469,16 +482,18 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3 }>
                 style={{ color: element.color, fontSize: element.fontSize }}
                 dangerouslySetInnerHTML={{ __html: html }}
               />
-              {element.claimId && (
+              {trustedBinding ? (
                 <div style={{ marginTop: 6, textAlign: 'right' }}>
                   <span
                     className="math-badge"
                     style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#4ADE80', border: '1px solid rgba(34, 197, 94, 0.4)' }}
                   >
-                    ✓ SymPy Bound: {element.claimId}
+                    ✓ SymPy Verified: {trustedBinding.claimId}
                   </span>
                 </div>
-              )}
+              ) : element.claimId ? (
+                <div style={{ marginTop: 6, textAlign: 'right' }}><span className="math-badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#FBBF24', border: '1px solid rgba(245, 158, 11, 0.4)' }}>Chưa có proof binding hợp lệ</span></div>
+              ) : null}
             </div>
           );
         }

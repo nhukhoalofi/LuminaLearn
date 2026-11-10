@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 export const DEFAULT_MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -66,16 +67,73 @@ export class PreviewCacheManager {
     this.ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   }
 
-  public async init(): Promise<void> {
+  public async init(now = Date.now()): Promise<void> {
     await mkdir(this.dir, { recursive: true });
     if (!state.initialized) {
       await this.cleanStaleTempFiles();
+      await this.recoverFromDisk(now);
       state.initialized = true;
     }
   }
 
+  /**
+   * Reconstruct cache state from disk across restarts:
+   * 1. Reads .meta.json sidecars
+   * 2. Validates corresponding PNG existence & signatures
+   * 3. Discards expired entries (now - createdAt > ttlMs)
+   * 4. Enforces capacity bounds (maxBytes, maxEntries) using LRU eviction
+   */
+  private async recoverFromDisk(now: number): Promise<void> {
+    try {
+      const files = await readdir(this.dir);
+      const metaFiles = files.filter((f) => f.endsWith('.meta.json'));
+
+      for (const metaFile of metaFiles) {
+        const metaPath = resolve(this.dir, metaFile);
+        const key = metaFile.replace(/\.meta\.json$/, '');
+        const pngPath = resolve(this.dir, `${key}.png`);
+
+        try {
+          const rawMeta = await readFile(metaPath, 'utf8');
+          const meta = JSON.parse(rawMeta) as CacheEntryMeta;
+
+          if (!meta.key || !meta.ownerId || typeof meta.sizeBytes !== 'number' || typeof meta.createdAt !== 'number') {
+            await this.evict(key);
+            continue;
+          }
+
+          // Check TTL expiration
+          if (now - meta.createdAt > this.ttlMs) {
+            await this.evict(key);
+            continue;
+          }
+
+          // Verify PNG on disk exists and has valid signature
+          const pngData = await readFile(pngPath);
+          validatePngSignature(pngData);
+
+          state.entries.set(key, {
+            ...meta,
+            lastAccessedAt: meta.lastAccessedAt ?? meta.createdAt
+          });
+        } catch {
+          // Metadata corrupted or PNG invalid/missing - clean up both
+          await rm(metaPath, { force: true }).catch(() => undefined);
+          await rm(pngPath, { force: true }).catch(() => undefined);
+        }
+      }
+
+      this.recalculateTotals();
+
+      // Enforce bounds if accumulated files exceed capacity on startup
+      await this.ensureCapacity(0);
+    } catch {
+      // directory read failure
+    }
+  }
+
   public async get(key: string, ownerId: string, now = Date.now()): Promise<Buffer | null> {
-    await this.init();
+    await this.init(now);
     const meta = state.entries.get(key);
 
     if (meta) {
@@ -108,20 +166,31 @@ export class PreviewCacheManager {
       }
     }
 
-    // Fallback: Check if file exists on disk (from previous process)
+    // Disk fallback: Check if valid file and metadata exist on disk (unindexed from previous session)
     const filePath = resolve(this.dir, `${key}.png`);
+    const metaPath = resolve(this.dir, `${key}.meta.json`);
     try {
+      const rawMeta = await readFile(metaPath, 'utf8');
+      const diskMeta = JSON.parse(rawMeta) as CacheEntryMeta;
+
+      // Validate owner identity from authoritative disk metadata
+      if (diskMeta.ownerId !== ownerId) {
+        state.metrics.misses += 1;
+        return null;
+      }
+
+      // Validate TTL from authoritative disk metadata
+      if (now - diskMeta.createdAt > this.ttlMs) {
+        await this.evict(key);
+        state.metrics.misses += 1;
+        return null;
+      }
+
       const data = await readFile(filePath);
       validatePngSignature(data);
-      const fileStat = await stat(filePath);
-      const entry: CacheEntryMeta = {
-        key,
-        ownerId,
-        sizeBytes: fileStat.size,
-        createdAt: fileStat.mtimeMs,
-        lastAccessedAt: now
-      };
-      state.entries.set(key, entry);
+
+      diskMeta.lastAccessedAt = now;
+      state.entries.set(key, diskMeta);
       this.recalculateTotals();
       state.metrics.hits += 1;
       return data;
@@ -132,17 +201,18 @@ export class PreviewCacheManager {
   }
 
   public async put(key: string, ownerId: string, buffer: Buffer, now = Date.now()): Promise<void> {
-    await this.init();
+    await this.init(now);
     validatePngSignature(buffer);
 
     // Evict if adding would exceed capacity
     await this.ensureCapacity(buffer.byteLength);
 
-    const targetFile = resolve(this.dir, `${key}.png`);
-    const tempFile = resolve(this.dir, `${key}.${now}.put.tmp`);
+    const token = randomUUID();
+    const targetPng = resolve(this.dir, `${key}.png`);
+    const tempPng = resolve(this.dir, `${key}.${now}.${token}.png.tmp`);
 
-    await writeFile(tempFile, buffer, { flag: 'w' });
-    await rename(tempFile, targetFile);
+    const targetMeta = resolve(this.dir, `${key}.meta.json`);
+    const tempMeta = resolve(this.dir, `${key}.${now}.${token}.meta.tmp`);
 
     const meta: CacheEntryMeta = {
       key,
@@ -152,13 +222,28 @@ export class PreviewCacheManager {
       lastAccessedAt: now
     };
 
-    state.entries.set(key, meta);
-    this.recalculateTotals();
+    try {
+      await writeFile(tempPng, buffer, { flag: 'w' });
+      await writeFile(tempMeta, JSON.stringify(meta), { flag: 'w', encoding: 'utf8' });
+
+      await rename(tempPng, targetPng);
+      await rename(tempMeta, targetMeta);
+
+      state.entries.set(key, meta);
+      this.recalculateTotals();
+    } catch (err) {
+      // Clean up temp files if write/rename fails (e.g. disk full)
+      await rm(tempPng, { force: true }).catch(() => undefined);
+      await rm(tempMeta, { force: true }).catch(() => undefined);
+      throw err;
+    }
   }
 
   public async evict(key: string): Promise<void> {
-    const filePath = resolve(this.dir, `${key}.png`);
-    await rm(filePath, { force: true }).catch(() => undefined);
+    const pngPath = resolve(this.dir, `${key}.png`);
+    const metaPath = resolve(this.dir, `${key}.meta.json`);
+    await rm(pngPath, { force: true }).catch(() => undefined);
+    await rm(metaPath, { force: true }).catch(() => undefined);
     if (state.entries.delete(key)) {
       state.metrics.evictions += 1;
       this.recalculateTotals();
@@ -166,9 +251,10 @@ export class PreviewCacheManager {
   }
 
   private async ensureCapacity(incomingBytes: number): Promise<void> {
+    const maxAllowedEntries = incomingBytes > 0 ? this.maxEntries - 1 : this.maxEntries;
     while (
       (state.metrics.totalSizeBytes + incomingBytes > this.maxBytes ||
-        state.entries.size >= this.maxEntries) &&
+        state.entries.size > maxAllowedEntries) &&
       state.entries.size > 0
     ) {
       // Find oldest accessed entry (LRU)
@@ -200,7 +286,7 @@ export class PreviewCacheManager {
           const filePath = resolve(this.dir, file);
           try {
             const st = await stat(filePath);
-            if (now - st.mtimeMs > maxAgeMs) {
+            if (maxAgeMs <= 0 || now - st.mtimeMs >= maxAgeMs) {
               await rm(filePath, { force: true });
               cleaned += 1;
             }
@@ -232,4 +318,3 @@ export class PreviewCacheManager {
 }
 
 export const defaultPreviewCacheManager = new PreviewCacheManager();
-

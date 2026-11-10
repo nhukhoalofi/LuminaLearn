@@ -8,19 +8,25 @@ import {
   AttentionHeatmapScene,
   SummaryScene,
   GenericPlotScene,
-  AlgebraIdentityScene
+  AlgebraIdentityScene,
+  VisualDslSceneV3
 } from '@luminalearn/animation';
+import type { TrustedProofContextV3 } from '@luminalearn/animation';
 
 export interface LuminaSceneV3Props {
   storyboard: EducationalStoryboardV3;
   subtitlesEnabled?: boolean;
+  trustedProofContext?: TrustedProofContextV3;
   [key: string]: unknown;
 }
 
 /**
  * SceneDispatcherV3: Dispatch từng phân cảnh theo sceneType với contract visualPayload nghiêm ngặt.
  */
-export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean }> = ({ scene, subtitlesEnabled }) => {
+export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean; trustedProofContext?: TrustedProofContextV3 }> = ({ scene, subtitlesEnabled, trustedProofContext }) => {
+  if (scene.visualDefinition) {
+    return <VisualDslSceneV3 definition={scene.visualDefinition} trustedProofContext={trustedProofContext} />;
+  }
   const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
 
@@ -68,7 +74,7 @@ export const LuminaBrandOverlayV3: React.FC = () => (
  * - Lớp phủ phụ đề tiếng Việt an toàn (Burned-in subtitle safe area).
  * - Hoạt động độc lập không phụ thuộc Manim cho các phân cảnh đồ họa Remotion.
  */
-export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({ storyboard, subtitlesEnabled = true }) => {
+export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({ storyboard, subtitlesEnabled = true, trustedProofContext }) => {
   const { fps } = useVideoConfig();
 
   return (
@@ -87,7 +93,7 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({ storyboard, subtit
             durationInFrames={sceneDurationFrames}
             name={`${idx + 1}. ${scene.title}`}
           >
-            <SceneDispatcherV3 scene={scene} subtitlesEnabled={subtitlesEnabled} />
+            <SceneDispatcherV3 scene={scene} subtitlesEnabled={subtitlesEnabled} trustedProofContext={trustedProofContext} />
           </Sequence>
         );
       })}

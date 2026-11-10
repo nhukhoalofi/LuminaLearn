@@ -338,6 +338,7 @@ export const VisualGraphElementSchema = z.object({
   elementId: SafeIdString,
   functionType: z.enum(['convex_quadratic', 'sine', 'polynomial', 'exponential', 'custom_curve']),
   expression: z.string().max(100).optional(),
+  claimId: SafeIdString.optional(),
   xRange: z.tuple([z.number().finite(), z.number().finite()]).default([-3, 3]),
   yRange: z.tuple([z.number().finite(), z.number().finite()]).default([-1, 9]),
   showTangentLine: z.boolean().default(false),
@@ -514,6 +515,19 @@ export const VerifiedMathBindingV3Schema = z.object({
 }).strict();
 export type VerifiedMathBindingV3 = z.infer<typeof VerifiedMathBindingV3Schema>;
 
+export const TrustedVisualMathBindingV3Schema = z.object({
+  authority: z.literal('server_sympy_v3'),
+  claimId: SafeIdString,
+  elementId: SafeIdString,
+  verifiedExpression: z.string().trim().min(1).max(300),
+  normalizedExpressionFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  verificationResult: z.literal('formally_verified'),
+  verificationTimestamp: z.string().datetime(),
+  approvedDraftVersion: z.number().int().positive(),
+  sourceSceneId: SafeIdString
+}).strict();
+export type TrustedVisualMathBindingV3 = z.infer<typeof TrustedVisualMathBindingV3Schema>;
+
 // Visual Data Binding: Dynamic parameter links
 export const VisualDataBindingV3Schema = z.object({
   bindingKey: SafeIdString,
@@ -534,6 +548,7 @@ export const VisualSceneDefinitionV3Schema = z.object({
   elements: z.array(VisualElementV3Schema).default([]),
   timeline: VisualTimelineV3Schema.optional(),
   mathBindings: z.array(VerifiedMathBindingV3Schema).default([]),
+  trustedMathBindings: z.array(TrustedVisualMathBindingV3Schema).default([]),
   dataBindings: z.array(VisualDataBindingV3Schema).default([]),
   legacyPayload: EducationalVisualPayloadSchema.optional()
 }).strict().superRefine((scene, ctx) => {
@@ -564,7 +579,13 @@ export const VisualSceneDefinitionV3Schema = z.object({
   });
   scene.mathBindings.forEach((binding, index) => {
     const element = scene.elements.find((candidate) => candidate.elementId === binding.elementId);
-    if (!element || element.elementType !== 'formula') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mathBindings', index, 'elementId'], message: 'Math binding phải tham chiếu formula element tồn tại' });
+    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mathBindings', index, 'elementId'], message: 'Math binding phải tham chiếu formula hoặc graph element tồn tại' });
+  });
+  scene.trustedMathBindings.forEach((binding, index) => {
+    const element = scene.elements.find((candidate) => candidate.elementId === binding.elementId);
+    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph') || element.claimId !== binding.claimId || binding.sourceSceneId !== scene.sceneId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trustedMathBindings', index], message: 'Trusted binding phải khớp formula/graph, claim và scene hiện tại' });
+    }
   });
   scene.dataBindings.forEach((binding, index) => {
     if (!ids.has(binding.targetElementId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dataBindings', index, 'targetElementId'], message: 'Data binding tham chiếu element không tồn tại' });

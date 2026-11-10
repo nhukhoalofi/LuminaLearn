@@ -269,7 +269,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
   }
 
   // 3. Mathematics Patterns (Chủ đề toán học thuần túy)
-  if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic identit/i.test(normalized)) {
+  if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic?\s*identit|algebra\.identities/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['algebra.identities.seven'];
   }
   if (/cát tuyến|tiếp tuyến|đạo hàm|derivative/i.test(normalized)) {

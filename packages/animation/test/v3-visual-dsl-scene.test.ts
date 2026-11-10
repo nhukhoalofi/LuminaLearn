@@ -43,6 +43,7 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
           isVerified: true
         }
       ],
+      trustedMathBindings: [],
       dataBindings: []
     };
 
@@ -52,8 +53,8 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
     assert.ok(html.includes('class="katex"'), 'KaTeX class must be present');
     assert.ok(html.includes('class="katex-html"'), 'KaTeX HTML output must be present');
     assert.ok(html.includes('class="mord'), 'KaTeX math symbols must be present');
-    // Math claim binding badge must be visible
-    assert.ok(html.includes('✓ SymPy Bound: claim_algebra_1'));
+    assert.equal(html.includes('✓ SymPy Verified'), false);
+    assert.ok(html.includes('Chưa có proof binding hợp lệ'));
   });
 
   test('2. Renders real sampled graph curve and tangent line from mathematical parameters', () => {
@@ -95,6 +96,7 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
         }
       ],
       mathBindings: [],
+      trustedMathBindings: [],
       dataBindings: []
     };
 
@@ -109,6 +111,21 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
     assert.ok(html.includes('stroke="#F59E0B"'));
     // Point marker should have coordinates and label
     assert.ok(html.includes('w_0 = 2.0'));
+  });
+
+  test('2b. Shows verified badge only with a server binding for the approved artifact version', () => {
+    const sceneDef: VisualSceneDefinitionV3 = {
+      schemaVersion: 'visual-dsl-v3.1', sceneId: 'trusted_scene', sceneType: 'formula_derivation',
+      layout: 'centered_focus', style: 'math_chalkboard', animation: 'fade_in',
+      elements: [{ elementType: 'formula', elementId: 'formula_trusted', latex: 'x^2', claimId: 'claim_x2', fontSize: 36, color: '#38BDF8', animation: 'step_reveal' }],
+      mathBindings: [{ bindingId: 'binding_trusted', claimId: 'claim_x2', elementId: 'formula_trusted', formalExpression: 'x^2', mathSymbol: 'x^2', isVerified: true }],
+      trustedMathBindings: [{ authority: 'server_sympy_v3', claimId: 'claim_x2', elementId: 'formula_trusted', verifiedExpression: 'x^2', normalizedExpressionFingerprint: 'a'.repeat(64), verificationResult: 'formally_verified', verificationTimestamp: '2026-11-10T00:00:00.000Z', approvedDraftVersion: 7, sourceSceneId: 'trusted_scene' }],
+      dataBindings: []
+    };
+    const approved = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7 } }));
+    const stale = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 8 } }));
+    assert.ok(approved.includes('SymPy Verified: claim_x2'));
+    assert.equal(stale.includes('SymPy Verified: claim_x2'), false);
   });
 
   test('3. Renders labeled step with KaTeX formula and step number', () => {
@@ -131,6 +148,7 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
         }
       ],
       mathBindings: [],
+      trustedMathBindings: [],
       dataBindings: []
     };
 
@@ -160,6 +178,7 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
         }
       ],
       mathBindings: [],
+      trustedMathBindings: [],
       dataBindings: []
     };
 
@@ -189,6 +208,7 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
         }
       ],
       mathBindings: [],
+      trustedMathBindings: [],
       dataBindings: []
     };
 

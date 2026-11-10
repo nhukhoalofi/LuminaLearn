@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { AuthStore, SESSION_COOKIE_NAME } from './auth-store';
 
 export const MAX_JSON_PAYLOAD_BYTES = 256 * 1024; // 256 KB
@@ -55,14 +54,7 @@ export function isLoopbackRequest(req: Request): boolean {
   return true;
 }
 
-function safeTokenCompare(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-function extractCookieValue(cookieHeader: string | null, name: string): string | undefined {
+export function extractCookieValue(cookieHeader: string | null, name: string): string | undefined {
   if (!cookieHeader) return undefined;
   const match = cookieHeader.split(';').map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
   return match ? decodeURIComponent(match.slice(name.length + 1)) : undefined;
@@ -85,6 +77,17 @@ function extractAuthToken(req: Request): string | undefined {
 }
 
 type DeploymentMode = 'local_demo' | 'public' | 'disabled';
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export function assertSameOriginRequest(req: Request): void {
+  if (SAFE_METHODS.has(req.method.toUpperCase())) return;
+  const origin = req.headers.get('origin');
+  const expected = process.env.LUMINA_PUBLIC_ORIGIN?.trim() || new URL(req.url).origin;
+  if (!origin || origin !== expected) {
+    throw new SecurityError(403, 'csrf_origin_mismatch', 'State-changing cookie request must originate from the configured application origin.');
+  }
+}
 
 export function resolveDeploymentMode(): DeploymentMode {
   const publicDeployment = process.env.LUMINA_PUBLIC_DEPLOYMENT === 'true';
@@ -109,7 +112,6 @@ export function resolveDeploymentMode(): DeploymentMode {
  */
 export function assertRequestAuthorized(req: Request): void {
   const mode = resolveDeploymentMode();
-  const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
   const providedToken = extractAuthToken(req);
 
   if (mode === 'disabled') {
@@ -124,14 +126,13 @@ export function assertRequestAuthorized(req: Request): void {
   if (providedToken) {
     const session = AuthStore.getSession(providedToken);
     if (session) {
+      const cookieToken = extractCookieValue(req.headers.get('cookie'), SESSION_COOKIE_NAME);
+      if (cookieToken && !req.headers.has('authorization') && !req.headers.has('x-lumina-session-token')) assertSameOriginRequest(req);
       return;
     }
   }
 
   if (mode === 'public') {
-    if (configuredToken && providedToken && safeTokenCompare(providedToken, configuredToken)) {
-      return;
-    }
     throw new SecurityError(
       401,
       'unauthorized',
@@ -139,8 +140,9 @@ export function assertRequestAuthorized(req: Request): void {
     );
   }
 
-  // Local demo is deliberately a single-user trust domain. Host and forwarding
-  // headers are not identity proofs and never select a resource owner.
+  if (!isLoopbackRequest(req)) {
+    throw new SecurityError(403, 'local_demo_loopback_only', 'Local demo requests must originate from loopback.');
+  }
 }
 
 /**
@@ -158,14 +160,9 @@ export function resolveOwnerId(req: Request): string {
     }
   }
 
-  // 2. Legacy API auth token
-  const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
-  if (providedToken && configuredToken && safeTokenCompare(providedToken, configuredToken)) {
-    return `tok_${createHash('sha256').update(providedToken).digest('hex').slice(0, 16)}`;
-  }
-
-  // 3. Local single-user demo fallback
+  // 2. Local single-user demo fallback
   if (mode === 'local_demo') {
+    if (!isLoopbackRequest(req)) throw new SecurityError(403, 'local_demo_loopback_only', 'Local demo requests must originate from loopback.');
     return 'local-single-user';
   }
 

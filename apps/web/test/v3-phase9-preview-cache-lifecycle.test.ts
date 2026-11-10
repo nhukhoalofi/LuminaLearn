@@ -106,4 +106,76 @@ describe('Preview Cache Lifecycle & Quota Management (Phase 9)', () => {
     const cleaned = await cache.cleanStaleTempFiles(0);
     assert.equal(cleaned, 1);
   });
+
+  test('6. Restores persistent cache entries and metadata across manager restarts', async () => {
+    await cache.put('restart_key', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+
+    // Simulate process restart with fresh cache manager instance pointing to same directory
+    const restartedCache = new PreviewCacheManager({
+      cacheDir: tempDir,
+      maxBytes: 10 * 1024,
+      maxEntries: 4,
+      ttlMs: 500
+    });
+    restartedCache.resetForTests();
+
+    // Must recover valid unexpired entry from disk with owner isolation intact
+    const hit = await restartedCache.get('restart_key', 'teacher_alpha', 1200);
+    assert.ok(hit !== null);
+    assert.deepEqual(hit, VALID_PNG_BUFFER);
+
+    // Another teacher cannot access it even after restart
+    const crossOwner = await restartedCache.get('restart_key', 'teacher_beta', 1200);
+    assert.equal(crossOwner, null);
+  });
+
+  test('7. Enforces quota and evicts over-capacity entries during restart recovery', async () => {
+    // Put 4 entries
+    await cache.put('item_1', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+    await cache.put('item_2', 'teacher_alpha', VALID_PNG_BUFFER, 1050);
+    await cache.put('item_3', 'teacher_alpha', VALID_PNG_BUFFER, 1100);
+    await cache.put('item_4', 'teacher_alpha', VALID_PNG_BUFFER, 1150);
+
+    // New instance has smaller maxEntries = 2
+    const smallQuotaCache = new PreviewCacheManager({
+      cacheDir: tempDir,
+      maxBytes: 10 * 1024,
+      maxEntries: 2,
+      ttlMs: 10000
+    });
+    smallQuotaCache.resetForTests();
+
+    await smallQuotaCache.init(1200);
+    const metrics = smallQuotaCache.getMetrics();
+    assert.equal(metrics.totalEntries, 2);
+    // Oldest items (item_1, item_2) should have been evicted, newest (item_3, item_4) retained
+    assert.equal(await smallQuotaCache.get('item_1', 'teacher_alpha', 1200), null);
+    assert.equal(await smallQuotaCache.get('item_2', 'teacher_alpha', 1200), null);
+    assert.ok((await smallQuotaCache.get('item_3', 'teacher_alpha', 1200)) !== null);
+    assert.ok((await smallQuotaCache.get('item_4', 'teacher_alpha', 1200)) !== null);
+  });
+
+  test('8. Handles corrupted PNG and invalid metadata safely without crashing', async () => {
+    await cache.init();
+    // Write corrupt PNG directly to cache directory
+    const corruptPng = join(tempDir, 'corrupt.png');
+    const corruptMeta = join(tempDir, 'corrupt.meta.json');
+    await writeFile(corruptPng, Buffer.from('NOT_A_PNG'));
+    await writeFile(corruptMeta, JSON.stringify({ key: 'corrupt', ownerId: 'teacher_alpha', sizeBytes: 9, createdAt: 1000 }));
+
+    const res = await cache.get('corrupt', 'teacher_alpha', 1100);
+    assert.equal(res, null);
+  });
+
+  test('9. Concurrent writes execute atomically without corrupted files', async () => {
+    await Promise.all([
+      cache.put('concurrent_1', 'teacher_alpha', VALID_PNG_BUFFER, 1000),
+      cache.put('concurrent_2', 'teacher_alpha', VALID_PNG_BUFFER, 1000),
+      cache.put('concurrent_3', 'teacher_alpha', VALID_PNG_BUFFER, 1000)
+    ]);
+
+    assert.ok((await cache.get('concurrent_1', 'teacher_alpha', 1050)) !== null);
+    assert.ok((await cache.get('concurrent_2', 'teacher_alpha', 1050)) !== null);
+    assert.ok((await cache.get('concurrent_3', 'teacher_alpha', 1050)) !== null);
+  });
 });

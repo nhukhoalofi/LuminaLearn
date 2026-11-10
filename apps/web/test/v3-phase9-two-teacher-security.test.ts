@@ -14,6 +14,12 @@ import { POST as resumeJobRoute } from '../src/app/api/jobs/[jobId]/resume/route
 import { createV3JobFromArtifact } from '../src/server/job-store';
 import { AuthStore } from '../src/server/auth-store';
 import { draftManagerV3 } from '../src/server/v3-services';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const TEACHER_A_PASSWORD = 'test-only-alpha-password';
+const TEACHER_B_PASSWORD = 'test-only-beta-password';
+const tokenFromCookie = (response: Response) => /lumina_session=([^;]+)/.exec(response.headers.get('set-cookie') ?? '')?.[1] ?? '';
 
 describe('Two-Teacher Security & Multi-Tenant Isolation (Phase 9 — Checkpoint L)', () => {
   let teacherAToken: string;
@@ -25,37 +31,49 @@ describe('Two-Teacher Security & Multi-Tenant Isolation (Phase 9 — Checkpoint 
     // Enable private deployment mode requiring authenticated identity
     process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
     delete process.env.LUMINA_LOCAL_DEMO;
-    process.env.LUMINA_API_AUTH_TOKEN = 'shared_secret_legacy_fallback_only';
+    process.env.LUMINA_PUBLIC_ORIGIN = 'http://localhost:3000';
+    process.env.LUMINA_AUTH_TEST_MODE = 'true';
+    process.env.LUMINA_AUTH_STORE_PATH = join(tmpdir(), `lumina-auth-security-${process.pid}.json`);
     AuthStore.resetForTests();
+    await AuthStore.configureUsersForTests([
+      { ownerId: 'teacher_alpha', username: 'teacher_a', email: 'alpha@example.test', fullName: 'Teacher Alpha', subjectDomain: 'mathematics', password: TEACHER_A_PASSWORD },
+      { ownerId: 'teacher_beta', username: 'teacher_b', email: 'beta@example.test', fullName: 'Teacher Beta', subjectDomain: 'artificial_intelligence', password: TEACHER_B_PASSWORD }
+    ]);
 
     // 1. Authenticate Teacher A
     const loginReqA = new Request('http://localhost:3000/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'teacher_a', password: 'TeacherA#2026' })
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:3000' },
+      body: JSON.stringify({ username: 'teacher_a', password: TEACHER_A_PASSWORD })
     });
     const loginResA = await loginRoute(loginReqA);
     assert.equal(loginResA.status, 200);
-    const dataA = await loginResA.json() as { token: string; teacher: { ownerId: string } };
+    const dataA = await loginResA.json() as { teacher: { ownerId: string } };
     assert.equal(dataA.teacher.ownerId, 'teacher_alpha');
-    teacherAToken = dataA.token;
+    assert.equal('token' in dataA, false);
+    teacherAToken = tokenFromCookie(loginResA);
+    assert.ok(teacherAToken);
 
     // 2. Authenticate Teacher B
     const loginReqB = new Request('http://localhost:3000/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'teacher_b', password: 'TeacherB#2026' })
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:3000' },
+      body: JSON.stringify({ username: 'teacher_b', password: TEACHER_B_PASSWORD })
     });
     const loginResB = await loginRoute(loginReqB);
     assert.equal(loginResB.status, 200);
-    const dataB = await loginResB.json() as { token: string; teacher: { ownerId: string } };
+    const dataB = await loginResB.json() as { teacher: { ownerId: string } };
     assert.equal(dataB.teacher.ownerId, 'teacher_beta');
-    teacherBToken = dataB.token;
+    assert.equal('token' in dataB, false);
+    teacherBToken = tokenFromCookie(loginResB);
+    assert.ok(teacherBToken);
   });
 
   after(() => {
     delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
     process.env.LUMINA_LOCAL_DEMO = 'true';
+    AuthStore.resetForTests();
+    AuthStore.clearTestUsers();
   });
 
   test('1. Teacher A creates an independent mathematics draft', async () => {

@@ -59,6 +59,9 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [hasMathChanges, setHasMathChanges] = useState<boolean>(false);
   const [currentTeacher, setCurrentTeacher] = useState<{ ownerId: string; fullName: string; username: string; email: string } | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [myDrafts, setMyDrafts] = useState<Array<{ draftId: string; version: number; status: string; lessonPlan: { title: string } }>>([]);
   const [showMyDrafts, setShowMyDrafts] = useState(false);
 
@@ -86,6 +89,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
 
   async function loginAsTeacher(username: string, pass: string) {
     try {
+      setLoginError('');
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,9 +98,13 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       if (res.ok) {
         const data = await res.json();
         setCurrentTeacher(data.teacher);
+        setLoginPassword('');
         setShowLoginModal(false);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setLoginError(data.message ?? 'Đăng nhập không thành công.');
       }
-    } catch { /* ignore */ }
+    } catch { setLoginError('Không thể kết nối dịch vụ đăng nhập.'); }
   }
 
   async function logoutTeacher() {
@@ -315,26 +323,12 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       {showLoginModal && (
         <div style={{ padding: 16, background: '#1E293B', borderRadius: 12, border: '1px solid #38BDF8', marginBottom: 20 }}>
           <h4 style={{ margin: '0 0 10px 0', color: '#38BDF8' }}>Đăng nhập phiên thử nghiệm trường học (Pilot)</h4>
-          <p style={{ fontSize: 13, color: '#CBD5E1', marginBottom: 12 }}>
-            Chọn tài khoản giáo viên để thử nghiệm phân lập dữ liệu đa người dùng:
-          </p>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              type="button"
-              className="quick-chip"
-              style={{ background: '#0284C7', color: '#FFFFFF' }}
-              onClick={() => loginAsTeacher('teacher_a', 'TeacherA#2026')}
-            >
-              👩‍🏫 Cô Nguyễn Mai (teacher_a · Toán)
-            </button>
-            <button
-              type="button"
-              className="quick-chip"
-              style={{ background: '#0D9488', color: '#FFFFFF' }}
-              onClick={() => loginAsTeacher('teacher_b', 'TeacherB#2026')}
-            >
-              👨‍🏫 Thầy Trần Nam (teacher_b · AI)
-            </button>
+          <p style={{ fontSize: 13, color: '#CBD5E1', marginBottom: 12 }}>Dùng tài khoản cá nhân do quản trị viên pilot cấp. LuminaLearn không nhúng mật khẩu mẫu trong ứng dụng.</p>
+          <div style={{ display: 'grid', gap: 10, maxWidth: 420 }}>
+            <label>Tên đăng nhập<input className="form-input" autoComplete="username" value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} /></label>
+            <label>Mật khẩu<input className="form-input" type="password" autoComplete="current-password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} /></label>
+            {loginError && <p role="alert" className="error-message">{loginError}</p>}
+            <button type="button" className="quick-chip" style={{ background: '#0284C7', color: '#FFFFFF' }} disabled={!loginUsername || !loginPassword} onClick={() => loginAsTeacher(loginUsername, loginPassword)}>Đăng nhập</button>
             <button
               type="button"
               className="quick-chip"

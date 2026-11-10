@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { AuthStore, SESSION_COOKIE_NAME, SESSION_TTL_MS } from '@/server/auth-store';
-import { readBoundedJson, SecurityError } from '@/server/security';
+import { AuthStore, LoginRateLimitError, SESSION_COOKIE_NAME, SESSION_TTL_MS } from '@/server/auth-store';
+import { assertSameOriginRequest, readBoundedJson, resolveDeploymentMode, SecurityError } from '@/server/security';
 
 export const runtime = 'nodejs';
 
@@ -12,10 +12,11 @@ const LoginRequestSchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    if (resolveDeploymentMode() === 'public') assertSameOriginRequest(request);
     const raw = await readBoundedJson<unknown>(request, 4 * 1024);
     const body = LoginRequestSchema.parse(raw);
 
-    const session = AuthStore.authenticate(body.username, body.password);
+    const session = await AuthStore.authenticate(body.username, body.password);
     if (!session) {
       return NextResponse.json(
         { error: 'invalid_credentials', message: 'Tên đăng nhập hoặc mật khẩu giáo viên không chính xác.' },
@@ -31,7 +32,6 @@ export async function POST(request: Request): Promise<Response> {
         fullName: session.fullName,
         email: session.email
       },
-      token: session.token,
       expiresAt: session.expiresAt
     });
 
@@ -42,11 +42,17 @@ export async function POST(request: Request): Promise<Response> {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: Math.floor(SESSION_TTL_MS / 1000)
+      maxAge: Math.floor(SESSION_TTL_MS / 1000),
+      secure: resolveDeploymentMode() === 'public'
     });
 
     return response;
   } catch (error) {
+    if (error instanceof LoginRateLimitError) {
+      return NextResponse.json({ error: error.code, message: 'Quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau.' }, {
+        status: 429, headers: { 'Retry-After': String(error.retryAfterSeconds) }
+      });
+    }
     if (error instanceof SecurityError) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
     }

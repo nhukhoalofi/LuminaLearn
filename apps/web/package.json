@@ -16,6 +16,7 @@
     "@luminalearn/agent": "workspace:*",
     "@luminalearn/hybrid-renderer": "workspace:*",
     "@luminalearn/scene-schema": "workspace:*",
+    "@node-rs/argon2": "^2.2.2",
     "@types/katex": "^0.16.8",
     "katex": "^0.19.1",
     "next": "^16.4.5",

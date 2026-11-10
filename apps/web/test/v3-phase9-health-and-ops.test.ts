@@ -1,12 +1,26 @@
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { GET as healthRoute } from '../src/app/api/health/route';
 import { GET as sessionRoute } from '../src/app/api/auth/session/route';
 import { GET as listJobsRoute } from '../src/app/api/jobs/route';
 import { GET as listDraftsRoute } from '../src/app/api/v3/lessons/draft/route';
 import { AuthStore } from '../src/server/auth-store';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const TEST_PASSWORD = 'test-only-health-password';
 
 describe('Operational Visibility & Health Endpoints (Phase 9 — Checkpoint N)', () => {
+  before(async () => {
+    process.env.LUMINA_AUTH_TEST_MODE = 'true';
+    process.env.LUMINA_AUTH_STORE_PATH = join(tmpdir(), `lumina-auth-health-${process.pid}.json`);
+    AuthStore.resetForTests();
+    await AuthStore.configureUsersForTests([
+      { ownerId: 'teacher_alpha', username: 'teacher_a', email: 'alpha@example.test', fullName: 'Teacher Alpha', subjectDomain: 'mathematics', password: TEST_PASSWORD }
+    ]);
+  });
+
+  after(() => { AuthStore.resetForTests(); AuthStore.clearTestUsers(); });
   test('1. GET /api/health exposes uptime, memory, render queue, and cache metrics without leaking secrets', async () => {
     const res = await healthRoute();
     assert.equal(res.status, 200);
@@ -36,7 +50,7 @@ describe('Operational Visibility & Health Endpoints (Phase 9 — Checkpoint N)',
 
   test('2. GET /api/auth/session correctly identifies authenticated pilot teacher vs unauthenticated', async () => {
     // 1. Authenticate Teacher Alpha
-    const session = AuthStore.authenticate('teacher_a', 'TeacherA#2026');
+    const session = await AuthStore.authenticate('teacher_a', TEST_PASSWORD);
     assert.ok(session);
 
     const authReq = new Request('http://localhost:3000/api/auth/session', {
@@ -59,7 +73,7 @@ describe('Operational Visibility & Health Endpoints (Phase 9 — Checkpoint N)',
   });
 
   test('3. GET /api/jobs and GET /api/v3/lessons/draft return caller-isolated resource lists', async () => {
-    const sessionA = AuthStore.authenticate('teacher_a', 'TeacherA#2026');
+    const sessionA = await AuthStore.authenticate('teacher_a', TEST_PASSWORD);
     assert.ok(sessionA);
 
     const jobsReq = new Request('http://localhost:3000/api/jobs', {

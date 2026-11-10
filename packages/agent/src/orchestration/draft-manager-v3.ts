@@ -5,13 +5,16 @@ import {
   ApprovedRenderArtifactV3Schema,
   EducationalLessonPlanV3Schema,
   LessonRequestV3Schema,
+  VisualSceneDefinitionV3Schema,
   type ApprovedRenderArtifactCoreV3,
   type ApprovedRenderArtifactV3,
   type DraftStatusV3Schema,
   type EducationalLessonPlanV3,
+  type EducationalClaimV3,
   type EducationalVisualPayload,
   type LessonRequestV3,
   type ExternalApiConsentRecordV3
+  ,type VisualSceneDefinitionV3
 } from '@luminalearn/scene-schema';
 import type { z } from 'zod';
 import { canonicalJsonStringify } from './draft-manager';
@@ -36,11 +39,13 @@ export interface LessonDraftV3 {
 export interface UpdateLessonDraftV3 {
   title?: string;
   learningObjectives?: string[];
+  claims?: EducationalClaimV3[];
   claimStatements?: Record<string, string>;
   narrationTexts?: Record<string, string>;
   subtitleTexts?: Record<string, string>;
   sceneTitles?: Record<string, string>;
   visualPayloads?: Record<string, unknown>;
+  visualDefinitions?: Record<string, unknown>;
 }
 
 export class DraftVersionConflictV3Error extends Error {
@@ -52,6 +57,59 @@ export class DraftVersionConflictV3Error extends Error {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function normalizeBoundExpression(value: string): string {
+  return value
+    .replace(/\\cdot/g, '*')
+    .replace(/\\times/g, '*')
+    .replace(/\{([^{}]+)\}/g, '$1')
+    .replace(/\s+/g, '')
+    .replace(/²/g, '^2')
+    .replace(/³/g, '^3')
+    .replace(/\*\*/g, '^')
+    .replace(/(\d)\*([a-zA-Z])/g, '$1$2')
+    .replace(/([a-zA-Z])\*([a-zA-Z])/g, '$1$2');
+}
+
+function issueTrustedVisualBindings(
+  definition: VisualSceneDefinitionV3,
+  claimsMap: Map<string, EducationalLessonPlanV3['educationalClaims'][number]>,
+  approvedDraftVersion: number,
+  verificationTimestamp: string
+): VisualSceneDefinitionV3 {
+  const clientBindings = new Map(definition.mathBindings.map((binding) => [`${binding.elementId}:${binding.claimId}`, binding]));
+  const trustedMathBindings = definition.elements.flatMap((element) => {
+    if ((element.elementType !== 'formula' && element.elementType !== 'graph') || !element.claimId) return [];
+    const claim = claimsMap.get(element.claimId);
+    if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
+    if (claim.claimType !== 'formal_mathematics' || claim.verificationStatus !== 'formally_verified' ||
+        claim.formalExpressionVerified !== true || !claim.formalExpression) {
+      throw new Error(`visual_proof_claim_not_formally_verified: ${element.claimId}`);
+    }
+    const proposed = clientBindings.get(`${element.elementId}:${element.claimId}`);
+    if (!proposed) throw new Error(`visual_proof_binding_missing: ${element.elementId}`);
+    const verified = normalizeBoundExpression(claim.formalExpression);
+    if (normalizeBoundExpression(proposed.formalExpression) !== verified) {
+      throw new Error(`visual_proof_binding_expression_mismatch: ${element.elementId}`);
+    }
+    const renderedExpression = element.elementType === 'formula' ? element.latex : element.expression;
+    if (!renderedExpression || normalizeBoundExpression(renderedExpression) !== verified) {
+      throw new Error(`visual_proof_rendered_expression_mismatch: ${element.elementId}`);
+    }
+    return [{
+      authority: 'server_sympy_v3' as const,
+      claimId: claim.id,
+      elementId: element.elementId,
+      verifiedExpression: claim.formalExpression,
+      normalizedExpressionFingerprint: createHash('sha256').update(verified, 'utf8').digest('hex'),
+      verificationResult: 'formally_verified' as const,
+      verificationTimestamp,
+      approvedDraftVersion,
+      sourceSceneId: definition.sceneId
+    }];
+  });
+  return VisualSceneDefinitionV3Schema.parse({ ...definition, trustedMathBindings });
 }
 
 export function computeArtifactContentHashV3(core: ApprovedRenderArtifactCoreV3): string {
@@ -202,9 +260,17 @@ export class LessonDraftManagerV3 {
       const plan = clone(current.lessonPlan);
       if (patch.title !== undefined) plan.title = patch.title;
       if (patch.learningObjectives !== undefined) plan.learningObjectives = patch.learningObjectives;
-      plan.educationalClaims = plan.educationalClaims.map((claim) => patch.claimStatements?.[claim.id] === undefined ? claim : {
-        ...claim, statement: patch.claimStatements[claim.id], verificationStatus: 'unverified', formalProofSummary: undefined
-      });
+      if (patch.claims !== undefined) {
+        plan.educationalClaims = patch.claims.map((claim) => ({
+          ...claim,
+          verificationStatus: 'unverified',
+          formalProofSummary: undefined
+        }));
+      } else {
+        plan.educationalClaims = plan.educationalClaims.map((claim) => patch.claimStatements?.[claim.id] === undefined ? claim : {
+          ...claim, statement: patch.claimStatements[claim.id], verificationStatus: 'unverified', formalProofSummary: undefined
+        });
+      }
       if (plan.storyboard) {
         plan.storyboard.scenes = plan.storyboard.scenes.map((scene) => ({
           ...scene,
@@ -214,6 +280,9 @@ export class LessonDraftManagerV3 {
             subtitleVietnamese: patch.subtitleTexts?.[scene.sceneId] ?? scene.narration.subtitleVietnamese
           },
           visualPayload: (patch.visualPayloads?.[scene.sceneId] ?? scene.visualPayload) as EducationalVisualPayload
+          ,visualDefinition: patch.visualDefinitions?.[scene.sceneId] === undefined
+            ? scene.visualDefinition
+            : VisualSceneDefinitionV3Schema.parse(patch.visualDefinitions[scene.sceneId])
         }));
       }
       const integrity = await validateLessonMathematicalIntegrityV3({
@@ -303,7 +372,16 @@ export class LessonDraftManagerV3 {
       const latestPlan: EducationalLessonPlanV3 = {
         ...clone(current.lessonPlan),
         educationalClaims: integrity.validatedClaims,
-        validationReport: integrity.validationReport
+        validationReport: integrity.validationReport,
+        storyboard: {
+          ...clone(current.lessonPlan.storyboard),
+          scenes: current.lessonPlan.storyboard.scenes.map((scene) => ({
+            ...clone(scene),
+            visualDefinition: scene.visualDefinition
+              ? issueTrustedVisualBindings(scene.visualDefinition, claimsMap, version, integrity.validationReport.validationTimestamp)
+              : undefined
+          }))
+        }
       };
       const core: ApprovedRenderArtifactCoreV3 = {
         schemaVersion: 'approved-render-artifact-v3',

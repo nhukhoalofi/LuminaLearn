@@ -159,5 +159,31 @@ describe('Graph Math Engine — Scientific Correctness & Coordinate Transforms',
     assert.ok(grid.xGridLines.length > 2);
     assert.ok(grid.yGridLines.length > 2);
   });
+
+  test('10. Polynomial evaluator follows the requested bounded coefficients and derivative', () => {
+    const fixtures = [
+      { expression: 'x^3-3*x', x: 2, y: 2, dy: 9 },
+      { expression: '2*x^2+1', x: 2, y: 9, dy: 8 },
+      { expression: '-x^3+4*x', x: 2, y: 0, dy: -8 },
+      { expression: '0.5*x^4-2*x^2+3', x: 2, y: 3, dy: 8 }
+    ];
+    for (const fixture of fixtures) {
+      const polynomial = parseGraphFunction('polynomial', fixture.expression);
+      assert.equal(polynomial.evaluate(fixture.x), fixture.y, fixture.expression);
+      assert.equal(polynomial.derivative(fixture.x), fixture.dy, `${fixture.expression} derivative`);
+    }
+
+    const adversarial = parseGraphFunction('polynomial', '2*x^2+1');
+    assert.notEqual(adversarial.evaluate(2), Math.pow(2, 3) - 3 * 2);
+  });
+
+  test('11. Polynomial parser rejects executable, non-finite and degree-overflow syntax', () => {
+    assert.throws(() => parseGraphFunction('polynomial', 'x^5+1'), /unsupported_polynomial_degree/);
+    assert.throws(() => parseGraphFunction('polynomial', 'Infinity*x'), /unsupported_polynomial_expression/);
+    assert.throws(() => parseGraphFunction('polynomial', 'process.exit(1)'), /unsupported_polynomial_expression/);
+    assert.throws(() => parseGraphFunction('polynomial', 'x**2'), /unsupported_polynomial_term/);
+    const polynomial = parseGraphFunction('polynomial', 'x^4');
+    assert.throws(() => polynomial.evaluate(Number.MAX_VALUE), /polynomial_evaluation_overflow/);
+  });
 });
 
