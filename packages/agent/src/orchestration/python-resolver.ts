@@ -7,9 +7,11 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = resolve(moduleDir, '../../../..');
 
 let cachedPythonExecutable: string | null = null;
+let cachedConfiguredEnv: string | undefined = undefined;
 
 export function clearPythonResolverCache(): void {
   cachedPythonExecutable = null;
+  cachedConfiguredEnv = undefined;
 }
 
 export function probePythonExecutable(
@@ -48,12 +50,17 @@ export async function resolveMathEnginePython(options?: {
   bypassCache?: boolean;
 }): Promise<string> {
   const timeoutMs = options?.timeoutMs ?? 10_000;
+  // Canonical variable is PYTHON_EXECUTABLE; preserve legacy LUMINA_PYTHON_EXECUTABLE as fallback
+  const configured = (process.env.PYTHON_EXECUTABLE || process.env.LUMINA_PYTHON_EXECUTABLE)?.trim();
+
+  if (configured !== cachedConfiguredEnv) {
+    cachedPythonExecutable = null;
+    cachedConfiguredEnv = configured;
+  }
+
   if (!options?.bypassCache && cachedPythonExecutable) {
     return cachedPythonExecutable;
   }
-
-  // Canonical variable is PYTHON_EXECUTABLE; preserve legacy LUMINA_PYTHON_EXECUTABLE as fallback
-  const configured = (process.env.PYTHON_EXECUTABLE || process.env.LUMINA_PYTHON_EXECUTABLE)?.trim();
 
   if (configured) {
     try {

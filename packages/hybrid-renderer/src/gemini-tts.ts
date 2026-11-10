@@ -7,7 +7,9 @@ import {
   GeminiRequestBudget,
   type GeminiRequestBudgetSummary,
   classifyGeminiError as classifySharedGeminiError,
-  computeBackoffWithJitterMs
+  computeBackoffWithJitterMs,
+  type ExternalApiConsentRecordV3,
+  verifyExternalApiConsentV3
 } from '@luminalearn/scene-schema';
 import type { TtsProvider, TtsSynthesisSettings } from './audio';
 
@@ -126,6 +128,7 @@ export interface GeminiTtsProviderOptions {
   retryBaseDelayMs?: number;
   requestBudget?: GeminiRequestBudget;
   randomFn?: () => number;
+  consentRecord?: ExternalApiConsentRecordV3;
 }
 
 const SUPPORTED_GEMINI_TTS_MODELS = new Set([
@@ -203,10 +206,12 @@ export class GeminiTtsProvider implements TtsProvider {
   private readonly retryBaseDelayMs: number;
   private readonly budget: GeminiRequestBudget;
   private readonly randomFn: () => number;
+  private readonly consentRecord?: ExternalApiConsentRecordV3;
   private modelAvailability?: Promise<void>;
 
   constructor(options: GeminiTtsProviderOptions = {}) {
     this.apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
+    this.consentRecord = options.consentRecord;
     this.model = options.model ?? process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-lite-tts';
     this.voice = options.voice ?? process.env.GEMINI_TTS_VOICE ?? 'Kore';
     const configuredLanguage = options.language ?? process.env.GEMINI_TTS_LANGUAGE ?? 'vi';
@@ -247,6 +252,19 @@ export class GeminiTtsProvider implements TtsProvider {
     const narration = text.trim();
     if (!narration || narration.length > 5_000) throw new Error('tts_invalid_text: Narration must contain 1 to 5000 characters');
     if (extname(outputPath).toLowerCase() !== '.mp3') throw new Error('tts_output_invalid: Gemini TTS output path must end in .mp3');
+
+    if (this.consentRecord) {
+      const check = verifyExternalApiConsentV3({
+        consent: this.consentRecord,
+        ownerId: this.consentRecord.ownerId,
+        expectedProvider: 'gemini',
+        expectedOperation: 'narration',
+        isLiveOperation: true
+      });
+      if (!check.valid) {
+        throw new Error(`tts_consent_invalid: ${check.reason || 'Invalid external API consent record for Gemini TTS'}`);
+      }
+    }
 
     try {
       await this.ensureModelAvailable();

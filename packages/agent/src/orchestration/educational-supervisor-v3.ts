@@ -113,7 +113,20 @@ export class CurriculumPlanningAgent {
       ];
     }
 
-    return { lessonPlan: rawPlan, chapters };
+    const derivedChapters: EducationalChapterPlanV3[] = (rawPlan.storyboard?.chapters && rawPlan.storyboard.chapters.length > 0)
+      ? rawPlan.storyboard.chapters.map((ch: any, idx: number) => ({
+          chapterIndex: typeof ch.chapterIndex === 'number' ? ch.chapterIndex : idx,
+          chapterTitle: typeof ch.chapterTitle === 'string' ? ch.chapterTitle : `Phần ${idx + 1}`,
+          targetDurationSeconds: typeof ch.targetDurationSeconds === 'number' ? ch.targetDurationSeconds : typeof ch.durationSeconds === 'number' ? ch.durationSeconds : 30,
+          pedagogicalIntent: typeof ch.pedagogicalIntent === 'string' ? ch.pedagogicalIntent : 'Củng cố kiến thức sư phạm',
+          keyFormulasOrConcepts: Array.isArray(ch.keyFormulasOrConcepts) ? ch.keyFormulasOrConcepts.slice(0, 8) : Array.isArray(ch.keyConcepts) ? ch.keyConcepts.slice(0, 8) : ['Trọng tâm sư phạm']
+        }))
+      : chapters;
+
+    return {
+      lessonPlan: rawPlan,
+      chapters: derivedChapters
+    };
   }
 }
 

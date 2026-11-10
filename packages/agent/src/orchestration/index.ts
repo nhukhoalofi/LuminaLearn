@@ -18,5 +18,6 @@ export * from './algebra-verifier-v3';
 export * from './draft-manager-v3';
 export * from './educational-supervisor-v3';
 export * from './longform-segment-planner-v3';
+export * from './timeline-normalizer-v3';
 
 

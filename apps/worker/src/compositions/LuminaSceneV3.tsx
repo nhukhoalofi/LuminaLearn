@@ -77,7 +77,8 @@ export const BurnedInSubtitleOverlayV3: React.FC<{
             fontWeight: 600,
             color: '#F8FAFC',
             letterSpacing: '0.2px',
-            textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+            textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+            wordBreak: 'break-word'
           }}
         >
           {activeCue.text}

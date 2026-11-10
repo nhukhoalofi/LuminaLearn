@@ -14,6 +14,8 @@ import {
 import type { AIProvider } from './ai-provider';
 import type { DocumentAnalysisResult } from './types';
 import { KnowledgeValidationServiceV3, validateAlgebraSceneMath } from './knowledge-validation-v3';
+import { normalizeStoryboardTimelineV3, buildChaptersForScenes } from './timeline-normalizer-v3';
+export { buildChaptersForScenes };
 
 export interface EducationalPlannerV3Options {
   aiProvider?: AIProvider;
@@ -139,7 +141,22 @@ export class EducationalPlannerV3 {
       }
     }
 
-    // Bước 4: Xác thực qua Zod Schema V3 chặt chẽ
+    // Bước 4: Chuẩn hóa timeline đảm bảo mọi phân cảnh <= 120s và tổng thời lượng chính xác
+    if (candidatePlan.storyboard?.scenes && candidatePlan.storyboard.scenes.length > 0) {
+      const targetSec = input.targetDurationSeconds ?? candidatePlan.storyboard.totalDurationSeconds;
+      const normalized = normalizeStoryboardTimelineV3({
+        rawScenes: candidatePlan.storyboard.scenes,
+        targetDurationSeconds: targetSec,
+        capability: capabilityReport,
+        fps: 24,
+        maxSceneDurationSeconds: 120
+      });
+      candidatePlan.storyboard.scenes = normalized.scenes;
+      candidatePlan.storyboard.totalDurationSeconds = normalized.totalDurationSeconds;
+      candidatePlan.storyboard.chapters = normalized.chapters;
+    }
+
+    // Bước 5: Xác thực qua Zod Schema V3 chặt chẽ
     return EducationalLessonPlanV3Schema.parse(candidatePlan);
   }
 
@@ -174,17 +191,22 @@ export class EducationalPlannerV3 {
     }
 
     const budget = this.requestBudget ?? new GeminiRequestBudget();
+    const targetDuration = input.targetDurationSeconds ?? 40;
+    const targetScenes = targetDuration <= 60 ? '2-3' : targetDuration <= 180 ? '4-5' : targetDuration <= 300 ? '5-7' : '8-12';
 
     const systemPrompt = `Bạn là Chuyên gia Thiết kế Giáo trình Toán học & AI LuminaLearn V3.
-Nhiệm vụ: Lập kế hoạch bài học sư phạm video ngắn (3-4 phân cảnh) cho chủ đề: "${input.topic}".
+Nhiệm vụ: Lập kế hoạch bài học sư phạm video (${targetScenes} phân cảnh) cho chủ đề: "${input.topic}".
 Lĩnh vực: ${capability.domain}. Ngôn ngữ: ${input.language === 'en' ? 'en' : 'vi'}.
-Quy tắc toàn vẹn tri thức:
+Quy tắc toàn vẹn tri thức & Thời lượng bắt buộc:
+- Thời lượng mục tiêu tổng thể: ${targetDuration} giây.
+- QUY TẮC BẮT BUỘC VỀ THỜI LƯỢNG MỖI CẢNH: Mỗi phân cảnh phải có durationSeconds từ 15 đến 90 giây (TUYỆT ĐỐI KHÔNG vượt quá 120 giây).
+- Tổng durationSeconds của tất cả phân cảnh phải đúng bằng ${targetDuration} giây.
 - KHÔNG tự nhận định bất kỳ mệnh đề nào là "formally_verified".
 - Mọi mệnh đề toán học phải nêu rõ biểu thức formalExpression và validatorKey thích hợp nếu có.
 - Trả về JSON theo đúng định dạng cấu trúc bài học sư phạm V3.`;
 
     const userPrompt = `Hãy tạo kế hoạch bài học cho chủ đề "${input.topic}" (ID: ${capability.topicId}).
-Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
+Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phân cảnh, mỗi cảnh 15-90 giây, tối đa 120 giây).`;
 
     const response = await this.aiProvider.generateStructured<EducationalLessonPlanV3>({
       purpose: 'curriculum_planning',
@@ -207,11 +229,22 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
           humanReviewComment: typeof c.humanReviewComment === 'string' ? c.humanReviewComment : undefined
         }));
 
-        // Khởi tạo storyboard an toàn từ AI
+        // Khởi tạo storyboard an toàn từ AI và chuẩn hóa timeline nghiêm ngặt
         const rawScenes = (obj.storyboard as any)?.scenes;
-        const fallbackScenes = this.getDefaultScenesForTopic(capability, input.targetDurationSeconds ?? 40);
-        const scenes = Array.isArray(rawScenes) && rawScenes.length >= 2 ? rawScenes : fallbackScenes;
-        const totalDuration = scenes.reduce((acc: number, s: any) => acc + (Number(s.durationSeconds) || 10), 0);
+        const candidateScenes = Array.isArray(rawScenes) && rawScenes.length >= 2
+          ? rawScenes
+          : this.getDefaultScenesForTopic(capability, targetDuration);
+
+        const normalized = normalizeStoryboardTimelineV3({
+          rawScenes: candidateScenes,
+          targetDurationSeconds: targetDuration,
+          capability,
+          fps: 24,
+          maxSceneDurationSeconds: 120
+        });
+
+        const scenes = normalized.scenes;
+        const totalDuration = normalized.totalDurationSeconds;
 
         return {
           schemaVersion: 'lesson-v3',
@@ -236,7 +269,7 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
             lessonId: input.lessonId,
             scenes,
             totalDurationSeconds: totalDuration,
-            chapters: buildChaptersForScenes(scenes, totalDuration, 24)
+            chapters: normalized.chapters
           }
         };
       }
@@ -1859,78 +1892,3 @@ Thời lượng mục tiêu: ${input.targetDurationSeconds ?? 40} giây.`;
   }
 }
 
-/**
- * P0 0.D: Constructs contiguous, non-overlapping educational chapters with full scene coverage.
- */
-export function buildChaptersForScenes(
-  scenes: Array<{
-    sceneId: string;
-    title: string;
-    pedagogicalGoal: string;
-    durationSeconds: number;
-    boundClaimIds?: string[];
-  }>,
-  totalDurationSeconds: number,
-  fps = 24
-) {
-  let frameCursor = 0;
-  // If 14 scenes (600s algebra 7 identities where each identity has 2 scenes)
-  if (scenes.length === 14 && scenes[0].sceneId.includes('sc_identity_')) {
-    const chapters = [];
-    for (let i = 0; i < 7; i++) {
-      const s1 = scenes[2 * i];
-      const s2 = scenes[2 * i + 1];
-      const durationSeconds = s1.durationSeconds + s2.durationSeconds;
-      const durationFrames = Math.round(durationSeconds * fps);
-      const startFrame = frameCursor;
-      const endFrame = startFrame + durationFrames;
-      frameCursor = endFrame;
-      chapters.push({
-        chapterId: `chap_${String(i + 1).padStart(2, '0')}`,
-        chapterIndex: i,
-        chapterTitle: s1.title.replace(/\s*\(Phần.*$/, ''),
-        learningObjectives: [s1.pedagogicalGoal, s2.pedagogicalGoal],
-        pedagogicalIntent: s1.pedagogicalGoal,
-        startFrame,
-        endFrame,
-        durationFrames,
-        durationSeconds,
-        sections: [],
-        sceneIds: [s1.sceneId, s2.sceneId],
-        keyConcepts: ['Đại số', 'Hằng đẳng thức'],
-        formalClaimIds: [...(s1.boundClaimIds || []), ...(s2.boundClaimIds || [])],
-        narrationPlan: { overview: s1.title, speakingRateCharsPerSec: 14 },
-        validationStatus: 'verified' as const
-      });
-    }
-    return chapters;
-  }
-
-  const chapters = [];
-  for (let i = 0; i < scenes.length; i++) {
-    const sc = scenes[i];
-    const durationSeconds = sc.durationSeconds;
-    const durationFrames = Math.round(durationSeconds * fps);
-    const startFrame = frameCursor;
-    const endFrame = startFrame + durationFrames;
-    frameCursor = endFrame;
-    chapters.push({
-      chapterId: `chap_${String(i + 1).padStart(2, '0')}`,
-      chapterIndex: i,
-      chapterTitle: sc.title,
-      learningObjectives: [sc.pedagogicalGoal],
-      pedagogicalIntent: sc.pedagogicalGoal,
-      startFrame,
-      endFrame,
-      durationFrames,
-      durationSeconds,
-      sections: [],
-      sceneIds: [sc.sceneId],
-      keyConcepts: [sc.title],
-      formalClaimIds: sc.boundClaimIds || [],
-      narrationPlan: { overview: sc.title, speakingRateCharsPerSec: 14 },
-      validationStatus: 'verified' as const
-    });
-  }
-  return chapters;
-}

@@ -163,7 +163,21 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         setSelectedSceneId(responseData.lessonPlan.storyboard.scenes[0].sceneId);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      let msg = rawMsg;
+      if (typeof rawMsg === 'string' && rawMsg.trim().startsWith('[') && rawMsg.trim().endsWith(']')) {
+        try {
+          const parsed = JSON.parse(rawMsg);
+          if (Array.isArray(parsed)) {
+            msg = parsed.map((item: { path?: unknown[]; code?: string; maximum?: number; minimum?: number; message?: string }) => {
+              const field = Array.isArray(item.path) ? item.path.join('.') : 'dữ liệu';
+              if (item.code === 'too_big') return `Trường '${field}' vượt quá mức tối đa ${item.maximum}`;
+              if (item.code === 'too_small') return `Trường '${field}' nhỏ hơn mức tối thiểu ${item.minimum}`;
+              return item.message || `Lỗi tại '${field}'`;
+            }).join('; ');
+          }
+        } catch { /* ignore */ }
+      }
       setError(`Supervisor Multi-Agent gặp sự cố: ${msg}`);
     }
     finally { setBusy(false); }
@@ -182,7 +196,21 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         setSelectedSceneId(legacyData.lessonPlan.storyboard.scenes[0].sceneId);
       }
     } catch (legacyErr) {
-      setError(legacyErr instanceof Error ? legacyErr.message : String(legacyErr));
+      const rawMsg = legacyErr instanceof Error ? legacyErr.message : String(legacyErr);
+      let msg = rawMsg;
+      if (typeof rawMsg === 'string' && rawMsg.trim().startsWith('[') && rawMsg.trim().endsWith(']')) {
+        try {
+          const parsed = JSON.parse(rawMsg);
+          if (Array.isArray(parsed)) {
+            msg = parsed.map((item: { path?: unknown[]; code?: string; maximum?: number; minimum?: number; message?: string }) => {
+              const field = Array.isArray(item.path) ? item.path.join('.') : 'dữ liệu';
+              if (item.code === 'too_big') return `Trường '${field}' vượt quá mức tối đa ${item.maximum}`;
+              return item.message || `Lỗi tại '${field}'`;
+            }).join('; ');
+          }
+        } catch { /* ignore */ }
+      }
+      setError(msg);
     } finally {
       setBusy(false);
     }
