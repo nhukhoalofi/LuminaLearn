@@ -97,11 +97,36 @@ export class LoginRateLimitError extends Error {
   constructor(public readonly retryAfterSeconds: number) { super('login_rate_limited'); }
 }
 
+/**
+ * AuthStore: Durable authentication and session state manager for LuminaLearn.
+ *
+ * NOTE ON CONCURRENCY & ARCHITECTURE CONSTRAINTS:
+ * This implementation relies on process-local promise serialization (locked) and local
+ * file atomic writes (renameSync), designed specifically for single-process private pilot
+ * deployments. Multi-process clustering or horizontal scaling requires an external
+ * distributed session/rate-limit store (e.g. Redis, Postgres).
+ */
 export class AuthStore {
+  private static pruneState(state: PersistedAuthState, now: number): void {
+    // 1. Prune expired attempts to prevent unbounded dictionary growth
+    for (const [userKey, att] of Object.entries(state.attempts)) {
+      const windowExpired = now - att.windowStartedAt > LOGIN_WINDOW_MS;
+      const blockExpired = !att.blockedUntil || now >= att.blockedUntil;
+      if (windowExpired && blockExpired) {
+        delete state.attempts[userKey];
+      }
+    }
+    // 2. Prune expired/revoked sessions older than TTL
+    state.sessions = state.sessions.filter(
+      (s) => !s.revoked && now < Date.parse(s.expiresAt)
+    );
+  }
+
   public static authenticate(username: string, password: string, now = Date.now()): Promise<TeacherSession | null> {
     return locked(async () => {
       const normalized = username.trim().toLowerCase();
       const state = readState();
+      AuthStore.pruneState(state, now);
       const attempt = state.attempts[normalized];
       if (attempt?.blockedUntil && attempt.blockedUntil > now) throw new LoginRateLimitError(Math.ceil((attempt.blockedUntil - now) / 1000));
       const currentAttempt: LoginAttempt = !attempt || now - attempt.windowStartedAt > LOGIN_WINDOW_MS

@@ -45,6 +45,10 @@ export function isLoopbackRequest(req: Request): boolean {
 
   const forwardedFor = req.headers.get('x-forwarded-for');
   if (forwardedFor) {
+    if (process.env.LUMINA_TRUST_PROXY !== 'true') {
+      // Proxy headers are untrusted unless explicitly enabled via LUMINA_TRUST_PROXY
+      return false;
+    }
     const hops = forwardedFor.split(',').map((ip) => ip.trim().toLowerCase());
     if (hops.some((ip) => ip && !LOOPBACK_HOSTS.has(ip) && ip !== '::ffff:127.0.0.1')) {
       return false;

@@ -21,6 +21,7 @@ type Scene = {
   durationSeconds: number;
   narration: { vietnamese: string; subtitleVietnamese: string };
   visualPayload: unknown;
+  visualDefinition?: any;
 };
 type AgentTask = { taskId: string; role: string; title: string; status: string; validationStatus: string; durationMs?: number };
 type SupervisorTrace = { supervisorRunId: string; status: string; elapsedMs: number; humanReadableSummary: string; tasks: AgentTask[] };
@@ -229,10 +230,22 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       const subtitleTexts = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.narration.subtitleVietnamese]));
       const sceneTitles = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.title]));
       const visualPayloads = Object.fromEntries((draft.lessonPlan.storyboard?.scenes ?? []).map((scene) => [scene.sceneId, scene.visualPayload]));
+      const visualDefinitions: Record<string, any> = {};
+      for (const scene of draft.lessonPlan.storyboard?.scenes ?? []) {
+        if (scene.visualDefinition) {
+          // Security: strip client-claimed trusted bindings before saving
+          const { trustedMathBindings, ...sanitized } = scene.visualDefinition;
+          visualDefinitions[scene.sceneId] = {
+            ...sanitized,
+            trustedMathBindings: []
+          };
+        }
+      }
       const updated = await jsonRequest(`/api/v3/lessons/${draft.draftId}/draft`, 'PATCH', {
         expectedVersion: draft.version, title: draft.lessonPlan.title,
         learningObjectives: draft.lessonPlan.learningObjectives, claimStatements,
-        narrationTexts, subtitleTexts, sceneTitles, visualPayloads
+        narrationTexts, subtitleTexts, sceneTitles, visualPayloads,
+        visualDefinitions: Object.keys(visualDefinitions).length > 0 ? visualDefinitions : undefined
       });
       setDraft(updated);
       setHasMathChanges(false);

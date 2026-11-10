@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 export const DEFAULT_MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -11,6 +11,7 @@ export interface CacheEntryMeta {
   key: string;
   ownerId: string;
   sizeBytes: number;
+  contentHash: string;
   createdAt: number;
   lastAccessedAt: number;
 }
@@ -29,13 +30,24 @@ interface CacheState {
   initialized: boolean;
 }
 
-const globals = globalThis as typeof globalThis & { __luminaPreviewCacheManager?: CacheState };
-const state: CacheState = globals.__luminaPreviewCacheManager ?? {
-  entries: new Map(),
-  metrics: { totalEntries: 0, totalSizeBytes: 0, hits: 0, misses: 0, evictions: 0 },
-  initialized: false
+const globals = globalThis as typeof globalThis & {
+  __luminaPreviewCacheStates?: Map<string, CacheState>;
 };
-globals.__luminaPreviewCacheManager = state;
+const statesByDir: Map<string, CacheState> = globals.__luminaPreviewCacheStates ?? new Map();
+globals.__luminaPreviewCacheStates = statesByDir;
+
+function getOrCreateState(normalizedDir: string): CacheState {
+  let s = statesByDir.get(normalizedDir);
+  if (!s) {
+    s = {
+      entries: new Map(),
+      metrics: { totalEntries: 0, totalSizeBytes: 0, hits: 0, misses: 0, evictions: 0 },
+      initialized: false
+    };
+    statesByDir.set(normalizedDir, s);
+  }
+  return s;
+}
 
 export function validatePngSignature(buffer: Buffer): void {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -67,12 +79,16 @@ export class PreviewCacheManager {
     this.ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   }
 
+  private get state(): CacheState {
+    return getOrCreateState(resolve(this.dir));
+  }
+
   public async init(now = Date.now()): Promise<void> {
     await mkdir(this.dir, { recursive: true });
-    if (!state.initialized) {
+    if (!this.state.initialized) {
       await this.cleanStaleTempFiles();
       await this.recoverFromDisk(now);
-      state.initialized = true;
+      this.state.initialized = true;
     }
   }
 
@@ -80,8 +96,9 @@ export class PreviewCacheManager {
    * Reconstruct cache state from disk across restarts:
    * 1. Reads .meta.json sidecars
    * 2. Validates corresponding PNG existence & signatures
-   * 3. Discards expired entries (now - createdAt > ttlMs)
-   * 4. Enforces capacity bounds (maxBytes, maxEntries) using LRU eviction
+   * 3. Validates content hash and size integrity
+   * 4. Discards expired entries (now - createdAt > ttlMs)
+   * 5. Enforces capacity bounds (maxBytes, maxEntries) using LRU eviction
    */
   private async recoverFromDisk(now: number): Promise<void> {
     try {
@@ -112,7 +129,20 @@ export class PreviewCacheManager {
           const pngData = await readFile(pngPath);
           validatePngSignature(pngData);
 
-          state.entries.set(key, {
+          // Verify size and SHA-256 content hash
+          if (pngData.byteLength !== meta.sizeBytes) {
+            await this.evict(key);
+            continue;
+          }
+          if (meta.contentHash) {
+            const actualHash = createHash('sha256').update(pngData).digest('hex');
+            if (actualHash !== meta.contentHash) {
+              await this.evict(key);
+              continue;
+            }
+          }
+
+          this.state.entries.set(key, {
             ...meta,
             lastAccessedAt: meta.lastAccessedAt ?? meta.createdAt
           });
@@ -134,19 +164,19 @@ export class PreviewCacheManager {
 
   public async get(key: string, ownerId: string, now = Date.now()): Promise<Buffer | null> {
     await this.init(now);
-    const meta = state.entries.get(key);
+    const meta = this.state.entries.get(key);
 
     if (meta) {
       // 1. Owner isolation
       if (meta.ownerId !== ownerId) {
-        state.metrics.misses += 1;
+        this.state.metrics.misses += 1;
         return null;
       }
 
       // 2. TTL Expiry check
       if (now - meta.createdAt > this.ttlMs) {
         await this.evict(key);
-        state.metrics.misses += 1;
+        this.state.metrics.misses += 1;
         return null;
       }
 
@@ -155,13 +185,22 @@ export class PreviewCacheManager {
       try {
         const data = await readFile(filePath);
         validatePngSignature(data);
+        if (data.byteLength !== meta.sizeBytes) {
+          throw new Error('preview_size_mismatch');
+        }
+        if (meta.contentHash) {
+          const actualHash = createHash('sha256').update(data).digest('hex');
+          if (actualHash !== meta.contentHash) {
+            throw new Error('preview_content_tampered');
+          }
+        }
         meta.lastAccessedAt = now;
-        state.metrics.hits += 1;
+        this.state.metrics.hits += 1;
         return data;
       } catch {
-        // File corrupted or missing on disk
+        // File corrupted, tampered, or missing on disk
         await this.evict(key);
-        state.metrics.misses += 1;
+        this.state.metrics.misses += 1;
         return null;
       }
     }
@@ -175,27 +214,36 @@ export class PreviewCacheManager {
 
       // Validate owner identity from authoritative disk metadata
       if (diskMeta.ownerId !== ownerId) {
-        state.metrics.misses += 1;
+        this.state.metrics.misses += 1;
         return null;
       }
 
       // Validate TTL from authoritative disk metadata
       if (now - diskMeta.createdAt > this.ttlMs) {
         await this.evict(key);
-        state.metrics.misses += 1;
+        this.state.metrics.misses += 1;
         return null;
       }
 
       const data = await readFile(filePath);
       validatePngSignature(data);
+      if (data.byteLength !== diskMeta.sizeBytes) {
+        throw new Error('preview_size_mismatch');
+      }
+      if (diskMeta.contentHash) {
+        const actualHash = createHash('sha256').update(data).digest('hex');
+        if (actualHash !== diskMeta.contentHash) {
+          throw new Error('preview_content_tampered');
+        }
+      }
 
       diskMeta.lastAccessedAt = now;
-      state.entries.set(key, diskMeta);
+      this.state.entries.set(key, diskMeta);
       this.recalculateTotals();
-      state.metrics.hits += 1;
+      this.state.metrics.hits += 1;
       return data;
     } catch {
-      state.metrics.misses += 1;
+      this.state.metrics.misses += 1;
       return null;
     }
   }
@@ -214,10 +262,12 @@ export class PreviewCacheManager {
     const targetMeta = resolve(this.dir, `${key}.meta.json`);
     const tempMeta = resolve(this.dir, `${key}.${now}.${token}.meta.tmp`);
 
+    const contentHash = createHash('sha256').update(buffer).digest('hex');
     const meta: CacheEntryMeta = {
       key,
       ownerId,
       sizeBytes: buffer.byteLength,
+      contentHash,
       createdAt: now,
       lastAccessedAt: now
     };
@@ -229,7 +279,7 @@ export class PreviewCacheManager {
       await rename(tempPng, targetPng);
       await rename(tempMeta, targetMeta);
 
-      state.entries.set(key, meta);
+      this.state.entries.set(key, meta);
       this.recalculateTotals();
     } catch (err) {
       // Clean up temp files if write/rename fails (e.g. disk full)
@@ -244,8 +294,8 @@ export class PreviewCacheManager {
     const metaPath = resolve(this.dir, `${key}.meta.json`);
     await rm(pngPath, { force: true }).catch(() => undefined);
     await rm(metaPath, { force: true }).catch(() => undefined);
-    if (state.entries.delete(key)) {
-      state.metrics.evictions += 1;
+    if (this.state.entries.delete(key)) {
+      this.state.metrics.evictions += 1;
       this.recalculateTotals();
     }
   }
@@ -253,15 +303,15 @@ export class PreviewCacheManager {
   private async ensureCapacity(incomingBytes: number): Promise<void> {
     const maxAllowedEntries = incomingBytes > 0 ? this.maxEntries - 1 : this.maxEntries;
     while (
-      (state.metrics.totalSizeBytes + incomingBytes > this.maxBytes ||
-        state.entries.size > maxAllowedEntries) &&
-      state.entries.size > 0
+      (this.state.metrics.totalSizeBytes + incomingBytes > this.maxBytes ||
+        this.state.entries.size > maxAllowedEntries) &&
+      this.state.entries.size > 0
     ) {
       // Find oldest accessed entry (LRU)
       let oldestKey: string | null = null;
       let oldestTime = Infinity;
 
-      for (const [key, meta] of state.entries.entries()) {
+      for (const [key, meta] of this.state.entries.entries()) {
         if (meta.lastAccessedAt < oldestTime) {
           oldestTime = meta.lastAccessedAt;
           oldestKey = key;
@@ -299,21 +349,22 @@ export class PreviewCacheManager {
 
   private recalculateTotals(): void {
     let size = 0;
-    for (const meta of state.entries.values()) {
+    for (const meta of this.state.entries.values()) {
       size += meta.sizeBytes;
     }
-    state.metrics.totalEntries = state.entries.size;
-    state.metrics.totalSizeBytes = size;
+    this.state.metrics.totalEntries = this.state.entries.size;
+    this.state.metrics.totalSizeBytes = size;
   }
 
   public getMetrics(): PreviewCacheMetrics {
-    return { ...state.metrics };
+    return { ...this.state.metrics };
   }
 
   public resetForTests(): void {
-    state.entries.clear();
-    state.metrics = { totalEntries: 0, totalSizeBytes: 0, hits: 0, misses: 0, evictions: 0 };
-    state.initialized = false;
+    const s = this.state;
+    s.entries.clear();
+    s.metrics = { totalEntries: 0, totalSizeBytes: 0, hits: 0, misses: 0, evictions: 0 };
+    s.initialized = false;
   }
 }
 

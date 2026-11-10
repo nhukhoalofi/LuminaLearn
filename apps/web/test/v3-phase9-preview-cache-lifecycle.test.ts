@@ -178,4 +178,71 @@ describe('Preview Cache Lifecycle & Quota Management (Phase 9)', () => {
     assert.ok((await cache.get('concurrent_2', 'teacher_alpha', 1050)) !== null);
     assert.ok((await cache.get('concurrent_3', 'teacher_alpha', 1050)) !== null);
   });
+
+  test('10. Tampered PNG content with valid header is detected via SHA-256 and evicted', async () => {
+    await cache.put('tamper_test', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+
+    // Tamper with the PNG file on disk (keep PNG header valid, change payload)
+    const pngPath = join(tempDir, 'tamper_test.png');
+    const tampered = Buffer.from(VALID_PNG_BUFFER);
+    tampered[tampered.length - 1] ^= 0xff; // flip last byte
+    await writeFile(pngPath, tampered);
+
+    // Cache get must detect hash mismatch, evict entry, and return null
+    const res = await cache.get('tamper_test', 'teacher_alpha', 1050);
+    assert.equal(res, null);
+
+    // Entry should have been removed from index
+    const metrics = cache.getMetrics();
+    assert.equal(metrics.misses, 1);
+    assert.equal(metrics.evictions, 1);
+  });
+
+  test('11. Corrupted SHA-256 in sidecar metadata fails closed on restart recovery', async () => {
+    await cache.put('sidecar_corrupt', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+
+    // Modify sidecar metadata with invalid SHA-256
+    const metaPath = join(tempDir, 'sidecar_corrupt.meta.json');
+    const rawMeta = JSON.parse(await (await import('node:fs/promises')).readFile(metaPath, 'utf8'));
+    rawMeta.contentHash = '0000000000000000000000000000000000000000000000000000000000000000';
+    await writeFile(metaPath, JSON.stringify(rawMeta));
+
+    // Restart manager on the same directory
+    const restartCache = new PreviewCacheManager({
+      cacheDir: tempDir,
+      maxBytes: 10 * 1024,
+      maxEntries: 4,
+      ttlMs: 5000
+    });
+    restartCache.resetForTests();
+    await restartCache.init(1050);
+
+    // Entry with forged hash must not be recovered
+    const hit = await restartCache.get('sidecar_corrupt', 'teacher_alpha', 1100);
+    assert.equal(hit, null);
+  });
+
+  test('12. Independent cache instances on separate directories do not leak state', async () => {
+    const tempDir2 = await mkdtemp(join(tmpdir(), 'lumina-preview-test-2-'));
+    try {
+      const cache2 = new PreviewCacheManager({
+        cacheDir: tempDir2,
+        maxBytes: 10 * 1024,
+        maxEntries: 4,
+        ttlMs: 5000
+      });
+      cache2.resetForTests();
+
+      await cache.put('key_dir1', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+      await cache2.put('key_dir2', 'teacher_alpha', VALID_PNG_BUFFER, 1000);
+
+      assert.ok((await cache.get('key_dir1', 'teacher_alpha', 1050)) !== null);
+      assert.equal(await cache.get('key_dir2', 'teacher_alpha', 1050), null);
+
+      assert.ok((await cache2.get('key_dir2', 'teacher_alpha', 1050)) !== null);
+      assert.equal(await cache2.get('key_dir1', 'teacher_alpha', 1050), null);
+    } finally {
+      await rm(tempDir2, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
 });

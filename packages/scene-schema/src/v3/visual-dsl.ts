@@ -321,6 +321,13 @@ export const VisualTextElementSchema = z.object({
   animation: VisualAnimationPresetV3Schema.default('fade_in')
 }).strict();
 
+export const MathContentPolicySchema = z.enum([
+  'formal_verified',
+  'illustrative_unverified',
+  'conceptual'
+]);
+export type MathContentPolicy = z.infer<typeof MathContentPolicySchema>;
+
 export const VisualFormulaElementSchema = z.object({
   elementType: z.literal('formula'),
   elementId: SafeIdString,
@@ -328,6 +335,7 @@ export const VisualFormulaElementSchema = z.object({
   revealSpeed: z.enum(['slow', 'medium', 'fast', 'instant']).default('medium'),
   highlightTerms: z.array(z.string().trim().max(50)).default([]),
   claimId: SafeIdString.optional(),
+  contentPolicy: MathContentPolicySchema.optional(),
   fontSize: z.number().min(12).max(72).default(36),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8'),
   animation: VisualAnimationPresetV3Schema.default('step_reveal')
@@ -339,6 +347,7 @@ export const VisualGraphElementSchema = z.object({
   functionType: z.enum(['convex_quadratic', 'sine', 'polynomial', 'exponential', 'custom_curve']),
   expression: z.string().max(100).optional(),
   claimId: SafeIdString.optional(),
+  contentPolicy: MathContentPolicySchema.optional(),
   xRange: z.tuple([z.number().finite(), z.number().finite()]).default([-3, 3]),
   yRange: z.tuple([z.number().finite(), z.number().finite()]).default([-1, 9]),
   showTangentLine: z.boolean().default(false),

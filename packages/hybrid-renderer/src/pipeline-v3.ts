@@ -77,6 +77,18 @@ export interface RenderPipelineV3Options {
   onStage?: (stage: 'rendering_remotion' | 'synthesizing_audio' | 'merging_media') => void;
 }
 
+export interface TrustedProofContextV3 {
+  artifactIntegrityVerified: true;
+  approvedDraftVersion: number;
+}
+
+export function deriveTrustedProofContextV3(artifact: ApprovedRenderArtifactV3): TrustedProofContextV3 {
+  return {
+    artifactIntegrityVerified: true,
+    approvedDraftVersion: artifact.approvedVersion
+  };
+}
+
 export async function runRenderPipelineV3(
   artifactInput: unknown,
   options: RenderPipelineV3Options
@@ -92,7 +104,16 @@ export async function runRenderPipelineV3(
   const outputPath = resolve(outputDir, 'final.mp4');
   const rawVideoPath = resolve(outputDir, 'raw-video.mp4');
 
-  await writeFile(propsPath, JSON.stringify({ storyboard: artifact.lessonPlan.storyboard, subtitlesEnabled: artifact.request.subtitlesEnabled }), 'utf8');
+  const trustedProofContext = deriveTrustedProofContextV3(artifact);
+  await writeFile(
+    propsPath,
+    JSON.stringify({
+      storyboard: artifact.lessonPlan.storyboard,
+      subtitlesEnabled: artifact.request.subtitlesEnabled,
+      trustedProofContext
+    }),
+    'utf8'
+  );
 
   if (artifact.request.subtitlesEnabled) {
     let startFrame = 0;

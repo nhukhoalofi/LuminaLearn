@@ -8,12 +8,20 @@ version = "0.1.0"
 description = "Deterministic SymPy validation and allowlisted Manim rendering for LuminaLearn"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  "manim>=0.19,<0.23",
   "sympy>=1.13,<2"
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8,<10"]
+rendering = [
+  "manim>=0.19,<0.23"
+]
+test = [
+  "pytest>=8,<10"
+]
+all = [
+  "manim>=0.19,<0.23",
+  "pytest>=8,<10"
+]
 
 [project.scripts]
 lumina-math = "luminalearn_math_engine.cli:main"

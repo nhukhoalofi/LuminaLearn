@@ -36,7 +36,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       narrationTexts: body.narrationTexts && typeof body.narrationTexts === 'object' ? body.narrationTexts as Record<string, string> : undefined,
       subtitleTexts: body.subtitleTexts && typeof body.subtitleTexts === 'object' ? body.subtitleTexts as Record<string, string> : undefined,
       sceneTitles: body.sceneTitles && typeof body.sceneTitles === 'object' ? body.sceneTitles as Record<string, string> : undefined,
-      visualPayloads: body.visualPayloads && typeof body.visualPayloads === 'object' ? body.visualPayloads as Record<string, unknown> : undefined
+      visualPayloads: body.visualPayloads && typeof body.visualPayloads === 'object' ? body.visualPayloads as Record<string, unknown> : undefined,
+      visualDefinitions: body.visualDefinitions && typeof body.visualDefinitions === 'object' ? body.visualDefinitions as Record<string, any> : undefined
     });
     return NextResponse.json(draft);
   } catch (error) {

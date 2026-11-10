@@ -14,7 +14,7 @@ import {
   framesToSeconds
 } from '@luminalearn/scene-schema';
 import { LongFormMediaAssemblerV3, probeMediaWithFFprobe, computeFileSha256 } from './longform-assembler-v3';
-import { verifyV3ArtifactIntegrity } from './pipeline-v3';
+import { verifyV3ArtifactIntegrity, deriveTrustedProofContextV3 } from './pipeline-v3';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -363,10 +363,7 @@ export class SegmentRenderWorkerV3 implements ISegmentRenderWorkerV3 {
       JSON.stringify({
         storyboard: segmentStoryboard,
         subtitlesEnabled: context.subtitlesEnabled ?? true,
-        trustedProofContext: {
-          artifactIntegrityVerified: true,
-          approvedDraftVersion: context.approvedArtifact.approvedVersion
-        }
+        trustedProofContext: deriveTrustedProofContextV3(context.approvedArtifact)
       }),
       'utf8'
     );

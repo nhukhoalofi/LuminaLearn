@@ -593,4 +593,221 @@ test('Phase 10 — Scientific Proof Integrity, Visual DSL & Authoritative Proven
     assert.equal(verifyArtifactIntegrityV3(manipulated), false);
     assert.equal(await manager.isArtifactAuthorized(manipulated), false);
   });
+
+  await t.test('13. Unbound formula element in a formal proof scene fails closed with formal_proof_missing_claim_id', async () => {
+    let draft = await manager.create(
+      {
+        requestId: 'req_phase10_test',
+        topic: 'algebra.identities.seven',
+        domain: 'mathematics',
+        generationMode: 'mock',
+        targetDurationSeconds: 60,
+        narrationMode: 'none',
+        subtitlesEnabled: true,
+        fps: 24,
+        width: 720,
+        height: 1280
+      },
+      'teacher_alpha'
+    );
+
+    const sceneId = draft.lessonPlan.storyboard!.scenes[0].sceneId;
+    const unboundProofDsl: VisualSceneDefinitionV3 = {
+      schemaVersion: 'visual-dsl-v3.1',
+      sceneId,
+      sceneType: 'algebra_identity', // Formal proof scene!
+      layout: 'centered_focus',
+      style: 'math_chalkboard',
+      animation: 'fade_in',
+      elements: [
+        {
+          elementType: 'formula',
+          elementId: 'formula_unbound_proof',
+          latex: 'a^2 + b^2',
+          contentPolicy: 'formal_verified',
+          revealSpeed: 'medium',
+          highlightTerms: [],
+          fontSize: 36,
+          color: '#38BDF8',
+          animation: 'step_reveal'
+        }
+      ],
+      mathBindings: [],
+      trustedMathBindings: [],
+      dataBindings: []
+    };
+
+    draft = await manager.update(draft.draftId, 'teacher_alpha', draft.version, {
+      visualDefinitions: { [sceneId]: unboundProofDsl }
+    });
+
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_alpha', draft.version);
+
+    await assert.rejects(async () => {
+      await manager.approve(draft.draftId, 'teacher_alpha', draft.version);
+    }, /formal_proof_missing_claim_id/);
+  });
+
+  await t.test('14. Unverified formula in a formal proof scene fails closed with formal_proof_unverified_content_forbidden', async () => {
+    let draft = await manager.create(
+      {
+        requestId: 'req_phase10_test',
+        topic: 'algebra.identities.seven',
+        domain: 'mathematics',
+        generationMode: 'mock',
+        targetDurationSeconds: 60,
+        narrationMode: 'none',
+        subtitlesEnabled: true,
+        fps: 24,
+        width: 720,
+        height: 1280
+      },
+      'teacher_alpha'
+    );
+
+    const sceneId = draft.lessonPlan.storyboard!.scenes[0].sceneId;
+    const unverifiedProofDsl: VisualSceneDefinitionV3 = {
+      schemaVersion: 'visual-dsl-v3.1',
+      sceneId,
+      sceneType: 'formula_derivation', // Formal proof scene!
+      layout: 'centered_focus',
+      style: 'math_chalkboard',
+      animation: 'fade_in',
+      elements: [
+        {
+          elementType: 'formula',
+          elementId: 'formula_unverified_proof',
+          latex: 'a^2 + b^2',
+          contentPolicy: 'illustrative_unverified', // FORBIDDEN in formal proof scene!
+          revealSpeed: 'medium',
+          highlightTerms: [],
+          fontSize: 36,
+          color: '#38BDF8',
+          animation: 'step_reveal'
+        }
+      ],
+      mathBindings: [],
+      trustedMathBindings: [],
+      dataBindings: []
+    };
+
+    draft = await manager.update(draft.draftId, 'teacher_alpha', draft.version, {
+      visualDefinitions: { [sceneId]: unverifiedProofDsl }
+    });
+
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_alpha', draft.version);
+
+    await assert.rejects(async () => {
+      await manager.approve(draft.draftId, 'teacher_alpha', draft.version);
+    }, /formal_proof_unverified_content_forbidden/);
+  });
+
+  await t.test('15. Formula with illustrative_unverified in explanatory scene succeeds with 0 trusted bindings', async () => {
+    let draft = await manager.create(
+      {
+        requestId: 'req_phase10_test',
+        topic: 'algebra.identities.seven',
+        domain: 'mathematics',
+        generationMode: 'mock',
+        targetDurationSeconds: 60,
+        narrationMode: 'none',
+        subtitlesEnabled: true,
+        fps: 24,
+        width: 720,
+        height: 1280
+      },
+      'teacher_alpha'
+    );
+
+    const sceneId = draft.lessonPlan.storyboard!.scenes[0].sceneId;
+    const illustrativeDsl: VisualSceneDefinitionV3 = {
+      schemaVersion: 'visual-dsl-v3.1',
+      sceneId,
+      sceneType: 'concept_intro', // Explanatory scene!
+      layout: 'centered_focus',
+      style: 'math_chalkboard',
+      animation: 'fade_in',
+      elements: [
+        {
+          elementType: 'formula',
+          elementId: 'formula_illustrative',
+          latex: 'x + 1',
+          contentPolicy: 'illustrative_unverified',
+          revealSpeed: 'medium',
+          highlightTerms: [],
+          fontSize: 36,
+          color: '#38BDF8',
+          animation: 'step_reveal'
+        }
+      ],
+      mathBindings: [],
+      trustedMathBindings: [],
+      dataBindings: []
+    };
+
+    draft = await manager.update(draft.draftId, 'teacher_alpha', draft.version, {
+      visualDefinitions: { [sceneId]: illustrativeDsl }
+    });
+
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_alpha', draft.version);
+    draft = await manager.approve(draft.draftId, 'teacher_alpha', draft.version);
+
+    const artifact = draft.approvedArtifact!;
+    const approvedScene = artifact.lessonPlan.storyboard!.scenes.find((s) => s.sceneId === sceneId)!;
+    assert.equal(approvedScene.visualDefinition?.trustedMathBindings.length, 0);
+  });
+
+  await t.test('16. Graph with unverified claim in formal proof scene fails closed', async () => {
+    let draft = await manager.create(
+      {
+        requestId: 'req_phase10_test',
+        topic: 'algebra.identities.seven',
+        domain: 'mathematics',
+        generationMode: 'mock',
+        targetDurationSeconds: 60,
+        narrationMode: 'none',
+        subtitlesEnabled: true,
+        fps: 24,
+        width: 720,
+        height: 1280
+      },
+      'teacher_alpha'
+    );
+
+    const sceneId = draft.lessonPlan.storyboard!.scenes[0].sceneId;
+    const graphProofDsl: VisualSceneDefinitionV3 = {
+      schemaVersion: 'visual-dsl-v3.1',
+      sceneId,
+      sceneType: 'algebra_identity',
+      layout: 'centered_focus',
+      style: 'math_chalkboard',
+      animation: 'fade_in',
+      elements: [
+        {
+          elementType: 'graph',
+          elementId: 'graph_unverified',
+          functionType: 'convex_quadratic',
+          expression: 'x^2',
+          contentPolicy: 'illustrative_unverified', // Forbidden in formal proof!
+          xRange: [-5, 5],
+          yRange: [-5, 5],
+          showTangentLine: false,
+          animation: 'draw_line'
+        }
+      ],
+      mathBindings: [],
+      trustedMathBindings: [],
+      dataBindings: []
+    };
+
+    draft = await manager.update(draft.draftId, 'teacher_alpha', draft.version, {
+      visualDefinitions: { [sceneId]: graphProofDsl }
+    });
+
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_alpha', draft.version);
+
+    await assert.rejects(async () => {
+      await manager.approve(draft.draftId, 'teacher_alpha', draft.version);
+    }, /formal_proof_unverified_content_forbidden/);
+  });
 });

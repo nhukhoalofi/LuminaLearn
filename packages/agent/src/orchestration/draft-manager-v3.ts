@@ -78,36 +78,69 @@ function issueTrustedVisualBindings(
   approvedDraftVersion: number,
   verificationTimestamp: string
 ): VisualSceneDefinitionV3 {
+  const isFormalProofScene = definition.sceneType === 'algebra_identity' || definition.sceneType === 'formula_derivation';
   const clientBindings = new Map(definition.mathBindings.map((binding) => [`${binding.elementId}:${binding.claimId}`, binding]));
   const trustedMathBindings = definition.elements.flatMap((element) => {
-    if ((element.elementType !== 'formula' && element.elementType !== 'graph') || !element.claimId) return [];
-    const claim = claimsMap.get(element.claimId);
-    if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
-    if (claim.claimType !== 'formal_mathematics' || claim.verificationStatus !== 'formally_verified' ||
-        claim.formalExpressionVerified !== true || !claim.formalExpression) {
-      throw new Error(`visual_proof_claim_not_formally_verified: ${element.claimId}`);
+    if (element.elementType !== 'formula' && element.elementType !== 'graph') {
+      return [];
     }
-    const proposed = clientBindings.get(`${element.elementId}:${element.claimId}`);
-    if (!proposed) throw new Error(`visual_proof_binding_missing: ${element.elementId}`);
-    const verified = normalizeBoundExpression(claim.formalExpression);
-    if (normalizeBoundExpression(proposed.formalExpression) !== verified) {
-      throw new Error(`visual_proof_binding_expression_mismatch: ${element.elementId}`);
+
+    const policy = (element as any).contentPolicy ?? 'formal_verified';
+    if (policy !== 'formal_verified' && policy !== 'illustrative_unverified' && policy !== 'conceptual') {
+      throw new Error(`unsupported_math_content_policy: ${policy}`);
     }
-    const renderedExpression = element.elementType === 'formula' ? element.latex : element.expression;
-    if (!renderedExpression || normalizeBoundExpression(renderedExpression) !== verified) {
-      throw new Error(`visual_proof_rendered_expression_mismatch: ${element.elementId}`);
+
+    // In formal proof scenes, mathematical formulas and graphs must be formally verified
+    if (isFormalProofScene && (element.elementType === 'formula' || element.elementType === 'graph') && policy !== 'formal_verified') {
+      throw new Error(`formal_proof_unverified_content_forbidden: Formal proof scene '${definition.sceneId}' cannot contain unverified ${element.elementType} '${element.elementId}'`);
     }
-    return [{
-      authority: 'server_sympy_v3' as const,
-      claimId: claim.id,
-      elementId: element.elementId,
-      verifiedExpression: claim.formalExpression,
-      normalizedExpressionFingerprint: createHash('sha256').update(verified, 'utf8').digest('hex'),
-      verificationResult: 'formally_verified' as const,
-      verificationTimestamp,
-      approvedDraftVersion,
-      sourceSceneId: definition.sceneId
-    }];
+
+    if (policy === 'formal_verified') {
+      if (!element.claimId) {
+        if (isFormalProofScene) {
+          throw new Error(`formal_proof_missing_claim_id: Formal proof scene '${definition.sceneId}' element '${element.elementId}' is classified formal_verified but lacks claimId`);
+        }
+        return [];
+      }
+      const claim = claimsMap.get(element.claimId);
+      if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
+      if (
+        claim.claimType !== 'formal_mathematics' ||
+        claim.verificationStatus !== 'formally_verified' ||
+        claim.formalExpressionVerified !== true ||
+        !claim.formalExpression
+      ) {
+        throw new Error(`visual_proof_claim_not_formally_verified: ${element.claimId}`);
+      }
+      const proposed = clientBindings.get(`${element.elementId}:${element.claimId}`);
+      if (!proposed) throw new Error(`visual_proof_binding_missing: ${element.elementId}`);
+      const verified = normalizeBoundExpression(claim.formalExpression);
+      if (normalizeBoundExpression(proposed.formalExpression) !== verified) {
+        throw new Error(`visual_proof_binding_expression_mismatch: ${element.elementId}`);
+      }
+      const renderedExpression = element.elementType === 'formula' ? element.latex : element.expression;
+      if (!renderedExpression || normalizeBoundExpression(renderedExpression) !== verified) {
+        throw new Error(`visual_proof_rendered_expression_mismatch: ${element.elementId}`);
+      }
+      return [{
+        authority: 'server_sympy_v3' as const,
+        claimId: claim.id,
+        elementId: element.elementId,
+        verifiedExpression: claim.formalExpression,
+        normalizedExpressionFingerprint: createHash('sha256').update(verified, 'utf8').digest('hex'),
+        verificationResult: 'formally_verified' as const,
+        verificationTimestamp,
+        approvedDraftVersion,
+        sourceSceneId: definition.sceneId
+      }];
+    }
+
+    // illustrative_unverified or conceptual
+    if (element.claimId) {
+      const claim = claimsMap.get(element.claimId);
+      if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
+    }
+    return [];
   });
   return VisualSceneDefinitionV3Schema.parse({ ...definition, trustedMathBindings });
 }
