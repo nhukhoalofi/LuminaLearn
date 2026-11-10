@@ -23,6 +23,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
     assertRequestAuthorized(request);
     const ownerId = resolveOwnerId(request);
     const { lessonId } = await params;
+    const currentDraft = await draftManagerV3.load(lessonId);
+    if (!currentDraft) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    assertOwnerMatch(currentDraft.ownerId, ownerId, `V3 draft '${lessonId}'`);
+
     const body = await readBoundedJson<Record<string, unknown>>(request);
     if (!Number.isInteger(body.expectedVersion)) return NextResponse.json({ error: 'missing_expected_version' }, { status: 400 });
     const draft = await draftManagerV3.update(lessonId, ownerId, Number(body.expectedVersion), {

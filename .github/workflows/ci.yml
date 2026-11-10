@@ -1,0 +1,93 @@
+name: LuminaLearn Fast CI Quality Gates
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - 'feat/**'
+  pull_request:
+    branches:
+      - main
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    name: Typecheck, Math Verification, Unit Tests & Production Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NODE_ENV: test
+      LUMINA_LOCAL_DEMO: 'true'
+      CI: 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Setup Python for SymPy Math Engine
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Math Engine dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest sympy
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Git diff & format check
+        run: git diff --check
+
+      - name: Monorepo TypeScript typecheck
+        run: pnpm -r typecheck
+
+      - name: Run Python SymPy Math Engine Verification
+        run: pytest services/math-engine
+
+      - name: Run Scene Schema & Visual DSL tests
+        run: pnpm --filter @luminalearn/scene-schema test
+
+      - name: Run Animation & Graph Math tests
+        run: pnpm --filter @luminalearn/animation test
+
+      - name: Run Multi-Agent Supervisor tests
+        run: pnpm --filter @luminalearn/agent test
+
+      - name: Run Web Security & Multi-Teacher tests
+        run: pnpm --filter @luminalearn/web test
+
+      - name: Production monorepo build (Next.js & Remotion Worker)
+        run: pnpm build
+

@@ -1,5 +1,5 @@
 import { ZodError } from 'zod';
-import { createJob } from '@/server/job-store';
+import { createJob, listJobsForOwner } from '@/server/job-store';
 import {
   assertExternalApiConfirmed,
   assertRequestAuthorized,
@@ -10,6 +10,19 @@ import {
 } from '@/server/security';
 
 export const runtime = 'nodejs';
+
+export async function GET(request: Request): Promise<Response> {
+  try {
+    assertRequestAuthorized(request);
+    const ownerId = resolveOwnerId(request);
+    return Response.json({ jobs: listJobsForOwner(ownerId) });
+  } catch (error) {
+    if (error instanceof SecurityError) {
+      return Response.json({ error: error.code, message: error.message }, { status: error.status });
+    }
+    return Response.json({ error: 'job_list_failed' }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   try {

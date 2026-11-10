@@ -57,6 +57,54 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [error, setError] = useState('');
   const [selectedSceneId, setSelectedSceneId] = useState<string>('');
   const [hasMathChanges, setHasMathChanges] = useState<boolean>(false);
+  const [currentTeacher, setCurrentTeacher] = useState<{ ownerId: string; fullName: string; username: string; email: string } | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [myDrafts, setMyDrafts] = useState<Array<{ draftId: string; version: number; status: string; lessonPlan: { title: string } }>>([]);
+  const [showMyDrafts, setShowMyDrafts] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/session')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated && data.teacher) {
+          setCurrentTeacher(data.teacher);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function loadMyDrafts() {
+    try {
+      const res = await fetch('/api/v3/lessons/draft');
+      if (res.ok) {
+        const data = await res.json();
+        setMyDrafts(data.drafts ?? []);
+        setShowMyDrafts(!showMyDrafts);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function loginAsTeacher(username: string, pass: string) {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password: pass })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentTeacher(data.teacher);
+        setShowLoginModal(false);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function logoutTeacher() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setCurrentTeacher(null);
+    setMyDrafts([]);
+    setShowMyDrafts(false);
+  }
 
   useEffect(() => {
     if (!job || ['completed', 'failed'].includes(job.status)) return;
@@ -229,6 +277,122 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
 
   return (
     <section className="create-section" aria-labelledby="v3-studio-title" data-testid="v3-teacher-studio">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', background: 'rgba(30, 41, 59, 0.75)', border: '1px solid #334155', borderRadius: 12, marginBottom: 18 }}>
+        <div>
+          {currentTeacher ? (
+            <div>
+              <span style={{ color: '#4ADE80', fontWeight: 'bold', fontSize: 15 }}>
+                👨‍🏫 {currentTeacher.fullName} ({currentTeacher.username})
+              </span>
+              <span style={{ marginLeft: 8, fontSize: 12, color: '#94A3B8', fontFamily: 'monospace' }}>
+                ID: {currentTeacher.ownerId}
+              </span>
+            </div>
+          ) : (
+            <span style={{ color: '#94A3B8', fontSize: 14 }}>
+              🏛️ Chế độ Local Demo · Chưa đăng nhập phiên giáo viên
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {currentTeacher ? (
+            <>
+              <button type="button" className="quick-chip" onClick={loadMyDrafts} style={{ background: '#0369A1', color: '#FFFFFF' }}>
+                📚 Bài học của tôi
+              </button>
+              <button type="button" className="quick-chip" style={{ borderColor: '#F87171', color: '#F87171' }} onClick={logoutTeacher}>
+                Đăng xuất
+              </button>
+            </>
+          ) : (
+            <button type="button" className="quick-chip" style={{ borderColor: '#38BDF8', color: '#38BDF8' }} onClick={() => setShowLoginModal(true)}>
+              🔑 Đăng nhập giáo viên
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showLoginModal && (
+        <div style={{ padding: 16, background: '#1E293B', borderRadius: 12, border: '1px solid #38BDF8', marginBottom: 20 }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#38BDF8' }}>Đăng nhập phiên thử nghiệm trường học (Pilot)</h4>
+          <p style={{ fontSize: 13, color: '#CBD5E1', marginBottom: 12 }}>
+            Chọn tài khoản giáo viên để thử nghiệm phân lập dữ liệu đa người dùng:
+          </p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              type="button"
+              className="quick-chip"
+              style={{ background: '#0284C7', color: '#FFFFFF' }}
+              onClick={() => loginAsTeacher('teacher_a', 'TeacherA#2026')}
+            >
+              👩‍🏫 Cô Nguyễn Mai (teacher_a · Toán)
+            </button>
+            <button
+              type="button"
+              className="quick-chip"
+              style={{ background: '#0D9488', color: '#FFFFFF' }}
+              onClick={() => loginAsTeacher('teacher_b', 'TeacherB#2026')}
+            >
+              👨‍🏫 Thầy Trần Nam (teacher_b · AI)
+            </button>
+            <button
+              type="button"
+              className="quick-chip"
+              onClick={() => setShowLoginModal(false)}
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showMyDrafts && (
+        <div style={{ padding: 16, background: 'rgba(15, 23, 42, 0.9)', borderRadius: 12, border: '1px solid #475569', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h4 style={{ margin: 0, color: '#E2E8F0' }}>Danh sách bài học của tôi ({myDrafts.length})</h4>
+            <button type="button" className="quick-chip" onClick={() => setShowMyDrafts(false)}>Đóng</button>
+          </div>
+          {myDrafts.length === 0 ? (
+            <p style={{ color: '#94A3B8', fontSize: 13, margin: 0 }}>Chưa có bản thảo nào được lưu cho tài khoản này.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {myDrafts.map((d) => (
+                <div
+                  key={d.draftId}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    background: '#1E293B',
+                    borderRadius: 8
+                  }}
+                >
+                  <div>
+                    <strong>{d.lessonPlan?.title || d.draftId}</strong>
+                    <div style={{ fontSize: 11, color: '#94A3B8' }}>v{d.version} · {d.status}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="quick-chip"
+                    onClick={async () => {
+                      const res = await fetch(`/api/v3/lessons/${d.draftId}/draft`);
+                      if (res.ok) {
+                        const loaded = await res.json();
+                        setDraft(loaded);
+                        setShowMyDrafts(false);
+                      }
+                    }}
+                  >
+                    Mở bản thảo
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <h2 id="v3-studio-title">V3 Teacher Studio — AI & Toán học</h2>
       <p>{mode === 'mock' ? 'Mock Mode: nội dung fixture xác định, hoàn toàn offline.' : 'Live Gemini: chỉ gọi API sau xác nhận rõ ràng.'}</p>
       <label className="form-label">Lĩnh vực</label>

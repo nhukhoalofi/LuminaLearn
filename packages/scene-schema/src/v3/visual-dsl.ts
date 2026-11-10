@@ -496,6 +496,11 @@ export const VisualElementV3Schema = z.discriminatedUnion('elementType', [
   VisualTimelineMarkerElementSchema
 ]);
 export type VisualElementV3 = z.infer<typeof VisualElementV3Schema>;
+export type VisualGraphElement = Extract<VisualElementV3, { elementType: 'graph' }>;
+export type VisualPointElement = Extract<VisualElementV3, { elementType: 'point' }>;
+export type VisualVectorElement = Extract<VisualElementV3, { elementType: 'vector' }>;
+export type VisualFormulaElement = Extract<VisualElementV3, { elementType: 'formula' }>;
+export type VisualMatrixElement = Extract<VisualElementV3, { elementType: 'matrix' }>;
 
 // Mathematical Binding: Binds visual formula to SymPy-verified claim
 export const VerifiedMathBindingV3Schema = z.object({

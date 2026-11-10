@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { EducationalSceneV3Schema } from '@luminalearn/scene-schema';
 import { draftManagerV3 } from '@/server/v3-services';
 import { acquirePreviewPermit, previewCacheKey, PreviewLimitError } from '@/server/preview-guard';
+import { defaultPreviewCacheManager } from '@/server/preview-cache-manager';
 import { assertRequestAuthorized, readBoundedJson, resolveOwnerId, SecurityError } from '@/server/security';
 
 export const runtime = 'nodejs';
@@ -55,16 +56,11 @@ export async function POST(request: Request): Promise<Response> {
 
     release = acquirePreviewPermit(ownerId);
     const key = previewCacheKey({ ownerId, draftId: body.draftId, version: body.draftVersion, sceneId: body.sceneId, frame: body.frame, subtitlesEnabled: body.subtitlesEnabled, scene: parsedScene });
-    const previewDir = resolve(repositoryRoot, 'outputs', '.preview-cache-v3');
-    await mkdir(previewDir, { recursive: true });
-    const cachedPng = resolve(previewDir, `${key}.png`);
-    let image: Buffer;
-    try {
-      image = await readFile(cachedPng);
-      validatePng(image);
-    }
-    catch {
-      await rm(cachedPng, { force: true }).catch(() => undefined);
+    let image = await defaultPreviewCacheManager.get(key, ownerId);
+
+    if (!image) {
+      const previewDir = resolve(repositoryRoot, 'outputs', '.preview-cache-v3');
+      await mkdir(previewDir, { recursive: true });
       const token = randomUUID();
       temporaryProps = resolve(previewDir, `${key}.${token}.json.tmp`);
       temporaryPng = resolve(previewDir, `${key}.${token}.png.tmp`);
@@ -74,11 +70,13 @@ export async function POST(request: Request): Promise<Response> {
         'LuminaScenePreviewV3', temporaryPng, '--props', temporaryProps, '--frame', String(body.frame), '--image-format', 'png'], workerDir);
       const info = await stat(temporaryPng);
       if (info.size <= 0 || info.size > MAX_PNG_BYTES) throw new Error('preview_output_size_invalid');
-      await rename(temporaryPng, cachedPng);
+      const renderedBytes = await readFile(temporaryPng);
+      validatePng(renderedBytes);
+      await defaultPreviewCacheManager.put(key, ownerId, renderedBytes);
+      await rm(temporaryPng, { force: true }).catch(() => undefined);
       temporaryPng = '';
-      image = await readFile(cachedPng);
+      image = renderedBytes;
     }
-    validatePng(image);
     return NextResponse.json({ success: true, frame: body.frame, totalFrames, sceneId: parsedScene.sceneId, sceneType: parsedScene.sceneType,
       previewDataUrl: `data:image/png;base64,${image.toString('base64')}` }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {

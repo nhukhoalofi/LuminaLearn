@@ -575,3 +575,10 @@ export function getJobOutputPath(jobId: string, callerOwnerId?: string): string 
   return job.status === 'completed' ? job.outputPath : undefined;
 }
 
+export function listJobsForOwner(ownerId: string): Array<Omit<JobRecord, 'outputPath'>> {
+  return Array.from(store.jobs.values())
+    .filter((job) => job.ownerId === ownerId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(publicJob);
+}
+

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   ApprovedRenderArtifactV3Schema,
@@ -280,6 +280,25 @@ export class LessonDraftManagerV3 {
       if (integrity.validatedClaims.some((claim) => claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified')) {
         throw new Error('unresolved_claim_status');
       }
+
+      // CHECKPOINT C: Verify math bindings and scene boundClaimIds against validated claims
+      const claimsMap = new Map(integrity.validatedClaims.map((c) => [c.id, c]));
+      const isMathDomain = current.lessonPlan.capabilityReport.domain === 'mathematics';
+      for (const scene of current.lessonPlan.storyboard.scenes) {
+        for (const claimId of scene.boundClaimIds) {
+          const claim = claimsMap.get(claimId);
+          if (!claim) {
+            throw new Error(`unresolved_claim_binding: Scene references non-existent claimId '${claimId}'`);
+          }
+          if (claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified') {
+            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' has invalid status '${claim.verificationStatus}'`);
+          }
+          if (isMathDomain && claim.claimType === 'formal_mathematics' && claim.verificationStatus !== 'formally_verified') {
+            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' is not formally verified by SymPy`);
+          }
+        }
+      }
+
       const version = current.version + 1;
       const latestPlan: EducationalLessonPlanV3 = {
         ...clone(current.lessonPlan),
@@ -311,6 +330,29 @@ export class LessonDraftManagerV3 {
     const draft = await this.load(artifact.draftId);
     return Boolean(draft?.status === 'approved' && draft.ownerId === artifact.ownerId &&
       draft.version === artifact.approvedVersion && draft.approvedArtifact?.contentHash === artifact.contentHash);
+  }
+
+  public async listForOwner(ownerId: string): Promise<LessonDraftV3[]> {
+    const list: LessonDraftV3[] = [];
+    if (this.options.storageDir) {
+      try {
+        const files = await readdir(this.options.storageDir);
+        for (const file of files) {
+          if (!file.endsWith('.json') || file.includes('.tmp')) continue;
+          const draftId = file.replace(/\.json$/, '');
+          const loaded = await this.load(draftId);
+          if (loaded && loaded.ownerId === ownerId) {
+            list.push(loaded);
+          }
+        }
+      } catch { /* storage directory may not exist yet */ }
+    }
+    for (const cached of this.drafts.values()) {
+      if (cached.ownerId === ownerId && !list.some((d) => d.draftId === cached.draftId)) {
+        list.push(clone(cached));
+      }
+    }
+    return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 }
 
