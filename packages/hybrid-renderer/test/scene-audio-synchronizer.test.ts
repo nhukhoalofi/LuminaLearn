@@ -1,0 +1,149 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { MockTtsProvider, probeAudio } from '../src/audio';
+import { AudioCacheManager } from '../src/audio-cache-manager';
+import {
+  SceneAudioSynchronizer,
+  type SceneNarrationInput
+} from '../src/scene-audio-synchronizer';
+
+test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'lumina-sync-test-'));
+  const cacheDir = join(tempDir, 'cache');
+  const cache = new AudioCacheManager({ cacheDir });
+  const synchronizer = new SceneAudioSynchronizer(cache);
+
+  const ttsProvider = new MockTtsProvider(2.0); // generates 2-second mock audio
+
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  });
+
+  const testScenes: SceneNarrationInput[] = [
+    {
+      id: 'scene_intro',
+      durationSeconds: 4,
+      narration: {
+        vietnamese: 'Chào mừng các bạn đến với bảy hằng đẳng thức đáng nhớ.',
+        subtitleVietnamese: 'Bảy hằng đẳng thức đáng nhớ'
+      }
+    },
+    {
+      id: 'scene_formula',
+      durationSeconds: 3,
+      narration: {
+        vietnamese: 'Hằng đẳng thức thứ nhất: (a + b)^2 = a^2 + 2ab + b^2.',
+        subtitleVietnamese: '(a + b)^2 = a^2 + 2ab + b^2'
+      }
+    },
+    {
+      id: 'scene_silent',
+      durationSeconds: 2
+      // No narration
+    }
+  ];
+
+  await t.test('1. Synchronizes scenes, adjusts durations, and builds master audio', async () => {
+    const outDir1 = join(tempDir, 'run1');
+    const result1 = await synchronizer.synchronizeStoryboard(testScenes, {
+      ttsProvider,
+      audioCache: cache,
+      voice: 'vi-VN-Neural2-A',
+      outputDir: outDir1,
+      ownerId: 'teacher_test',
+      fps: 24,
+      preRollSeconds: 0.5,
+      postRollSeconds: 0.5
+    });
+
+    assert.ok(result1.masterAudioPath);
+    assert.strictEqual(result1.sceneTimings.length, 3);
+
+    // Verify first scene
+    const s0 = result1.sceneTimings[0];
+    assert.strictEqual(s0.sceneId, 'scene_intro');
+    assert.strictEqual(s0.startFrame, 0);
+    assert.strictEqual(s0.targetDurationSeconds, 4);
+    assert.ok(s0.adjustedDurationSeconds >= 4);
+    assert.strictEqual(s0.cacheHit, false); // First run: cache miss
+
+    // Verify second scene timing continuity
+    const s1 = result1.sceneTimings[1];
+    assert.strictEqual(s1.sceneId, 'scene_formula');
+    assert.strictEqual(s1.startFrame, s0.endFrame);
+    assert.ok(s1.normalizedText.includes('a cộng b tất cả bình phương'));
+
+    // Verify silent scene
+    const s2 = result1.sceneTimings[2];
+    assert.strictEqual(s2.sceneId, 'scene_silent');
+    assert.strictEqual(s2.startFrame, s1.endFrame);
+    assert.strictEqual(s2.audioDurationSeconds, 0);
+
+    // Verify integer frame timeline: totalFrames equals last scene endFrame
+    assert.strictEqual(result1.totalFrames, s2.endFrame);
+
+    // Verify master audio probe
+    const masterProbe = await probeAudio(result1.masterAudioPath, 1200);
+    assert.strictEqual(masterProbe.codec, 'mp3');
+    assert.ok(masterProbe.durationSeconds > 0);
+    assert.ok(
+      Math.abs(masterProbe.durationSeconds - result1.totalDurationSeconds) < 0.25,
+      `Master audio duration (${masterProbe.durationSeconds}) should match totalDurationSeconds (${result1.totalDurationSeconds})`
+    );
+
+    // Verify SRT format
+    assert.ok(result1.srtContent.includes('Bảy hằng đẳng thức đáng nhớ'));
+    assert.ok(result1.srtContent.includes('-->'));
+  });
+
+  await t.test('2. Re-running with unchanged narration hits audio cache', async () => {
+    const outDir2 = join(tempDir, 'run2');
+    const result2 = await synchronizer.synchronizeStoryboard(testScenes, {
+      ttsProvider,
+      audioCache: cache,
+      voice: 'vi-VN-Neural2-A',
+      outputDir: outDir2,
+      ownerId: 'teacher_test',
+      fps: 24
+    });
+
+    const s0 = result2.sceneTimings[0];
+    assert.strictEqual(s0.cacheHit, true, 'Second run must hit audio cache');
+  });
+
+  await t.test('3. Extends scene presentation duration when narration speech exceeds target', async () => {
+    const longNarrationScene: SceneNarrationInput[] = [
+      {
+        id: 'scene_long_speech',
+        durationSeconds: 1, // original target was 1 second
+        narration: {
+          vietnamese: 'Câu thuyết minh này rất dài và cần thời gian để phát âm đầy đủ.'
+        }
+      }
+    ];
+
+    // Mock provider with 4 seconds duration
+    const slowTts = new MockTtsProvider(4.0);
+    const outDir3 = join(tempDir, 'run3');
+    const result3 = await synchronizer.synchronizeStoryboard(longNarrationScene, {
+      ttsProvider: slowTts,
+      audioCache: cache,
+      voice: 'vi-VN-Neural2-B',
+      outputDir: outDir3,
+      preRollSeconds: 0.5,
+      postRollSeconds: 0.5
+    });
+
+    const s = result3.sceneTimings[0];
+    // Must be extended to at least 4.0 + 0.5 + 0.5 = 5.0 seconds
+    assert.ok(
+      s.adjustedDurationSeconds >= 5.0,
+      `Scene duration should be extended to at least 5.0s, got ${s.adjustedDurationSeconds}`
+    );
+    assert.ok(s.durationFrames >= 120);
+  });
+});
+

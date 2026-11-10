@@ -67,19 +67,25 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
       });
       assert.doesNotThrow(() => assertRequestAuthorized(localReq));
 
-      // Host/IP headers are not treated as proof of identity in explicit local single-user mode.
+      // Host/IP headers from non-loopback are blocked in local single-user mode.
       const remoteReq = new Request('http://203.0.113.50:3000/api/lessons/draft', {
         method: 'POST',
         headers: { host: '203.0.113.50:3000' }
       });
-      assert.doesNotThrow(() => assertRequestAuthorized(remoteReq));
+      assert.throws(
+        () => assertRequestAuthorized(remoteReq),
+        (err: unknown) => err instanceof SecurityError && err.code === 'local_demo_loopback_only'
+      );
 
       // 3. Spoofed localhost with non-loopback x-forwarded-for is blocked
       const forwardedReq = new Request('http://localhost:3000/api/lessons/draft', {
         method: 'POST',
         headers: { host: 'localhost:3000', 'x-forwarded-for': '198.51.100.77' }
       });
-      assert.doesNotThrow(() => assertRequestAuthorized(forwardedReq));
+      assert.throws(
+        () => assertRequestAuthorized(forwardedReq),
+        (err: unknown) => err instanceof SecurityError && err.code === 'local_demo_loopback_only'
+      );
 
       // 4. Public deployment mode requires LUMINA_API_AUTH_TOKEN and valid Bearer header
       process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';

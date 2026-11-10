@@ -245,4 +245,53 @@ describe('Preview Cache Lifecycle & Quota Management (Phase 9)', () => {
       await rm(tempDir2, { recursive: true, force: true }).catch(() => undefined);
     }
   });
+
+  test('13. Missing SHA-256 hash in sidecar metadata fails closed on recovery', async () => {
+    // Write valid PNG with metadata that lacks contentHash
+    const pngPath = join(tempDir, 'missing_hash.png');
+    const metaPath = join(tempDir, 'missing_hash.meta.json');
+    await writeFile(pngPath, VALID_PNG_BUFFER);
+    await writeFile(
+      metaPath,
+      JSON.stringify({
+        key: 'missing_hash',
+        ownerId: 'teacher_alpha',
+        sizeBytes: VALID_PNG_BUFFER.byteLength,
+        createdAt: 1000,
+        lastAccessedAt: 1000
+        // contentHash deliberately omitted
+      })
+    );
+
+    const restartCache = new PreviewCacheManager({
+      cacheDir: tempDir,
+      maxBytes: 10 * 1024,
+      maxEntries: 4,
+      ttlMs: 5000
+    });
+    restartCache.resetForTests();
+    await restartCache.init(1050);
+
+    const hit = await restartCache.get('missing_hash', 'teacher_alpha', 1100);
+    assert.equal(hit, null);
+  });
+
+  test('14. Concurrent init invocations share a single execution promise', async () => {
+    const concurrentCache = new PreviewCacheManager({
+      cacheDir: tempDir,
+      maxBytes: 10 * 1024,
+      maxEntries: 4,
+      ttlMs: 5000
+    });
+    concurrentCache.resetForTests();
+
+    // Call init concurrently
+    await Promise.all([
+      concurrentCache.init(1000),
+      concurrentCache.init(1000),
+      concurrentCache.init(1000)
+    ]);
+
+    assert.equal(concurrentCache.getMetrics().totalEntries, 0);
+  });
 });

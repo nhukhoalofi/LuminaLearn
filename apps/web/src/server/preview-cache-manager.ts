@@ -28,6 +28,7 @@ interface CacheState {
   entries: Map<string, CacheEntryMeta>;
   metrics: PreviewCacheMetrics;
   initialized: boolean;
+  initPromise?: Promise<void>;
 }
 
 const globals = globalThis as typeof globalThis & {
@@ -85,10 +86,20 @@ export class PreviewCacheManager {
 
   public async init(now = Date.now()): Promise<void> {
     await mkdir(this.dir, { recursive: true });
-    if (!this.state.initialized) {
+    if (this.state.initialized) return;
+    if (this.state.initPromise) {
+      await this.state.initPromise;
+      return;
+    }
+    this.state.initPromise = (async () => {
       await this.cleanStaleTempFiles();
       await this.recoverFromDisk(now);
       this.state.initialized = true;
+    })();
+    try {
+      await this.state.initPromise;
+    } finally {
+      this.state.initPromise = undefined;
     }
   }
 
@@ -96,7 +107,7 @@ export class PreviewCacheManager {
    * Reconstruct cache state from disk across restarts:
    * 1. Reads .meta.json sidecars
    * 2. Validates corresponding PNG existence & signatures
-   * 3. Validates content hash and size integrity
+   * 3. Validates required SHA-256 content hash and size integrity
    * 4. Discards expired entries (now - createdAt > ttlMs)
    * 5. Enforces capacity bounds (maxBytes, maxEntries) using LRU eviction
    */
@@ -134,12 +145,15 @@ export class PreviewCacheManager {
             await this.evict(key);
             continue;
           }
-          if (meta.contentHash) {
-            const actualHash = createHash('sha256').update(pngData).digest('hex');
-            if (actualHash !== meta.contentHash) {
-              await this.evict(key);
-              continue;
-            }
+          if (typeof meta.contentHash !== 'string' || !/^[0-9a-f]{64}$/i.test(meta.contentHash)) {
+            // Missing or invalid contentHash in metadata -> reject/evict fail-closed
+            await this.evict(key);
+            continue;
+          }
+          const actualHash = createHash('sha256').update(pngData).digest('hex');
+          if (actualHash !== meta.contentHash) {
+            await this.evict(key);
+            continue;
           }
 
           this.state.entries.set(key, {
@@ -188,11 +202,12 @@ export class PreviewCacheManager {
         if (data.byteLength !== meta.sizeBytes) {
           throw new Error('preview_size_mismatch');
         }
-        if (meta.contentHash) {
-          const actualHash = createHash('sha256').update(data).digest('hex');
-          if (actualHash !== meta.contentHash) {
-            throw new Error('preview_content_tampered');
-          }
+        if (!meta.contentHash || !/^[0-9a-f]{64}$/i.test(meta.contentHash)) {
+          throw new Error('preview_content_hash_missing');
+        }
+        const actualHash = createHash('sha256').update(data).digest('hex');
+        if (actualHash !== meta.contentHash) {
+          throw new Error('preview_content_tampered');
         }
         meta.lastAccessedAt = now;
         this.state.metrics.hits += 1;
@@ -230,11 +245,12 @@ export class PreviewCacheManager {
       if (data.byteLength !== diskMeta.sizeBytes) {
         throw new Error('preview_size_mismatch');
       }
-      if (diskMeta.contentHash) {
-        const actualHash = createHash('sha256').update(data).digest('hex');
-        if (actualHash !== diskMeta.contentHash) {
-          throw new Error('preview_content_tampered');
-        }
+      if (!diskMeta.contentHash || !/^[0-9a-f]{64}$/i.test(diskMeta.contentHash)) {
+        throw new Error('preview_content_hash_missing');
+      }
+      const actualHash = createHash('sha256').update(data).digest('hex');
+      if (actualHash !== diskMeta.contentHash) {
+        throw new Error('preview_content_tampered');
       }
 
       diskMeta.lastAccessedAt = now;
@@ -365,6 +381,7 @@ export class PreviewCacheManager {
     s.entries.clear();
     s.metrics = { totalEntries: 0, totalSizeBytes: 0, hits: 0, misses: 0, evictions: 0 };
     s.initialized = false;
+    s.initPromise = undefined;
   }
 }
 

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { AuthStore, SESSION_COOKIE_NAME } from './auth-store';
 
 export const MAX_JSON_PAYLOAD_BYTES = 256 * 1024; // 256 KB
@@ -56,6 +57,13 @@ export function isLoopbackRequest(req: Request): boolean {
   }
 
   return true;
+}
+
+function safeTokenCompare(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 export function extractCookieValue(cookieHeader: string | null, name: string): string | undefined {
@@ -136,6 +144,12 @@ export function assertRequestAuthorized(req: Request): void {
     }
   }
 
+  // Check if caller holds the configured API auth token
+  const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
+  if (configuredToken && providedToken && safeTokenCompare(providedToken, configuredToken)) {
+    return;
+  }
+
   if (mode === 'public') {
     throw new SecurityError(
       401,
@@ -164,7 +178,13 @@ export function resolveOwnerId(req: Request): string {
     }
   }
 
-  // 2. Local single-user demo fallback
+  // 2. Configured API token
+  const configuredToken = process.env.LUMINA_API_AUTH_TOKEN?.trim();
+  if (configuredToken && providedToken && safeTokenCompare(providedToken, configuredToken)) {
+    return `tok_${createHash('sha256').update(providedToken).digest('hex').slice(0, 16)}`;
+  }
+
+  // 3. Local single-user demo fallback
   if (mode === 'local_demo') {
     if (!isLoopbackRequest(req)) throw new SecurityError(403, 'local_demo_loopback_only', 'Local demo requests must originate from loopback.');
     return 'local-single-user';
