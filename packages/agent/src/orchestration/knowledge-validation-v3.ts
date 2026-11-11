@@ -10,6 +10,7 @@ import {
   type AlgebraIdentityVisualPayload,
   OptimizationTraceDataV1Schema
 } from '@luminalearn/scene-schema';
+import { createHash } from 'node:crypto';
 import { MathVerificationService } from './math-verifier';
 import { verifyAlgebraIdentityV3, verifyTransformationChainV3 } from './algebra-verifier-v3';
 
@@ -247,12 +248,41 @@ export function validateGradientDescentClaim(
   trace?: unknown
 ): {
   status: 'numerically_validated' | 'rejected' | 'human_review_required';
-  formalProofSummary?: string;
+  numericalValidationSummary?: string;
+  traceFingerprint?: string;
+  traceCanonical?: string;
   contradictionReason?: string;
   notes?: string;
 } {
   const expr = claim.formalExpression ?? '';
   const stmt = claim.statement ?? '';
+
+  if (!expr.trim()) {
+    return {
+      status: 'human_review_required',
+      notes: 'missing_gradient_update_expression: Numeric validation requires an explicit bounded gradient-descent update expression.'
+    };
+  }
+
+  const normalizedRule = expr
+    .toLowerCase()
+    .replace(/η/g, 'eta')
+    .replace(/\\eta/g, 'eta')
+    .replace(/\\cdot|\\times/g, '*')
+    .replace(/\\nabla\s*l/g, 'grad_l')
+    .replace(/w_\{t\+1\}/g, 'w_next')
+    .replace(/w_t/g, 'w')
+    .replace(/[{}\s]/g, '');
+
+  if (normalizedRule !== 'w_next=w-eta*grad_l(w)') {
+    return {
+      status: /w_next=w\+eta\*grad_l\(w\)/.test(normalizedRule) ? 'rejected' : 'human_review_required',
+      contradictionReason: /w_next=w\+eta\*grad_l\(w\)/.test(normalizedRule)
+        ? 'gradient_ascent_contradiction: Gradient descent update must subtract the learning-rate-scaled gradient.'
+        : undefined,
+      notes: `unsupported_gradient_update_expression: '${expr}' does not match the bounded rule w_next = w - eta * grad_L(w).`
+    };
+  }
 
   // 1. Kiểm tra mâu thuẫn trực tiếp về chiều gradient (ascent vs descent)
   if (/\+\s*(?:eta|\\eta)\s*(?:\*|\\cdot)?\s*(?:grad|\\nabla)/i.test(expr) || /cộng\s+(?:với\s+)?(?:tốc độ học|learning rate|eta)/i.test(stmt)) {
@@ -264,30 +294,28 @@ export function validateGradientDescentClaim(
   }
 
   // 2. Kiểm định tính toán chuỗi tham số mất mát theo OptimizationTraceDataV1Schema
-  let traceToValidate = trace;
-  if (!traceToValidate) {
-    traceToValidate = {
-      kind: 'optimization_trace_1d',
-      expression: 'L(w)=(w-2)^2+1',
-      learningRate: 0.4,
-      points: [
-        { step: 1, parameter: 4.0, value: 5.0, gradient: 4.0 },
-        { step: 2, parameter: 2.4, value: 1.16, gradient: 0.8 },
-        { step: 3, parameter: 2.08, value: 1.0064, gradient: 0.16 },
-        { step: 4, parameter: 2.016, value: 1.000256, gradient: 0.032 }
-      ],
-      claimId: claim.id,
-      validation: 'deterministic_numeric'
+  if (!trace) {
+    return {
+      status: 'human_review_required',
+      notes: 'missing_optimization_trace: No storyboard-derived optimization trace is bound to this claim.'
     };
   }
 
-  const parsedTrace = OptimizationTraceDataV1Schema.safeParse(traceToValidate);
+  const parsedTrace = OptimizationTraceDataV1Schema.safeParse(trace);
   if (!parsedTrace.success) {
     const errorMsg = parsedTrace.error.issues.map((i) => i.message).join('; ');
     return {
       status: 'rejected',
       contradictionReason: `invalid_optimization_trace: ${errorMsg}`,
       notes: `Chuỗi giá trị tham số và hàm mất mát vi phạm tính toán số học: ${errorMsg}`
+    };
+  }
+
+  if (parsedTrace.data.claimId !== claim.id) {
+    return {
+      status: 'rejected',
+      contradictionReason: `optimization_trace_claim_mismatch: Trace '${parsedTrace.data.claimId}' cannot validate claim '${claim.id}'.`,
+      notes: 'The deterministic trace is bound to a different claim and cannot be reused as verification evidence.'
     };
   }
 
@@ -301,9 +329,12 @@ export function validateGradientDescentClaim(
     };
   }
 
+  const traceCanonical = JSON.stringify(parsedTrace.data);
   return {
     status: 'numerically_validated',
-    formalProofSummary: `Numerically validated first-order gradient descent parameter update on convex quadratic trace (${parsedTrace.data.expression})`,
+    numericalValidationSummary: `Numerically validated first-order gradient descent parameter update on the bound convex quadratic trace (${parsedTrace.data.expression})`,
+    traceFingerprint: createHash('sha256').update(traceCanonical, 'utf8').digest('hex'),
+    traceCanonical,
     notes: `Kiểm định tính toán số học chính xác trên hàm mất mát lồi với tốc độ học eta=${parsedTrace.data.learningRate}`
   };
 }
@@ -487,20 +518,20 @@ export class KnowledgeValidationServiceV3 {
           });
         } else if (gdResult.status === 'numerically_validated') {
           cloned.verificationStatus = 'numerically_validated';
-          cloned.formalExpressionVerified = true;
-          cloned.proofRecordId = `proof_${claim.id}`;
-          cloned.formalProofSummary = gdResult.formalProofSummary;
+          cloned.formalExpressionVerified = false;
+          cloned.proofRecordId = undefined;
+          cloned.formalProofSummary = undefined;
           cloned.humanReviewComment = undefined;
           claimReports.push({
             claimId: cloned.id,
             claimType: cloned.claimType,
             status: 'numerically_validated',
-            verifierNotes: cloned.formalProofSummary,
+            verifierNotes: `${gdResult.numericalValidationSummary}; trace_sha256=${gdResult.traceFingerprint}`,
             verifierImplementation: 'OptimizationTraceDataV1Schema/DeterministicNumeric',
             verificationBinding: {
               claimId: claim.id,
               exactExpression: claim.formalExpression ?? claim.statement,
-              mathSpecCanonical: JSON.stringify({ type: 'optimization_trace_1d', rule: claim.formalExpression }),
+              mathSpecCanonical: gdResult.traceCanonical!,
               assumptions: ['convex_quadratic_loss', 'learning_rate_in_bounds']
             }
           });
@@ -678,14 +709,15 @@ export async function validateLessonMathematicalIntegrityV3(
   let optimizationTrace: unknown = undefined;
   if (lessonPlan.storyboard) {
     const lossScene = lessonPlan.storyboard.scenes.find((s) => s.sceneType === 'loss_landscape');
-    if (lossScene?.visualPayload.sceneType === 'loss_landscape') {
+    const boundClaimId = lossScene?.boundClaimIds[0];
+    if (lossScene?.visualPayload.sceneType === 'loss_landscape' && boundClaimId) {
       const p = lossScene.visualPayload;
       optimizationTrace = {
         kind: 'optimization_trace_1d',
         expression: `L(w)=${p.curvature}(w-${p.minimumPoint.w})^2+${p.minimumPoint.loss}`,
         learningRate: p.learningRate,
         points: p.steps.map((st) => ({ step: st.stepNumber, parameter: st.w, value: st.loss, gradient: st.gradient })),
-        claimId: lossScene.boundClaimIds[0] ?? 'claim_optimization',
+        claimId: boundClaimId,
         validation: 'deterministic_numeric'
       };
     }

@@ -117,14 +117,15 @@ export class EducationalPlannerV3 {
     let optimizationTrace: unknown = undefined;
     if (candidatePlan.storyboard) {
       const lossScene = candidatePlan.storyboard.scenes.find((s) => s.sceneType === 'loss_landscape');
-      if (lossScene?.visualPayload.sceneType === 'loss_landscape') {
+      const boundClaimId = lossScene?.boundClaimIds[0];
+      if (lossScene?.visualPayload.sceneType === 'loss_landscape' && boundClaimId) {
         const p = lossScene.visualPayload;
         optimizationTrace = {
           kind: 'optimization_trace_1d',
           expression: `L(w)=${p.curvature}(w-${p.minimumPoint.w})^2+${p.minimumPoint.loss}`,
           learningRate: p.learningRate,
           points: p.steps.map((st) => ({ step: st.stepNumber, parameter: st.w, value: st.loss, gradient: st.gradient })),
-          claimId: lossScene.boundClaimIds[0] ?? 'claim_optimization',
+          claimId: boundClaimId,
           validation: 'deterministic_numeric'
         };
       }

@@ -27,8 +27,7 @@ export const FormulaStepCard: React.FC<FormulaStepCardProps> = ({
   isVisible,
   revealOpacity,
   revealTranslateY,
-  highlightPulseProgress,
-  trustedProofContext
+  highlightPulseProgress
 }) => {
   const isSubstitution = step.explanation.toLowerCase().includes('thay') || step.explanation.toLowerCase().includes('substitut');
   const isExpansion = step.explanation.toLowerCase().includes('khai triển') || step.explanation.toLowerCase().includes('expand');
@@ -95,11 +94,11 @@ export const FormulaStepCard: React.FC<FormulaStepCardProps> = ({
           <span
             style={{
               fontSize: 10,
-              color: trustedProofContext?.artifactIntegrityVerified ? '#86EFAC' : '#94A3B8',
+              color: '#94A3B8',
               fontFamily: 'monospace'
             }}
           >
-            {trustedProofContext?.artifactIntegrityVerified ? `✓ SymPy: ${step.proofReferenceId}` : 'Biến đổi từng bước'}
+            Biến đổi đại số từng bước
           </span>
         )}
       </div>

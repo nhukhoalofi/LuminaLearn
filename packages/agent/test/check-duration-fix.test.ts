@@ -1,6 +1,7 @@
 /**
  * Sprint B — CHECKPOINT 0 regression: verify expandScenesForDuration()
- * ensures all topics can serve every duration preset (35/60/180/300/600s).
+ * ensures supported presets are covered and the unsupported 600s request fails
+ * with the explicit timeline-capacity contract (never generic filler).
  *
  * Delete this file after Sprint B is merged.
  */
@@ -18,14 +19,14 @@ const TOPICS = [
   { label: 'Integral', topic: 'Tích phân Riemann' },
 ];
 
-const DURATIONS = [35, 60, 180, 300, 600];
+const SUPPORTED_DURATIONS = [35, 60, 180, 300];
 const MAX_SCENE_DURATION = 120;
 
-describe('expandScenesForDuration — no too_big Zod error for any preset', () => {
+describe('expandScenesForDuration — honest duration capacity contract', () => {
   const planner = new EducationalPlannerV3();
 
   for (const { label, topic } of TOPICS) {
-    for (const dur of DURATIONS) {
+    for (const dur of SUPPORTED_DURATIONS) {
       it(`${label} @ ${dur}s: scene capacity must cover target`, async () => {
         const plan = await planner.planLesson({
           lessonId: `test_${label}_${dur}`,
@@ -41,6 +42,21 @@ describe('expandScenesForDuration — no too_big Zod error for any preset', () =
         );
       });
     }
+
+    it(`${label} @ 600s: rejects unsupported capacity without filler`, async () => {
+      await assert.rejects(
+        () => planner.planLesson({
+          lessonId: `test_${label}_600`,
+          topic,
+          targetDurationSeconds: 600
+        }),
+        (error: unknown) => {
+          const candidate = error as { code?: string; message?: string };
+          return candidate.code === 'timeline_insufficient_scene_capacity' &&
+            /3 approved scenes can cover .*360 seconds/.test(candidate.message ?? '');
+        }
+      );
+    });
   }
 });
 

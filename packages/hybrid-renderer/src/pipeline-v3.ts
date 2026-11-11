@@ -83,12 +83,18 @@ export interface RenderPipelineV3Options {
 export interface TrustedProofContextV3 {
   artifactIntegrityVerified: true;
   approvedDraftVersion: number;
+  verifiedBindingFingerprints: readonly string[];
 }
 
 export function deriveTrustedProofContextV3(artifact: ApprovedRenderArtifactV3): TrustedProofContextV3 {
   return {
     artifactIntegrityVerified: true,
-    approvedDraftVersion: artifact.approvedVersion
+    approvedDraftVersion: artifact.approvedVersion,
+    verifiedBindingFingerprints: artifact.lessonPlan.storyboard?.scenes.flatMap(
+      (scene) => scene.visualDefinition?.trustedMathBindings.map(
+        (binding) => binding.normalizedExpressionFingerprint
+      ) ?? []
+    ) ?? []
   };
 }
 

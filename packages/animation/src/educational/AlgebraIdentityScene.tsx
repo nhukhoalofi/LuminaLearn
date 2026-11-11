@@ -10,7 +10,7 @@ export const AlgebraIdentityScene: React.FC<{
   subtitleText?: string;
   durationInFrames?: number;
   trustedProofContext?: TrustedProofContextV3;
-}> = ({ title, payload, subtitleText, durationInFrames: propDuration, trustedProofContext }) => {
+}> = ({ title, payload, subtitleText, durationInFrames: propDuration }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames: videoDuration } = useVideoConfig();
   const effectiveDuration = propDuration ?? videoDuration;
@@ -213,8 +213,8 @@ export const AlgebraIdentityScene: React.FC<{
           <span style={{ fontSize: 13, fontWeight: 700, color: '#38BDF8', letterSpacing: 1 }}>
             BƯỚC {activeStepIndex + 1} / {stepCount}
           </span>
-          <span style={{ fontSize: 12, color: trustedProofContext?.artifactIntegrityVerified ? '#4ADE80' : '#94A3B8' }}>
-            {trustedProofContext?.artifactIntegrityVerified ? 'Biến đổi tương đương SymPy' : 'Biến đổi đại số từng bước'}
+          <span style={{ fontSize: 12, color: '#94A3B8' }}>
+            Biến đổi đại số từng bước
           </span>
         </div>
 

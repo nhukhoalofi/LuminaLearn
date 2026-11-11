@@ -163,6 +163,14 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
     if (resolution.status === 'selected') return { intent, actions: actionsForIntent(intent), readiness: 'render_ready', adapterId: resolution.capability.rendererAdapterId };
     return { intent, actions: actionsForIntent(intent), readiness: resolution.finding.code === 'visual_adapter_not_ready' ? resolution.capability?.readinessStatus ?? resolution.status : resolution.status, reviewReason: resolution.finding.message };
   }
+  if (claims.some((claim) => claim.validatorKey === 'bayes_theorem')) {
+    return {
+      intent: 'probability_tree',
+      actions: actionsForIntent('probability_tree'),
+      readiness: 'planning_only',
+      reviewReason: 'Bayes probability-tree capability is planning-only; no validated render adapter or typed probability-tree data is available.'
+    };
+  }
   if (scene.sceneType === 'formula_derivation' || scene.sceneType === 'graph_plot' || scene.sceneType === 'flowchart_simulation' || scene.sceneType === 'loss_landscape') return { intent: scene.sceneType === 'loss_landscape' ? 'verified_parameter_step' : 'formula_transformation', actions: scene.sceneType === 'loss_landscape' ? ['draw_graph', 'move_parameter_marker', 'draw_tangent'] : ['reveal_formula_step', 'highlight_term'], readiness: 'needs_review', reviewReason: 'Scientific scene has no valid typed scientificData binding; generic animation would be misleading.' };
   if (scene.sceneType === 'comparison_table') return { intent: 'comparison', actions: ['show_comparison'], readiness: 'render_ready', adapterId: 'comparison_v3' };
   if (scene.sceneType === 'summary') return { intent: 'retrieval_prompt', actions: ['ask_question', 'hold_for_reading'], readiness: 'render_ready', adapterId: 'summary_v3' };

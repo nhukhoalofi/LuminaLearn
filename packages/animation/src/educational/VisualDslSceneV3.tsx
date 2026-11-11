@@ -65,7 +65,15 @@ function renderKatexHtml(latex: string, displayMode = true): string {
 export interface TrustedProofContextV3 {
   artifactIntegrityVerified: true;
   approvedDraftVersion: number;
+  verifiedBindingFingerprints: readonly string[];
 }
+
+const normalizeProofExpression = (value: string): string => value
+  .replace(/\\left|\\right/g, '')
+  .replace(/\\cdot|\\times/g, '*')
+  .replace(/\^\{([^{}]+)\}/g, '^$1')
+  .replace(/[{}\s]/g, '')
+  .toLowerCase();
 
 export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3; frame?: number; durationInFrames?: number }> = ({ definition, trustedProofContext, frame = 0, durationInFrames = definition.timeline?.durationFrames ?? 240 }) => {
   const graphTrace = deriveMotionRecipeFrameV3({ recipeId: 'R03', frame, endFrame: durationInFrames });
@@ -644,7 +652,11 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                 binding.elementId === element.elementId &&
                 binding.claimId === element.claimId &&
                 binding.approvedDraftVersion === trustedProofContext.approvedDraftVersion &&
-                binding.authority === 'server_sympy_v3'
+                binding.authority === 'server_sympy_v3' &&
+                binding.verificationResult === 'formally_verified' &&
+                binding.sourceSceneId === definition.sceneId &&
+                trustedProofContext.verifiedBindingFingerprints.includes(binding.normalizedExpressionFingerprint) &&
+                normalizeProofExpression(binding.verifiedExpression) === normalizeProofExpression(element.latex)
               )
             : undefined;
           return (

@@ -41,7 +41,8 @@ const LuminaSceneV3Schema = z.object({
   subtitlesEnabled: z.boolean().default(true),
   trustedProofContext: z.object({
     artifactIntegrityVerified: z.literal(true),
-    approvedDraftVersion: z.number().int().positive()
+    approvedDraftVersion: z.number().int().positive(),
+    verifiedBindingFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/))
   }).strict().optional()
 });
 const LuminaScenePreviewV3Schema = z.object({
@@ -49,7 +50,8 @@ const LuminaScenePreviewV3Schema = z.object({
   subtitlesEnabled: z.boolean().default(true),
   trustedProofContext: z.object({
     artifactIntegrityVerified: z.literal(true),
-    approvedDraftVersion: z.number().int().positive()
+    approvedDraftVersion: z.number().int().positive(),
+    verifiedBindingFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/))
   }).strict().optional()
 });
 const VisualDslCompositionV3Schema = z.object({ definition: VisualSceneDefinitionV3Schema });

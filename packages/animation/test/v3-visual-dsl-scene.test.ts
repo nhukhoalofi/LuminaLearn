@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { VisualDslSceneV3 } from '../src/educational/VisualDslSceneV3';
+import { FormulaStepCard } from '../src/educational/FormulaSequenceSceneV3';
 import type { VisualSceneDefinitionV3 } from '@luminalearn/scene-schema';
 
 describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () => {
@@ -122,10 +123,51 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
       trustedMathBindings: [{ authority: 'server_sympy_v3', claimId: 'claim_x2', elementId: 'formula_trusted', verifiedExpression: 'x^2', normalizedExpressionFingerprint: 'a'.repeat(64), verificationResult: 'formally_verified', verificationTimestamp: '2026-11-10T00:00:00.000Z', approvedDraftVersion: 7, sourceSceneId: 'trusted_scene' }],
       dataBindings: []
     };
-    const approved = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7 } }));
-    const stale = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 8 } }));
+    const approved = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7, verifiedBindingFingerprints: ['a'.repeat(64)] } }));
+    const forgedProofId = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7, verifiedBindingFingerprints: ['b'.repeat(64)] } }));
+    const stale = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 8, verifiedBindingFingerprints: ['a'.repeat(64)] } }));
+    const mismatchedExpression = structuredClone(sceneDef);
+    const formula = mismatchedExpression.elements[0];
+    if (formula?.elementType === 'formula') formula.latex = 'x^3';
+    const mismatch = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: mismatchedExpression, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7, verifiedBindingFingerprints: ['a'.repeat(64)] } }));
+    const missingContext = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: sceneDef }));
+    const numericOnly = structuredClone(sceneDef);
+    numericOnly.trustedMathBindings = [];
+    const numericOnlyHtml = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition: numericOnly, trustedProofContext: { artifactIntegrityVerified: true, approvedDraftVersion: 7, verifiedBindingFingerprints: ['a'.repeat(64)] } }));
     assert.ok(approved.includes('SymPy Verified: claim_x2'));
+    assert.equal(forgedProofId.includes('SymPy Verified: claim_x2'), false);
     assert.equal(stale.includes('SymPy Verified: claim_x2'), false);
+    assert.equal(mismatch.includes('SymPy Verified: claim_x2'), false);
+    assert.equal(missingContext.includes('SymPy Verified: claim_x2'), false);
+    assert.equal(numericOnlyHtml.includes('SymPy Verified: claim_x2'), false);
+  });
+
+  test('2c. Formula step reference alone remains neutral even with artifact integrity', () => {
+    const html = renderToStaticMarkup(React.createElement(FormulaStepCard, {
+      step: {
+        stepId: 'step_neutral',
+        latex: 'a^2+2ab+b^2',
+        explanation: 'Khai triển đại số',
+        highlightTerms: ['2ab'],
+        claimIds: ['claim_square_sum'],
+        proofReferenceId: 'forged_proof_reference'
+      },
+      stepNumber: 1,
+      totalSteps: 1,
+      isActive: true,
+      isVisible: true,
+      revealOpacity: 1,
+      revealTranslateY: 0,
+      highlightPulseProgress: 0,
+      trustedProofContext: {
+        artifactIntegrityVerified: true,
+        approvedDraftVersion: 7,
+        verifiedBindingFingerprints: ['a'.repeat(64)]
+      }
+    }));
+    assert.ok(html.includes('Biến đổi đại số từng bước'));
+    assert.equal(html.includes('SymPy'), false);
+    assert.equal(html.includes('forged_proof_reference'), false);
   });
 
   test('3. Renders labeled step with KaTeX formula and step number', () => {

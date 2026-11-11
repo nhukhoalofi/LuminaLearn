@@ -60,7 +60,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
-  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s' | '600s'>('60s');
+  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('60s');
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
   const [trace, setTrace] = useState<SupervisorTrace>();
@@ -153,7 +153,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   async function generate() {
     setBusy(true); setError(''); setJob(undefined); setTrace(undefined); setHasMathChanges(false);
     try {
-      const targetSeconds = durationPreset === '600s' ? 600 : durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : durationPreset === '60s' ? 60 : 35;
+      const targetSeconds = durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : durationPreset === '60s' ? 60 : 35;
       const responseData = await jsonRequest('/api/v3/supervisor', 'POST', {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
         targetAudience: 'high_school',
@@ -507,7 +507,6 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         <option value="60s">1 phút (60s) — Khái niệm & Trực giác cốt lõi</option>
         <option value="180s">3 phút (180s) — Lý thuyết & Ví dụ trực quan</option>
         <option value="300s">5 phút (300s) — Dẫn giải chi tiết & Tránh lỗi thường gặp</option>
-        <option value="600s">10 phút (600s) — Masterclass nhiều chương chuyên sâu</option>
       </select>
       <label><input type="checkbox" checked={subtitlesEnabled} onChange={(event) => setSubtitlesEnabled(event.target.checked)} /> Ghi phụ đề vào video và tạo SRT</label>
       <label className="form-label">Chế độ tạo nội dung</label>

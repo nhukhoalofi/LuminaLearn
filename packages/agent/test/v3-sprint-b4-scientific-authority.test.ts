@@ -146,9 +146,26 @@ describe('Quality Sprint B.4 Checkpoint A: Fail-Closed Scientific Verification A
       validatorKey: 'gradient_descent_formula',
       verificationStatus: 'unverified' as const
     };
-    const validResult = validateGradientDescentClaim(validClaim);
+    const validTrace = {
+      kind: 'optimization_trace_1d' as const,
+      expression: 'L(w)=(w-2)^2+1',
+      learningRate: 0.4,
+      points: [
+        { step: 1, parameter: 4.0, value: 5.0, gradient: 4.0 },
+        { step: 2, parameter: 2.4, value: 1.16, gradient: 0.8 },
+        { step: 3, parameter: 2.08, value: 1.0064, gradient: 0.16 },
+        { step: 4, parameter: 2.016, value: 1.000256, gradient: 0.032 }
+      ],
+      claimId: validClaim.id,
+      validation: 'deterministic_numeric' as const
+    };
+    const missingTraceResult = validateGradientDescentClaim(validClaim);
+    assert.equal(missingTraceResult.status, 'human_review_required');
+
+    const validResult = validateGradientDescentClaim(validClaim, validTrace);
     assert.equal(validResult.status, 'numerically_validated');
-    assert.ok(validResult.formalProofSummary);
+    assert.ok(validResult.numericalValidationSummary);
+    assert.match(validResult.traceFingerprint ?? '', /^[a-f0-9]{64}$/);
 
     // Contradiction: ascent instead of descent
     const ascentClaim = {
@@ -159,9 +176,16 @@ describe('Quality Sprint B.4 Checkpoint A: Fail-Closed Scientific Verification A
       validatorKey: 'gradient_descent_formula',
       verificationStatus: 'unverified' as const
     };
-    const ascentResult = validateGradientDescentClaim(ascentClaim);
+    const ascentResult = validateGradientDescentClaim(ascentClaim, { ...validTrace, claimId: ascentClaim.id });
     assert.equal(ascentResult.status, 'rejected');
     assert.ok(ascentResult.contradictionReason?.includes('gradient_ascent'));
+
+    const noUpdateResult = validateGradientDescentClaim({ ...validClaim, formalExpression: 'w_next = w' }, validTrace);
+    assert.equal(noUpdateResult.status, 'human_review_required');
+
+    const mismatchedClaimResult = validateGradientDescentClaim(validClaim, { ...validTrace, claimId: 'claim_other_lesson' });
+    assert.equal(mismatchedClaimResult.status, 'rejected');
+    assert.match(mismatchedClaimResult.contradictionReason ?? '', /claim_mismatch/);
 
     // Invalid numeric trace
     const badTrace = {
@@ -181,6 +205,19 @@ describe('Quality Sprint B.4 Checkpoint A: Fail-Closed Scientific Verification A
 
   it('validates claims end-to-end via KnowledgeValidationServiceV3 for AI optimization topic', async () => {
     const validator = new KnowledgeValidationServiceV3();
+    const optimizationTrace = {
+      kind: 'optimization_trace_1d' as const,
+      expression: 'L(w)=(w-2)^2+1',
+      learningRate: 0.4,
+      points: [
+        { step: 1, parameter: 4.0, value: 5.0, gradient: 4.0 },
+        { step: 2, parameter: 2.4, value: 1.16, gradient: 0.8 },
+        { step: 3, parameter: 2.08, value: 1.0064, gradient: 0.16 },
+        { step: 4, parameter: 2.016, value: 1.000256, gradient: 0.032 }
+      ],
+      claimId: 'claim_gd_rule',
+      validation: 'deterministic_numeric' as const
+    };
     const result = await validator.validateClaims({
       lessonId: 'lesson_gd_e2e',
       topicId: 'ai.gradient_descent.optimization',
@@ -194,12 +231,15 @@ describe('Quality Sprint B.4 Checkpoint A: Fail-Closed Scientific Verification A
           validatorKey: 'gradient_descent_formula',
           verificationStatus: 'unverified'
         }
-      ]
+      ],
+      optimizationTrace
     });
 
     assert.equal(result.report.overallStatus, 'verified');
     assert.equal(result.validatedClaims[0].verificationStatus, 'numerically_validated');
-    assert.equal(result.validatedClaims[0].formalExpressionVerified, true);
-    assert.equal(result.validatedClaims[0].proofRecordId, 'proof_claim_gd_rule');
+    assert.equal(result.validatedClaims[0].formalExpressionVerified, false);
+    assert.equal(result.validatedClaims[0].proofRecordId, undefined);
+    assert.equal(result.validatedClaims[0].formalProofSummary, undefined);
+    assert.match(result.report.claimReports[0]?.verifierNotes ?? '', /trace_sha256=[a-f0-9]{64}/);
   });
 });
