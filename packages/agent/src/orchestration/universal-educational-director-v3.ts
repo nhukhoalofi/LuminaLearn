@@ -92,12 +92,18 @@ function scientificDataForScene(scene: EducationalSceneV3, claims: EducationalCl
       }))
     });
   }
-  if (payload.sceneType === 'loss_landscape') return OptimizationTraceDataV1Schema.parse({
-    kind: 'optimization_trace_1d', expression: `L(w)=${payload.curvature}(w-${payload.minimumPoint.w})^2+${payload.minimumPoint.loss}`,
-    learningRate: payload.learningRate,
-    points: payload.steps.map((step) => ({ step: step.stepNumber, parameter: step.w, value: step.loss, gradient: step.gradient })),
-    claimId: scene.boundClaimIds[0], validation: 'deterministic_numeric'
-  });
+  if (payload.sceneType === 'loss_landscape') {
+    const rawData = {
+      kind: 'optimization_trace_1d' as const,
+      expression: `L(w)=${payload.curvature}(w-${payload.minimumPoint.w})^2+${payload.minimumPoint.loss}`,
+      learningRate: payload.learningRate,
+      points: payload.steps.map((step) => ({ step: step.stepNumber, parameter: step.w, value: step.loss, gradient: step.gradient })),
+      claimId: scene.boundClaimIds[0] ?? 'claim_optimization',
+      validation: 'deterministic_numeric' as const
+    };
+    const parsed = OptimizationTraceDataV1Schema.safeParse(rawData);
+    return parsed.success ? parsed.data : undefined;
+  }
   if (payload.sceneType === 'attention_heatmap') return AttentionMatrixDataV1Schema.parse({
     kind: 'attention_matrix', tokens: payload.tokens, weights: payload.matrix,
     validation: payload.isIllustrative ? 'human_review_required' : 'deterministic_numeric'
@@ -139,8 +145,17 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
     const intent = intentForData(scientificData);
     const availableValidation = new Set(validationForClaims(claims));
     const hasRejectedClaim = claims.some((c) => c.verificationStatus === 'rejected');
-    const isExplicitlyVerifiedNumericContract = (scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric';
-    if (isExplicitlyVerifiedNumericContract && !hasRejectedClaim) {
+    const claimsAuthoritative = claims.length > 0 && claims.every(
+      (c) => c.verificationStatus === 'numerically_validated' || c.verificationStatus === 'formally_verified'
+    );
+    const traceValid = scientificData.kind === 'optimization_trace_1d'
+      ? OptimizationTraceDataV1Schema.safeParse(scientificData).success
+      : true;
+    const isExplicitlyVerifiedNumericContract =
+      (scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') &&
+      scientificData.validation === 'deterministic_numeric';
+
+    if (isExplicitlyVerifiedNumericContract && claimsAuthoritative && traceValid && !hasRejectedClaim) {
       availableValidation.add('deterministic_numeric');
     }
     if (scientificData.kind === 'directed_diagram' && scientificData.validation === 'human_review_required') availableValidation.add('human_review');
@@ -148,7 +163,7 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
     if (resolution.status === 'selected') return { intent, actions: actionsForIntent(intent), readiness: 'render_ready', adapterId: resolution.capability.rendererAdapterId };
     return { intent, actions: actionsForIntent(intent), readiness: resolution.finding.code === 'visual_adapter_not_ready' ? resolution.capability?.readinessStatus ?? resolution.status : resolution.status, reviewReason: resolution.finding.message };
   }
-  if (scene.sceneType === 'formula_derivation' || scene.sceneType === 'graph_plot' || scene.sceneType === 'flowchart_simulation') return { intent: 'formula_transformation', actions: ['reveal_formula_step', 'highlight_term'], readiness: 'needs_review', reviewReason: 'Scientific scene has no typed scientificData binding; generic animation would be misleading.' };
+  if (scene.sceneType === 'formula_derivation' || scene.sceneType === 'graph_plot' || scene.sceneType === 'flowchart_simulation' || scene.sceneType === 'loss_landscape') return { intent: scene.sceneType === 'loss_landscape' ? 'verified_parameter_step' : 'formula_transformation', actions: scene.sceneType === 'loss_landscape' ? ['draw_graph', 'move_parameter_marker', 'draw_tangent'] : ['reveal_formula_step', 'highlight_term'], readiness: 'needs_review', reviewReason: 'Scientific scene has no valid typed scientificData binding; generic animation would be misleading.' };
   if (scene.sceneType === 'comparison_table') return { intent: 'comparison', actions: ['show_comparison'], readiness: 'render_ready', adapterId: 'comparison_v3' };
   if (scene.sceneType === 'summary') return { intent: 'retrieval_prompt', actions: ['ask_question', 'hold_for_reading'], readiness: 'render_ready', adapterId: 'summary_v3' };
   return { intent: 'concept_focus', actions: ['reveal_title', 'hold_for_reading'], readiness: 'render_ready', adapterId: 'concept_intro_v3' };
@@ -157,7 +172,7 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
 function createScientificExample(plan: EducationalLessonPlanV3) {
   const claimById = new Map(plan.educationalClaims.map((claim) => [claim.id, claim]));
   const lossScene = plan.storyboard?.scenes.find((scene) => scene.sceneType === 'loss_landscape');
-  if (lossScene?.visualPayload.sceneType === 'loss_landscape' && lossScene.visualPayload.steps.length >= 2) {
+  if (lossScene?.visualPayload.sceneType === 'loss_landscape' && lossScene.visualPayload.steps.length >= 2 && lossScene.boundClaimIds.length > 0) {
     const payload = lossScene.visualPayload;
     const claims = lossScene.boundClaimIds.map((id) => claimById.get(id)).filter((claim): claim is EducationalClaimV3 => Boolean(claim));
     return VerifiedScientificExampleV1Schema.parse({
@@ -185,7 +200,7 @@ function createScientificExample(plan: EducationalLessonPlanV3) {
   }
 
   const algebraScene = plan.storyboard?.scenes.find((scene) => scene.sceneType === 'algebra_identity');
-  if (algebraScene?.visualPayload.sceneType === 'algebra_identity') {
+  if (algebraScene?.visualPayload.sceneType === 'algebra_identity' && algebraScene.boundClaimIds.length > 0) {
     const payload = algebraScene.visualPayload;
     const claims = algebraScene.boundClaimIds.map((id) => claimById.get(id)).filter((claim): claim is EducationalClaimV3 => Boolean(claim));
     const verified = validationStatus(claims) === 'verified';

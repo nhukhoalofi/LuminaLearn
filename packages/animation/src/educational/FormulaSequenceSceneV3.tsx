@@ -95,12 +95,11 @@ export const FormulaStepCard: React.FC<FormulaStepCardProps> = ({
           <span
             style={{
               fontSize: 10,
-              color: trustedProofContext?.artifactIntegrityVerified ? '#86EFAC' : '#FCD34D',
+              color: trustedProofContext?.artifactIntegrityVerified ? '#86EFAC' : '#94A3B8',
               fontFamily: 'monospace'
             }}
           >
-            {trustedProofContext?.artifactIntegrityVerified ? '✓ SymPy: ' : 'ref: '}
-            {step.proofReferenceId}
+            {trustedProofContext?.artifactIntegrityVerified ? `✓ SymPy: ${step.proofReferenceId}` : 'Biến đổi từng bước'}
           </span>
         )}
       </div>

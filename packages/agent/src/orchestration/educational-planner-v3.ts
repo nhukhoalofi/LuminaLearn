@@ -114,6 +114,22 @@ export class EducationalPlannerV3 {
 
     // Bước 3: RÀNG BUỘC TOÀN VẸN TRI THỨC (CHECKPOINTS A & B)
     // Độc lập kiểm định mọi mệnh đề qua KnowledgeValidationServiceV3
+    let optimizationTrace: unknown = undefined;
+    if (candidatePlan.storyboard) {
+      const lossScene = candidatePlan.storyboard.scenes.find((s) => s.sceneType === 'loss_landscape');
+      if (lossScene?.visualPayload.sceneType === 'loss_landscape') {
+        const p = lossScene.visualPayload;
+        optimizationTrace = {
+          kind: 'optimization_trace_1d',
+          expression: `L(w)=${p.curvature}(w-${p.minimumPoint.w})^2+${p.minimumPoint.loss}`,
+          learningRate: p.learningRate,
+          points: p.steps.map((st) => ({ step: st.stepNumber, parameter: st.w, value: st.loss, gradient: st.gradient })),
+          claimId: lossScene.boundClaimIds[0] ?? 'claim_optimization',
+          validation: 'deterministic_numeric'
+        };
+      }
+    }
+
     const validationResult = await this.validationService.validateClaims({
       lessonId,
       topicId: capabilityReport.topicId,
@@ -121,7 +137,8 @@ export class EducationalPlannerV3 {
       claims: candidatePlan.educationalClaims,
       sourceEvidence: documentAnalysis?.evidence || candidatePlan.sourceEvidence,
       mathSpec: input.mathSpec,
-      assumptions: input.assumptions
+      assumptions: input.assumptions,
+      optimizationTrace
     });
 
     candidatePlan.educationalClaims = validationResult.validatedClaims;
