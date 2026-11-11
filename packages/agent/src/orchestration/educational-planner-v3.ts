@@ -681,8 +681,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
               boundClaimIds: [`claim_identity_${index + 1}`],
               rendererTarget: 'remotion_infographic' as const,
               narration: {
-                vietnamese: `${label}: Biểu thức vế trái ${left} tương đương với vế phải ${right}. Khi khai triển hoặc phân tích nhân tử, ta áp dụng quy tắc nhân phân phối và gom các hạng tử đồng dạng. Công thức này giúp rút gọn nhanh các biểu thức đại số phức tạp trong chương trình phổ thông và ứng dụng vào giải phương trình.`,
-                subtitleVietnamese: `${left} = ${right}.`
+                vietnamese: `${label}: Biểu thức vế trái ${left} luôn tương đương chính xác với vế phải ${right}. Khi khai triển hoặc biến đổi, ta áp dụng quy tắc nhân phân phối đa thức và nhóm các hạng tử đồng dạng. Việc thành thạo công thức này giúp chúng ta rút gọn nhanh các biểu thức đại số phức tạp, phân tích đa thức thành nhân tử và giải quyết hiệu quả các bài toán thực tế. Hãy ghi nhớ cấu trúc đối xứng đặc trưng của đẳng thức này.`,
+                subtitleVietnamese: `${left} = ${right} — ${label}.`
               },
               visualPayload: {
                 sceneType: 'algebra_identity' as const,
@@ -2437,8 +2437,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           boundClaimIds: [boundClaimId],
           rendererTarget: 'remotion_infographic' as const,
           narration: {
-            vietnamese: `Tổng kết lại, bài học đã cung cấp bức tranh toàn cảnh về ${topicTitle}. Hãy luyện tập để thành thạo kiến thức này.`,
-            subtitleVietnamese: `Nắm vững bản chất cốt lõi và ứng dụng của ${topicTitle}.`
+            vietnamese: `Tổng kết toàn diện bài học về ${topicTitle}. Chúng ta đã cùng nhau tìm hiểu từ bản chất trực giác, nền tảng lý thuyết cho đến các ứng dụng thực tế và lưu ý quan trọng. Nắm vững kiến thức này sẽ giúp các em tự tin giải quyết các bài toán phức tạp hơn và xây dựng tư duy phân tích vững chắc. Chúc các em học tập hiệu quả và tiếp tục khám phá thêm nhiều kiến thức bổ ích.`,
+            subtitleVietnamese: `Nắm vững bản chất cốt lõi và ứng dụng thực tiễn của ${topicTitle}.`
           },
           visualPayload: {
             sceneType: 'summary' as const,
@@ -2465,11 +2465,11 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         rendererTarget: 'remotion_infographic' as const,
         narration: {
           vietnamese: isFirst
-            ? `Chào mừng các bạn đến với bài học về ${topicTitle}. Chúng ta sẽ khám phá bản chất từ trực giác tới cơ chế thực tế.`
-            : `Trong phần này, ta phân tích sâu hơn khía cạnh ${stage.title} nhằm hiểu rõ nguyên lý vận hành.`,
+            ? `Chào mừng các em đến với bài học chuyên sâu về ${topicTitle}. Trong bài học hôm nay, chúng ta sẽ cùng nhau tiếp cận chủ đề từ bản chất trực giác, giải mã cơ chế vận hành từng bước và liên hệ trực tiếp với các ứng dụng thực tế. Hãy chú ý theo dõi để nắm bắt các khái niệm trọng tâm nhất nhé.`
+            : `Bước sang phần tiếp theo: ${stage.title}. Tại đây, chúng ta sẽ đào sâu vào nguyên lý hoạt động và phân tích chi tiết các thành phần cấu thành của ${topicTitle}. Việc hiểu rõ bản chất ở bước này là chìa khóa giúp các em tránh được những nhầm lẫn phổ biến và làm chủ kiến thức một cách vững vàng.`,
           subtitleVietnamese: isFirst
-            ? `Khám phá bài học sư phạm về ${topicTitle}.`
-            : `Phân tích sâu hơn về ${topicTitle}.`
+            ? `Khám phá bài học sư phạm chuyên sâu về ${topicTitle}.`
+            : `Phân tích sâu hơn về ${topicTitle}: ${stage.title}.`
         },
         visualPayload: {
           sceneType: 'concept_intro' as const,
@@ -2487,6 +2487,19 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
     capability: TopicCapabilityReportV3,
     targetDuration: number
   ): EducationalStoryboardV3['scenes'] {
+    try {
+      const plan = this.buildDeterministicPlan(
+        'default_fixture_plan',
+        capability.displayName,
+        capability,
+        targetDuration
+      );
+      if (plan.storyboard?.scenes && plan.storyboard.scenes.length >= 2) {
+        return plan.storyboard.scenes;
+      }
+    } catch {
+      // Fallback nếu plan thất bại
+    }
     return this.buildAdaptiveScenesForTopic(
       capability.displayName,
       targetDuration,

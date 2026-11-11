@@ -10,8 +10,8 @@ test('V3 Teacher Studio carries explicit Gemini TTS selection and consent throug
   assert.doesNotMatch(source, /targetDurationSeconds:\s*targetSeconds, narrationMode:\s*'none'/);
   assert.match(source, /Gemini TTS tiếng Việt — tạo audio thật/);
   assert.match(source, /confirmExternalApi:\s*narrationMode === 'gemini_tts' && confirmExternalApi/g);
-  assert.match(source, /if \(nextMode === 'live'\)[\s\S]*setNarrationMode\('gemini_tts'\)[\s\S]*setDurationPreset\('35s'\)/);
-  assert.match(source, /value="60s" disabled=\{narrationMode === 'gemini_tts'\}/);
+  assert.match(source, /if \(nextMode === 'live'\)[\s\S]*setNarrationMode\('gemini_tts'\)/);
+  assert.match(source, /option value="300s"/);
   assert.match(source, /generationMode:\s*requestedMode/);
   assert.match(source, /void generate\('mock'\)/);
 });

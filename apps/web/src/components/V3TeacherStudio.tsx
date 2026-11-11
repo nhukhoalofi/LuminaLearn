@@ -478,7 +478,6 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('mathematics');
               setTopic('Vì sao (a+b)² = a² + 2ab + b²?');
-              setDurationPreset('60s');
             }}
           >
             📐 1. Hằng đẳng thức (a+b)²
@@ -490,7 +489,6 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('mathematics');
               setTopic('Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến');
-              setDurationPreset('60s');
             }}
           >
             📈 2. Đạo hàm: Cát tuyến → Tiếp tuyến
@@ -502,7 +500,6 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('artificial_intelligence');
               setTopic('Gradient Descent — AI tìm điểm tối ưu như thế nào?');
-              setDurationPreset('60s');
             }}
           >
             📉 3. Gradient Descent: Tối ưu hóa AI
