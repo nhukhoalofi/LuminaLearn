@@ -16,6 +16,7 @@ if (existsSync(rootEnv)) {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  transpilePackages: ['@luminalearn/hybrid-renderer', '@luminalearn/agent', '@luminalearn/scene-schema']
 };
 
 export default nextConfig;

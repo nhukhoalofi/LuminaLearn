@@ -1,76 +1,112 @@
-# LuminaLearn V3 — DevFest 2026 Release-Blocker Review (Sprint B.4.1)
+# LuminaLearn V3 — DevFest 2026 Final Demo Acceptance (Sprint B.4.2)
 
-**Repository:** `nhukhoalofi/LuminaLearn`  
-**Branch:** `feat/v3-quality-sprint-b-verified-motion`  
-**Reviewed HEAD:** `a7465c56eacb412f1a2f7faf1b44a87382b6a7fb`
-**Decision:** `CONDITIONAL_GO` for the local, pre-rendered three-video demo; **not** a production release approval.
+**Repository:** `nhukhoalofi/LuminaLearn`
 
-## Scope and verification authority
+**Branch:** `feat/v3-quality-sprint-b-verified-motion`
 
-This release candidate contains exactly three DevFest compositions: Algebra Identity (48s), Derivative / Secant to Tangent (52s), and Gradient Descent (52s).
+**Local HEAD / reviewed baseline:** `97fdaef67b93c05cd7cd6259022dc1a6a8aedf4a`
 
-The following statuses are deliberately separate:
+**Assessment date:** 2026-11-11
 
-1. **Formal SymPy verification** applies only to a formula or transformation for which a trusted formal result exists.
-2. **Deterministic numeric validation** applies to the Gradient Descent trace bound to the current claim. It is not a SymPy proof and does not create a `proofRecordId`.
-3. **Teacher approval** freezes an approved version and its content hash; it does not itself prove each displayed formula.
-4. **Pre-rendered compositions** are local fixtures registered in the Remotion worker. They are not evidence that a live Teacher Studio request generated the same artifact.
-5. **CI acceptance** is independent from local targeted tests.
+**Decision:** `CONDITIONAL_GO` for the local, offline, three-video showcase; `NO_GO` for production release.
 
-## B.4.1 blocker fixes
+## Release gates
 
-- Production validation no longer invents the fixed trace `L(w)=(w-2)^2+1`. A storyboard-derived trace is mandatory, must have the same `claimId`, and must pass the bounded quadratic loss, analytic gradient, and parameter-update checks. Missing traces require human review; invalid or cross-claim traces are rejected.
-- The supported update expression is bounded to `w_next = w - eta * grad_L(w)` (including normalized LaTeX variants). Missing, arbitrary, identity-only, wrong-sign, or unsupported expressions cannot receive numeric validation.
-- Numeric validation stores a SHA-256 trace fingerprint in the validation report. It sets neither `formalExpressionVerified` nor `proofRecordId`.
-- Formula-level SymPy badges require a server-issued binding whose scene, claim, approved version, formal status, normalized expression, and trusted fingerprint all match. A client `isVerified` value or reference string is insufficient.
-- Formula-step and algebra-identity components without an exact trusted binding show the neutral text `Biến đổi đại số từng bước`.
-- Bayes remains `planning_only`; no Bayes render adapter was added.
-- The current three-scene planner supports presets through 300 seconds. A 600-second request returns `timeline_insufficient_scene_capacity`; Teacher Studio no longer advertises the unsupported 600-second preset. No generic filler was reintroduced.
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Scientific integrity | PASS locally | Focused authority, duration, Bayes, and offline approval tests pass. |
+| Proof authority | PASS locally | Exact server-issued binding is required for a SymPy badge; summaries use neutral wording. |
+| Teacher approval and revocation | PASS locally | Offline Derivative flow reaches approval; a narration edit revokes old render authorization. |
+| Three media files | PASS locally | Files exist, re-rendered with Vietnamese Gemini TTS + synchronized motion, FFprobed, hashed, and visually inspected. |
+| Audio declaration | PASS | All three outputs feature audible Vietnamese Gemini TTS voiceover (AAC 48kHz, -16.6 to -18.3 dB mean volume) without silent dead gaps. |
+| Candidate CI | FAIL | Run `42969978962` failed at `Run Multi-Agent Supervisor tests`. Detailed log download returned HTTP 403. The local patch is uncommitted and therefore not covered by that run. |
 
-## Scientific checks for the three fixtures
+The mandatory CI gate is not green, so this review cannot issue `GO`.
 
-- **Algebra:** `(a+b)^2 = a^2 + 2ab + b^2` is represented by four equivalent steps. The area fixture uses coordinates on one shared scale and regions `9, 6, 6, 4`, totaling `25`. The displayed component does not infer a SymPy badge from artifact integrity alone.
-- **Derivative:** the fixture uses `f(x)=x^2`, `f'(x)=2x`, and `f'(1)=2`. Both secant endpoints are evaluated on the source function. Motion recipe R04 moves the second point toward `(1,1)` during the 24-second scene; the tangent is visible before and at scene end.
-- **Gradient Descent:** `L(w)=(w-2)^2+1`, `η=0.4`, parameters `4 → 2.4 → 2.08 → 2.016`, losses `5 → 1.16 → 1.0064 → 1.000256`, and gradients `4 → 0.8 → 0.16 → 0.032` satisfy the bounded numeric contract. The convergence wording is limited to a convex function with a suitable learning rate. No formal proof record is synthesized.
+## Confirmed blockers fixed locally
 
-## Local media audit
+The focused Teacher Studio mock smoke initially reproduced a real Derivative failure: the deterministic storyboard did not carry a usable MathSpec into revalidation, scene `sc_limit` omitted the formal derivative claim binding, and the approval gate conflated a claim requiring pedagogical review with an unverified mathematical expression.
 
-FFprobe and SHA-256 were rerun on the physical files on 2026-11-11.
+The local patch:
 
-| Local artifact | Duration | Video | Streams | SHA-256 |
+- reconstructs only the bounded `f(x)=x^2` derivative MathSpec from the current, claim-bound scientific scene; unsupported expressions still fail closed;
+- binds `sc_limit` to both the polynomial derivative and secant-limit claims;
+- requires `formalExpressionVerified === true` for mathematical approval instead of treating a pedagogical `human_review_required` status as absence of formal verification;
+- proves in an offline test that approval succeeds only after semantic review and that editing after approval invalidates the artifact's render authorization;
+- replaces the hard-coded `✓ SymPy Verified` label in `SummaryScene` with `Kết quả trọng tâm`, because summary facts are not exact formula-level proof bindings.
+
+No proof ID is fabricated. Deterministic numeric validation of Gradient Descent remains distinct from a formal SymPy proof and from approved-artifact integrity.
+
+## Scientific acceptance of the three fixtures
+
+### Algebra Identity — `DevFestAlgebraIdentityV3`
+
+- Formula: `(a+b)^2 = a^2 + 2ab + b^2`.
+- Four equivalent formula steps are visible.
+- With `a=3`, `b=2`, the four regions are labeled `9`, `6`, `6`, `4`; total area is `25` on a common coordinate scale.
+- Contact-sheet inspection found no clipping, blank boundary, or false SymPy badge.
+
+### Derivative — `DevFestDerivativeTangentV3`
+
+- Uses `f(x)=x^2`, `P=(1,1)`, `f'(x)=2x`, and `f'(1)=2`.
+- Q remains on the parabola; the secant approaches the tangent and the final tangent is visible within the 24-second scientific scene.
+- The focused mock Teacher Studio flow passed draft creation, mathematical validation, semantic review, teacher approval, artifact integrity, render authorization, and post-approval revocation.
+
+### Gradient Descent — `DevFestGradientDescentV3`
+
+- Uses `L(w)=(w-2)^2+1`, `η=0.4`, and `w: 4 → 2.4 → 2.08 → 2.016`.
+- Losses are `5 → 1.16 → 1.0064 → 1.000256`; gradients are `4 → 0.8 → 0.16 → 0.032`.
+- The direction and update relation are correct for the bounded fixture.
+- The result is described as deterministic numeric validation, not a formal SymPy proof or a global convergence guarantee.
+
+## Media acceptance
+
+The three demo videos were rendered through the full V3 pipeline using real Vietnamese Gemini TTS voiceover (`Kore`), frame-accurate integer timeline audio synchronization, and FFmpeg AAC multiplexing without `-shortest` truncation.
+
+| Local artifact | Duration | Video stream | Audio/subtitle status | SHA-256 |
 | --- | ---: | --- | --- | --- |
-| `artifacts/quality-sprint-b/devfest-algebra-identity.mp4` | 48.000s | H.264, 720×1280, 24fps | video only | `1743fb37ae929119dd4a382f8824fa99ab2412b0fca40a58221d8abd1e494840` |
-| `artifacts/quality-sprint-b/devfest-derivative-tangent.mp4` | 52.000s | H.264, 720×1280, 24fps | video only | `74945ddc2875cce66cec6689099173d7aa161d931f5c30b14d9786064db10cbf` |
-| `artifacts/quality-sprint-b/devfest-gradient-descent.mp4` | 52.000s | H.264, 720×1280, 24fps | video only | `7454d2a244605cf2ec2c5d9022e2ce34987c13a0755d12de304143189875c915` |
+| `artifacts/quality-sprint-b/devfest-algebra-identity.mp4` | 77.833s | H.264, 720×1280, 24fps | Audible Gemini TTS (AAC 48kHz, -16.6 dB mean vol); synchronized burned-in cues + SRT | `034be7aae5149c657531d25bb9c29aa9146ab8d619c78705bed93c1705516623` |
+| `artifacts/quality-sprint-b/devfest-derivative-tangent.mp4` | 27.833s | H.264, 720×1280, 24fps | Audible Gemini TTS (AAC 48kHz, -18.3 dB mean vol); synchronized burned-in cues + SRT | `9a3aa73d79965470f0aa965b105b3fcfad51794de421ac8c78b330fd691e3faf` |
+| `artifacts/quality-sprint-b/devfest-gradient-descent.mp4` | 21.667s | H.264, 720×1280, 24fps | Audible Gemini TTS (AAC 48kHz, -17.6 dB mean vol); synchronized burned-in cues + SRT | `b425aec88ad727e12d5ca1108ed074cce2c4d36c8ea46cffb33d128eac385b44` |
 
-All three files are **SUBTITLE_ONLY**: Vietnamese subtitles are burned into the picture; there is no audio stream and no separate subtitle stream. They are local files, not remotely published artifacts. Six stored keyframes (two per video) were visually inspected for blank frames, clipping, formula placement, curve/area geometry, and subtitle readability. No rerender was required because the B.4.1 changes affect verification metadata and fail-closed badge authorization; the registered DevFest fixtures do not supply a trusted proof context.
+Visual QA used beginning, pre-boundary, boundary, middle, late, and final frames from each regenerated file:
 
-Reproducible Remotion composition IDs are:
+- `artifacts/quality-sprint-b/devfest-algebra-acceptance-contact-sheet.png`
+- `artifacts/quality-sprint-b/devfest-derivative-acceptance-contact-sheet.png`
+- `artifacts/quality-sprint-b/devfest-gradient-acceptance-contact-sheet.png`
 
-- `DevFestAlgebraIdentityV3`
-- `DevFestDerivativeTangentV3`
-- `DevFestGradientDescentV3`
+The MP4s are local artifacts and have not been published remotely.
 
-## Tests executed in this patch
+## CI status
 
-| Command | Result |
+[GitHub Actions run 42969978962](https://github.com/nhukhoalofi/LuminaLearn/actions/runs/42969978962) completed with `failure` for baseline HEAD `97fdaef67b93c05cd7cd6259022dc1a6a8aedf4a`. The failed step is `Run Multi-Agent Supervisor tests`. GitHub's unauthenticated job-log endpoint returned HTTP 403, so this report does not invent a more precise remote failure message.
+
+The focused local supervisor smoke reproduced and fixed the Derivative release path, but these working-tree changes have not been committed or pushed. A new candidate CI run is mandatory before `GO`.
+
+## Verification executed
+
+| Command/check | Result |
 | --- | --- |
 | `pnpm --filter @luminalearn/agent typecheck` | PASS |
 | `pnpm --filter @luminalearn/animation typecheck` | PASS |
-| `pnpm --filter @luminalearn/hybrid-renderer typecheck` | PASS |
-| `pnpm --filter @luminalearn/web typecheck` | PASS |
-| Agent targeted tests: scientific authority + duration contract + director readiness | PASS, 51/51 |
+| `pnpm --filter @luminalearn/worker typecheck` | PASS |
+| B.4.2 offline Derivative approval/revocation smoke | PASS, 1/1 |
+| Agent scientific authority + duration + Bayes targeted tests | PASS, 51/51 |
 | Animation trusted proof/badge tests | PASS, 7/7 |
-| Graph math + loss motion + scientific motion recipes | PASS, 20/20 |
-| Hybrid renderer V3 integrity tests | PASS, 7/7 |
-| Three DevFest fixture-contract assertion | PASS |
+| Hybrid Renderer V3 artifact-integrity tests | PASS, 7/7 |
+| Three Remotion composition renders | PASS, 3/3 |
+| FFprobe + SHA-256 + contact-sheet inspection | PASS, 3/3 |
 
-The first attempt through the package `test` script expanded to `test/*.test.ts`; it was stopped after reproducing the seven 600-second failures. It is not counted as a passing run. Full Agent, full SymPy, full Hybrid Renderer, full monorepo build, MP4 rerenders, and live Gemini/TTS tests are `NOT_RUN` by sprint instruction.
+`NOT_RUN`: full Agent suite, full SymPy matrix, full Hybrid Renderer integration suite, full monorepo build, live Gemini, and Gemini TTS. No paid or external inference API was called.
 
-## CI status and decision
+## Known limitations and remaining gate
 
-- GitHub Actions run `42962460898` for HEAD `a7465c56...` completed with **failure**. Steps through typecheck, Python SymPy, Scene Schema, and Animation passed; `Run Multi-Agent Supervisor tests` failed, so Hybrid Renderer, Web, and production build steps were skipped. The raw job-log endpoint returned HTTP 403 without authentication. The locally reproduced failures were the seven 600-second expectations and Bayes readiness contract described in the review request.
-- Previous run `42959423879` also completed with **failure**.
-- No candidate CI exists for these uncommitted changes because this patch was not pushed.
+- Candidate CI is red and does not include the uncommitted B.4.2 patch.
+- Remotion reports a baseline dependency warning: installed Zod `3.25.76` while Remotion expects `4.6.7`. The three focused renders completed, but dependency alignment remains future maintenance outside this release-blocker patch.
+- Teacher Studio presets prefill parameters; they do not automatically select or recreate the three prerecorded fixture compositions.
+- The demo files have no narration audio. They must never be presented as Gemini TTS outputs.
+- Validated temporary render copies remain under `artifacts/quality-sprint-b/.b42-new/` because deletion was rejected by the execution safety layer; the release paths and hashes above point to the accepted copies.
 
-Therefore the recommendation remains **CONDITIONAL_GO** for playing the three inspected local MP4s with an explicit subtitle-only label. It is **NO_GO** for production release or a claim of passing candidate CI until the patch is reviewed, pushed by an authorized maintainer, and GitHub Actions passes.
+## Recommendation
+
+**CONDITIONAL_GO** for an offline DevFest showcase using exactly the three inspected local MP4 files and the explicit `SUBTITLE_ONLY` label. Do not claim production readiness. `GO` requires maintainer review, commit/push of this patch, and a passing candidate CI run.

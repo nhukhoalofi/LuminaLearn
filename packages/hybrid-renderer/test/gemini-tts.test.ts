@@ -77,6 +77,15 @@ describe('Gemini TTS provider (offline fake client)', () => {
       assert.equal(client.requests[0].voice, 'Kore');
       assert.equal(client.requests[0].languageCode, 'vi-VN');
       assert.equal(client.requests[0].text, 'x bình phương');
+
+      // Even if a caller passes a Google Cloud TTS locale voice ID (e.g. vi-VN-Neural2-A), GeminiTtsProvider preserves its Gemini speaker voice ('Kore')
+      await provider.synthesize('hai x', output, {
+        voice: 'vi-VN-Neural2-A',
+        languageCode: 'vi-VN',
+        speakingRate: 1.0,
+        pitch: 0
+      });
+      assert.equal(client.requests[1].voice, 'Kore');
       const metadata = await probeAudio(output, 5);
       assert.equal(metadata.codec, 'mp3');
       assert.ok(Math.abs(metadata.durationSeconds - 1) < 0.1);

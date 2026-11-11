@@ -103,48 +103,158 @@ export const AlgebraIdentityScene: React.FC<{
             }}
           >
             <div style={{ textAlign: 'center', fontSize: 13, color: '#94A3B8', marginBottom: 12, fontWeight: 600 }}>
-              Mô hình hình học diện tích: Cạnh (a + b)
+              {activeStepIndex === 0
+                ? 'Bước 1: Hình vuông cạnh (a + b) có tổng diện tích (a + b)²'
+                : activeStepIndex === 1
+                  ? 'Bước 2: Chia mỗi cạnh thành hai đoạn a và b'
+                  : activeStepIndex === 2
+                    ? 'Bước 3: Tách thành 4 vùng diện tích: a², a·b, b·a và b²'
+                    : 'Bước 4: Gộp hai hình chữ nhật giao thoa a·b + b·a = 2ab'}
             </div>
-            {/* SVG 2D Square Area Diagram */}
+            {/* SVG 2D Square Area Diagram Synchronized with Active Step */}
             <svg viewBox="0 0 400 400" style={{ width: '100%', height: 260, overflow: 'visible' }}>
               <defs>
                 <linearGradient id="gradA2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.85" />
-                  <stop offset="100%" stopColor="#0891B2" stopOpacity="0.95" />
+                  <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.88" />
+                  <stop offset="100%" stopColor="#0891B2" stopOpacity="0.96" />
                 </linearGradient>
                 <linearGradient id="gradAB" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.85" />
-                  <stop offset="100%" stopColor="#D97706" stopOpacity="0.95" />
+                  <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.88" />
+                  <stop offset="100%" stopColor="#D97706" stopOpacity="0.96" />
                 </linearGradient>
                 <linearGradient id="gradB2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.85" />
-                  <stop offset="100%" stopColor="#7C3AED" stopOpacity="0.95" />
+                  <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.88" />
+                  <stop offset="100%" stopColor="#7C3AED" stopOpacity="0.96" />
                 </linearGradient>
               </defs>
 
+              {/* Outer Square Frame for Step 0 */}
+              <rect
+                x="46"
+                y="41"
+                width="336"
+                height="336"
+                rx="14"
+                fill="none"
+                stroke={activeStepIndex === 0 ? '#38BDF8' : 'rgba(148, 163, 184, 0.35)'}
+                strokeWidth={activeStepIndex === 0 ? 3.5 : 1.5}
+                strokeDasharray={activeStepIndex === 1 ? '8 5' : undefined}
+              />
+
               {/* Dimension Labels Top */}
-              <text x="130" y="25" fill="#38BDF8" fontSize="16" fontWeight="bold" textAnchor="middle">a</text>
-              <text x="310" y="25" fill="#FBBF24" fontSize="16" fontWeight="bold" textAnchor="middle">b</text>
+              <text x="140" y="25" fill="#38BDF8" fontSize="17" fontWeight="bold" textAnchor="middle">a</text>
+              <text x="308" y="25" fill="#FBBF24" fontSize="17" fontWeight="bold" textAnchor="middle">b</text>
 
               {/* Dimension Labels Left */}
-              <text x="25" y="155" fill="#38BDF8" fontSize="16" fontWeight="bold" textAnchor="middle">a</text>
-              <text x="25" y="325" fill="#FBBF24" fontSize="16" fontWeight="bold" textAnchor="middle">b</text>
+              <text x="25" y="135" fill="#38BDF8" fontSize="17" fontWeight="bold" textAnchor="middle">a</text>
+              <text x="25" y="303" fill="#FBBF24" fontSize="17" fontWeight="bold" textAnchor="middle">b</text>
 
               {/* Block 1: a x a = a^2 */}
-              <rect x="50" y="45" width="180" height="180" rx="10" fill="url(#gradA2)" stroke="#38BDF8" strokeWidth="2" />
-              <text x="140" y="145" fill="#FFFFFF" fontSize="26" fontWeight="bold" textAnchor="middle">a²</text>
+              <g
+                style={{
+                  opacity: interpolate(frame, [0, 12], [0.25, 1], { extrapolateRight: 'clamp' }),
+                  transform: `scale(${activeStepIndex === 2 ? 1.02 : 1})`,
+                  transformOrigin: '140px 135px'
+                }}
+              >
+                <rect
+                  x="50"
+                  y="45"
+                  width="180"
+                  height="180"
+                  rx="10"
+                  fill="url(#gradA2)"
+                  stroke={activeStepIndex === 2 ? '#E0F2FE' : '#38BDF8'}
+                  strokeWidth={activeStepIndex === 2 ? 3.5 : 2}
+                />
+                <text x="140" y="138" fill="#FFFFFF" fontSize="28" fontWeight="bold" textAnchor="middle">a²</text>
+                <text x="140" y="164" fill="#E0F2FE" fontSize="13" fontWeight="600" textAnchor="middle">Cạnh a × a</text>
+              </g>
 
               {/* Block 2: a x b = ab */}
-              <rect x="238" y="45" width="140" height="180" rx="10" fill="url(#gradAB)" stroke="#FBBF24" strokeWidth="2" />
-              <text x="308" y="145" fill="#FFFFFF" fontSize="22" fontWeight="bold" textAnchor="middle">a·b</text>
+              <g
+                style={{
+                  opacity: interpolate(frame, [6, 20], [0.2, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
+                  transform: `scale(${activeStepIndex >= 2 ? 1.03 : 1})`,
+                  transformOrigin: '308px 135px'
+                }}
+              >
+                <rect
+                  x="238"
+                  y="45"
+                  width="140"
+                  height="180"
+                  rx="10"
+                  fill="url(#gradAB)"
+                  stroke={activeStepIndex >= 2 ? '#FEF08A' : '#FBBF24'}
+                  strokeWidth={activeStepIndex >= 3 ? 4 : 2}
+                />
+                <text x="308" y="138" fill="#FFFFFF" fontSize="24" fontWeight="bold" textAnchor="middle">a·b</text>
+                <text x="308" y="164" fill="#FEF3C7" fontSize="12" fontWeight="600" textAnchor="middle">Giao thoa 1</text>
+              </g>
 
               {/* Block 3: b x a = ba */}
-              <rect x="50" y="233" width="180" height="140" rx="10" fill="url(#gradAB)" stroke="#FBBF24" strokeWidth="2" />
-              <text x="140" y="310" fill="#FFFFFF" fontSize="22" fontWeight="bold" textAnchor="middle">b·a</text>
+              <g
+                style={{
+                  opacity: interpolate(frame, [10, 24], [0.2, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
+                  transform: `scale(${activeStepIndex >= 2 ? 1.03 : 1})`,
+                  transformOrigin: '140px 303px'
+                }}
+              >
+                <rect
+                  x="50"
+                  y="233"
+                  width="180"
+                  height="140"
+                  rx="10"
+                  fill="url(#gradAB)"
+                  stroke={activeStepIndex >= 2 ? '#FEF08A' : '#FBBF24'}
+                  strokeWidth={activeStepIndex >= 3 ? 4 : 2}
+                />
+                <text x="140" y="300" fill="#FFFFFF" fontSize="24" fontWeight="bold" textAnchor="middle">b·a</text>
+                <text x="140" y="324" fill="#FEF3C7" fontSize="12" fontWeight="600" textAnchor="middle">Giao thoa 2</text>
+              </g>
 
               {/* Block 4: b x b = b^2 */}
-              <rect x="238" y="233" width="140" height="140" rx="10" fill="url(#gradB2)" stroke="#C084FC" strokeWidth="2" />
-              <text x="308" y="310" fill="#FFFFFF" fontSize="22" fontWeight="bold" textAnchor="middle">b²</text>
+              <g
+                style={{
+                  opacity: interpolate(frame, [14, 28], [0.2, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
+                  transform: `scale(${activeStepIndex === 2 ? 1.02 : 1})`,
+                  transformOrigin: '308px 303px'
+                }}
+              >
+                <rect
+                  x="238"
+                  y="233"
+                  width="140"
+                  height="140"
+                  rx="10"
+                  fill="url(#gradB2)"
+                  stroke={activeStepIndex === 2 ? '#F3E8FF' : '#C084FC'}
+                  strokeWidth={activeStepIndex === 2 ? 3.5 : 2}
+                />
+                <text x="308" y="300" fill="#FFFFFF" fontSize="24" fontWeight="bold" textAnchor="middle">b²</text>
+                <text x="308" y="324" fill="#F3E8FF" fontSize="12" fontWeight="600" textAnchor="middle">Cạnh b × b</text>
+              </g>
+
+              {/* Highlight connector when combining ab + ba = 2ab */}
+              {activeStepIndex >= 3 && (
+                <g>
+                  <line
+                    x1="185"
+                    y1="265"
+                    x2="270"
+                    y2="180"
+                    stroke="#FEF08A"
+                    strokeWidth="3"
+                    strokeDasharray="6 4"
+                  />
+                  <rect x="145" y="198" width="140" height="32" rx="16" fill="#0F172A" stroke="#FBBF24" strokeWidth="2" />
+                  <text x="215" y="219" fill="#FDE047" fontSize="14" fontWeight="bold" textAnchor="middle">
+                    ab + ba = 2ab
+                  </text>
+                </g>
+              )}
             </svg>
           </div>
         ) : (

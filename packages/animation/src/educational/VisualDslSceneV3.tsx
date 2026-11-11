@@ -162,7 +162,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   let graphPath = '';
   let tangentLine: ReturnType<typeof computeTangentLine> | null = null;
   let secantLine: ReturnType<typeof computeSecantLine> | null = null;
-  let secantMovingPoint: { x: number; y: number } | null = null;
+  let secantMovingPoint: { x: number; y: number; mathX: number; mathY: number; slope: number } | null = null;
   const axesGrid = generateAxesAndGrid(transform);
 
   if (graphElement) {
@@ -181,7 +181,14 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
         const movingX = graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
         if (Math.abs(movingX - graphElement.secantFromX) >= 1e-8) {
           secantLine = computeSecantLine(parsedFn, graphElement.secantFromX, movingX, transform);
-          secantMovingPoint = { x: transform.toScreenX(movingX), y: transform.toScreenY(parsedFn.evaluate(movingX)) };
+          const mathY = parsedFn.evaluate(movingX);
+          secantMovingPoint = {
+            x: transform.toScreenX(movingX),
+            y: transform.toScreenY(mathY),
+            mathX: movingX,
+            mathY,
+            slope: secantLine.slope
+          };
         }
       }
     } catch (error) {
@@ -375,11 +382,37 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
         {secantLine && (
           <g clipPath="url(#graph-viewport-clip)" opacity={1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
             <line x1={secantLine.screenX1} y1={secantLine.screenY1} x2={secantLine.screenX2} y2={secantLine.screenY2} stroke="#A78BFA" strokeWidth="3" strokeDasharray="8 5" />
-            {secantMovingPoint && <circle cx={secantMovingPoint.x} cy={secantMovingPoint.y} r="6" fill="#A78BFA" stroke="#FFFFFF" strokeWidth="2" />}
+            {secantMovingPoint && <circle cx={secantMovingPoint.x} cy={secantMovingPoint.y} r="7" fill="#A78BFA" stroke="#FFFFFF" strokeWidth="2.5" />}
             {secantMovingPoint && (
               <g data-dynamic-label="secant-motion">
-                <rect x={secantMovingPoint.x + 8} y={secantMovingPoint.y - 28} width="140" height="24" rx="6" fill="rgba(15, 23, 42, 0.85)" stroke="#A78BFA" strokeWidth="1" />
-                <text x={secantMovingPoint.x + 14} y={secantMovingPoint.y - 12} fill="#DDD6FE" fontSize="11" fontWeight="bold" fontFamily="monospace">
+                <rect
+                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95))}
+                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44)}
+                  width="210"
+                  height="38"
+                  rx="8"
+                  fill="rgba(15, 23, 42, 0.9)"
+                  stroke="#A78BFA"
+                  strokeWidth="1.2"
+                />
+                <text
+                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95)) + 10}
+                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44) + 15}
+                  fill="#DDD6FE"
+                  fontSize="11"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                >
+                  {`Q(${secantMovingPoint.mathX.toFixed(2)}, ${secantMovingPoint.mathY.toFixed(2)}) · m=${secantMovingPoint.slope.toFixed(2)}`}
+                </text>
+                <text
+                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95)) + 10}
+                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44) + 31}
+                  fill="#C4B5FD"
+                  fontSize="10"
+                  fontWeight="bold"
+                  fontFamily="monospace"
+                >
                   cát tuyến → tiếp tuyến
                 </text>
               </g>
@@ -497,17 +530,33 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
           if (element.elementType === 'polygon') {
             const poly = element as any;
+            const polygonElements = definition.elements.filter((el) => el.elementType === 'polygon');
+            const polyIndex = Math.max(0, polygonElements.findIndex((el) => el.elementId === element.elementId));
+            const polyCount = Math.max(1, polygonElements.length);
+            const polyReveal = deriveMotionRecipeFrameV3({
+              recipeId: 'R02',
+              frame,
+              endFrame: durationInFrames,
+              itemCount: polyCount
+            });
+            const isRevealed = polyIndex <= polyReveal.completedCount || polyIndex === polyReveal.activeIndex;
+            const isActivePoly = polyIndex === polyReveal.activeIndex;
             const svgPoints = poly.points
               .map(([mx, my]: [number, number]) => `${transform.toScreenX(mx)},${transform.toScreenY(my)}`)
               .join(' ');
+            const baseFillOpacity = poly.fillOpacity ?? 0.28;
             return (
-              <g key={element.elementId} data-geometry-primitive="polygon">
+              <g
+                key={element.elementId}
+                data-geometry-primitive="polygon"
+                opacity={isRevealed ? 1 : 0.2}
+              >
                 <polygon
                   points={svgPoints}
                   fill={poly.fill ?? '#38BDF8'}
-                  fillOpacity={poly.fillOpacity ?? 0.28}
-                  stroke={poly.strokeColor ?? '#38BDF8'}
-                  strokeWidth={poly.strokeWidth ?? 2}
+                  fillOpacity={isActivePoly ? Math.min(0.62, baseFillOpacity + 0.22) : baseFillOpacity}
+                  stroke={isActivePoly ? '#FFFFFF' : (poly.strokeColor ?? '#38BDF8')}
+                  strokeWidth={isActivePoly ? (poly.strokeWidth ?? 2.5) + 1.5 : (poly.strokeWidth ?? 2)}
                   strokeLinejoin="round"
                 />
                 {poly.label && (() => {
@@ -517,8 +566,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                     <text
                       x={transform.toScreenX(centerX)}
                       y={transform.toScreenY(centerY)}
-                      fill={poly.strokeColor ?? '#38BDF8'}
-                      fontSize="14"
+                      fill={isActivePoly ? '#FFFFFF' : (poly.strokeColor ?? '#38BDF8')}
+                      fontSize={isActivePoly ? '16' : '14'}
                       fontWeight="bold"
                       textAnchor="middle"
                       dominantBaseline="middle"

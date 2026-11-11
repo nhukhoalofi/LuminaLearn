@@ -113,7 +113,7 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
         })}
       </div>
 
-      {/* Verified Facts & Review Notes (Honest Status Display) */}
+      {/* Summary facts are pedagogical content, not formula-level proof bindings. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {payload.verifiedFacts.length > 0 && (
           <div
@@ -127,25 +127,8 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
               gap: 10
             }}
           >
-            <span style={{ color: '#10B981', fontWeight: 800 }}>✓ SymPy Verified:</span>
+            <span style={{ color: '#10B981', fontWeight: 800 }}>Kết quả trọng tâm:</span>
             <span style={{ color: '#A7F3D0', fontSize: 16 }}>{payload.verifiedFacts.join(' • ')}</span>
-          </div>
-        )}
-
-        {payload.reviewNotes.length > 0 && (
-          <div
-            style={{
-              backgroundColor: '#F59E0B15',
-              border: '1px solid #F59E0B44',
-              borderRadius: 10,
-              padding: '10px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10
-            }}
-          >
-            <span style={{ color: '#F59E0B', fontWeight: 800 }}>⚠ Rà soát sư phạm:</span>
-            <span style={{ color: '#FDE68A', fontSize: 16 }}>{payload.reviewNotes.join(' • ')}</span>
           </div>
         )}
       </div>

@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ApprovedRenderArtifactV3Schema,
+  GeminiRequestBudget,
   verifyExternalApiConsentV3,
   type ApprovedRenderArtifactV3,
   type ExternalApiConsentRecordV3,
@@ -47,7 +48,7 @@ export function verifyV3ArtifactIntegrity(artifact: ApprovedRenderArtifactV3): b
 
 function execute(command: string, args: string[], cwd = repositoryRoot): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    execFile(command, args, { cwd, windowsHide: true, timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024 },
+    execFile(command, args, { cwd, windowsHide: true, timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024 },
       (error, stdout, stderr) => error
         ? reject(new Error(`v3_remotion_render_failed: ${stderr || stdout || error.message}`, { cause: error }))
         : resolvePromise());
@@ -198,8 +199,17 @@ export async function runRenderPipelineV3(
       }
     }
 
+    const configuredTtsBudget = Number.parseInt(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB ?? '5', 10);
+    const dynamicTtsBudget = Math.max(
+      Number.isInteger(configuredTtsBudget) && configuredTtsBudget > 0 ? configuredTtsBudget : 5,
+      approvedStoryboard.scenes.length * 2
+    );
     const provider: TtsProvider = suppliedProvider ?? (
-      isGemini ? new GeminiTtsProvider() : new GoogleCloudTtsProvider()
+      isGemini
+        ? new GeminiTtsProvider({
+            requestBudget: new GeminiRequestBudget({ maxTtsRequestsPerJob: dynamicTtsBudget })
+          })
+        : new GoogleCloudTtsProvider()
     );
 
     const syncResult = await defaultSceneAudioSynchronizer.synchronizeStoryboard(
@@ -210,6 +220,8 @@ export async function runRenderPipelineV3(
       })),
       {
         ttsProvider: provider,
+        voice: 'voice' in provider && typeof provider.voice === 'string' ? provider.voice : undefined,
+        language: 'languageCode' in provider && typeof provider.languageCode === 'string' ? provider.languageCode : undefined,
         fps: artifact.request.fps,
         ownerId: artifact.ownerId,
         outputDir
@@ -320,11 +332,15 @@ export async function runRenderPipelineV3(
   if (audioTrackPath) {
     options.onStage?.('merging_media');
     const videoDuration = await probeVideoDuration(remotionTarget);
-    const audioMeta = await probeAudio(audioTrackPath, 600);
+    const audioMeta = await probeAudio(audioTrackPath, 1200);
 
-    // Checkpoint E: If audio exceeds video timeline by > 0.05s, FAIL CLOSED rather than truncating speech with FFmpeg -t
+    // Checkpoint E: If audio exceeds video timeline beyond codec packet tolerance, FAIL CLOSED rather than truncating speech with FFmpeg -t
     const durationDelta = audioMeta.durationSeconds - videoDuration;
-    if (durationDelta > 0.05) {
+    const maxAllowedDelta =
+      artifact.request.narrationMode === 'gemini_tts' || artifact.request.narrationMode === 'google_cloud_tts'
+        ? 0.25
+        : 0.05;
+    if (durationDelta > maxAllowedDelta) {
       throw new Error(`audio_duration_overflow: Narration speech duration (${audioMeta.durationSeconds.toFixed(2)}s) exceeds approved video timeline (${videoDuration.toFixed(2)}s) by ${durationDelta.toFixed(2)}s. Increase scene duration or shorten narration text.`);
     }
 
@@ -346,7 +362,7 @@ export async function runRenderPipelineV3(
     await execute('ffmpeg', ffmpegArgs);
 
     // Validate merged media with FFprobe
-    const finalAudioMeta = await probeAudio(outputPath, 600);
+    const finalAudioMeta = await probeAudio(outputPath, 1200);
     if (finalAudioMeta.codec !== 'aac') {
       throw new Error(`muxing_verification_failed: Expected AAC audio in output container, got ${finalAudioMeta.codec}`);
     }

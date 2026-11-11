@@ -143,6 +143,17 @@ export function isSupportedGeminiTtsModel(model: string): boolean {
   return SUPPORTED_GEMINI_TTS_MODELS.has(model);
 }
 
+/**
+ * Ensures Google Cloud TTS voice IDs (e.g. 'vi-VN-Neural2-A') are never sent to Gemini TTS speaker configs.
+ */
+export function resolveGeminiVoiceName(candidate: string | undefined, fallback = 'Kore'): string {
+  const trimmed = candidate?.trim();
+  if (!trimmed || /^[a-z]{2,3}-[A-Z]{2}-/i.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
 function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     execFile('ffmpeg', args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, _stdout, stderr) => {
@@ -213,7 +224,8 @@ export class GeminiTtsProvider implements TtsProvider {
     this.apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
     this.consentRecord = options.consentRecord;
     this.model = options.model ?? process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-lite-tts';
-    this.voice = options.voice ?? process.env.GEMINI_TTS_VOICE ?? 'Kore';
+    const defaultEnvVoice = resolveGeminiVoiceName(process.env.GEMINI_TTS_VOICE, 'Kore');
+    this.voice = resolveGeminiVoiceName(options.voice, defaultEnvVoice);
     const configuredLanguage = options.language ?? process.env.GEMINI_TTS_LANGUAGE ?? 'vi';
     this.languageCode = configuredLanguage === 'vi' ? 'vi-VN' : configuredLanguage;
     this.timeoutMs = options.timeoutMs ?? 45_000;
@@ -266,15 +278,19 @@ export class GeminiTtsProvider implements TtsProvider {
       }
     }
 
-    try {
-      await this.ensureModelAvailable();
-    } catch (error) {
-      throw classifyGeminiError(error, this.apiKey);
-    }
-
     let response: GeminiSpeechResponse | undefined;
     let lastError: Error | undefined;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      try {
+        await this.ensureModelAvailable();
+      } catch (error) {
+        if (attempt === this.maxAttempts) {
+          throw classifyGeminiError(error, this.apiKey);
+        }
+        this.modelAvailability = undefined;
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
+      }
       let attemptId: number;
       try {
         attemptId = this.budget.consume('gemini_tts', this.model);
@@ -286,7 +302,7 @@ export class GeminiTtsProvider implements TtsProvider {
         response = await this.withTimeout((signal) => this.client.generateSpeech({
           model: this.model,
           text: narration,
-          voice: settings?.voice ?? this.voice,
+          voice: resolveGeminiVoiceName(settings?.voice, this.voice),
           languageCode: settings?.languageCode ?? this.languageCode,
           styleInstruction: 'Giọng giáo viên Việt Nam tự nhiên, rõ ràng, tốc độ vừa phải. Đọc nguyên văn nội dung.',
           signal

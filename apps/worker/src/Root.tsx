@@ -43,7 +43,14 @@ const LuminaSceneV3Schema = z.object({
     artifactIntegrityVerified: z.literal(true),
     approvedDraftVersion: z.number().int().positive(),
     verifiedBindingFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/))
-  }).strict().optional()
+  }).strict().optional(),
+  subtitleCues: z.array(z.object({
+    cueId: z.string().optional(),
+    sceneId: z.string(),
+    text: z.string(),
+    startFrame: z.number().int().nonnegative(),
+    endFrame: z.number().int().nonnegative()
+  })).optional()
 });
 const LuminaScenePreviewV3Schema = z.object({
   scene: EducationalSceneV3Schema,

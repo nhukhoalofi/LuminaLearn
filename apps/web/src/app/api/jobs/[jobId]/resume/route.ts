@@ -2,15 +2,20 @@ import { NextResponse } from 'next/server';
 import { JOB_ID_PATTERN } from '@luminalearn/hybrid-renderer';
 import { resumeV3Job, getJob } from '@/server/job-store';
 import { draftManagerV3 } from '@/server/v3-services';
-import { assertRequestAuthorized, resolveOwnerId, SecurityError, readBoundedJson } from '@/server/security';
-import type { ApprovedRenderArtifactV3 } from '@luminalearn/scene-schema';
+import { assertExternalApiConfirmed, assertRequestAuthorized, resolveOwnerId, SecurityError, readBoundedJson } from '@/server/security';
+import {
+  issueExternalApiConsentV3,
+  type ApprovedRenderArtifactV3,
+  type ExternalApiConsentRecordV3
+} from '@luminalearn/scene-schema';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
 
 const ResumeRequestSchema = z.object({
   artifactId: z.string().regex(/^artifact_v3_[a-f0-9]{32}$/),
-  contentHash: z.string().regex(/^[a-f0-9]{64}$/)
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  confirmExternalApi: z.boolean().optional()
 }).strict();
 
 /**
@@ -40,12 +45,39 @@ export async function POST(
     const artifactOverride: ApprovedRenderArtifactV3 | undefined = draft?.approvedArtifact;
     if (!artifactOverride) return NextResponse.json({ error: 'approved_artifact_unavailable' }, { status: 409 });
 
+    const headerConfirmed = request.headers.get('x-lumina-confirm-external-api') === 'true';
+    const isConfirmed = body.confirmExternalApi === true || headerConfirmed;
+    const needsExternalTts =
+      artifactOverride.request.narrationMode === 'gemini_tts' ||
+      artifactOverride.request.narrationMode === 'google_cloud_tts';
+    if (needsExternalTts) {
+      assertExternalApiConfirmed({
+        narrationMode: artifactOverride.request.narrationMode,
+        confirmExternalApi: isConfirmed,
+        headerConfirmed
+      });
+    }
+
+    let consentRecord: ExternalApiConsentRecordV3 | undefined;
+    if (needsExternalTts && isConfirmed) {
+      consentRecord = issueExternalApiConsentV3({
+        ownerId,
+        provider: artifactOverride.request.narrationMode === 'gemini_tts' ? 'gemini_tts' : 'google_cloud_tts',
+        operation: 'narration',
+        draftId: artifactOverride.draftId,
+        artifactId: artifactOverride.artifactId,
+        artifactVersion: artifactOverride.approvedVersion,
+        contentHash: artifactOverride.contentHash
+      });
+    }
+
     const job = await resumeV3Job(
       jobId,
       ownerId,
       (candidate) => draftManagerV3.isArtifactAuthorized(candidate),
       artifactOverride,
-      { artifactId: body.artifactId, contentHash: body.contentHash }
+      { artifactId: body.artifactId, contentHash: body.contentHash },
+      consentRecord
     );
 
     return NextResponse.json({ jobId, job }, { status: 202 });

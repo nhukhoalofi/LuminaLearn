@@ -35,6 +35,13 @@ describe('V3 Educational Contracts & Capability Registry', () => {
     assert.equal(deriv.domain, 'mathematics');
     assert.equal(deriv.topicId, 'calculus.derivative.intuition');
 
+    const algebraPreset = classifyEducationalTopic('Vì sao (a+b)² = a² + 2ab + b²?');
+    assert.equal(algebraPreset.domain, 'mathematics');
+    assert.equal(algebraPreset.topicId, 'algebra.identities.seven');
+
+    const algebraAscii = classifyEducationalTopic('Chứng minh (a + b)^2 = a^2 + 2ab + b^2');
+    assert.equal(algebraAscii.topicId, 'algebra.identities.seven');
+
     const riemann = classifyEducationalTopic('Tổng Riemann và diện tích');
     assert.equal(riemann.domain, 'mathematics');
     assert.equal(riemann.topicId, 'calculus.riemann_integral.intuition');

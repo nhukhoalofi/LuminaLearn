@@ -154,5 +154,42 @@ test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
     assert.equal(resolved.scenes[0].durationSeconds, s.durationFrames / 24);
     assert.equal(resolved.totalDurationSeconds, result3.totalFrames / 24);
   });
+
+  await t.test('4. Caps post-speech silence for non-silent-fixture providers when target duration is over-inflated', async () => {
+    const inflatedScene: SceneNarrationInput[] = [
+      {
+        id: 'scene_inflated_target',
+        durationSeconds: 60, // inflated target duration (e.g. 300s / 5 scenes)
+        narration: {
+          vietnamese: 'Câu thuyết minh dài khoảng tám giây sẽ không bị chèn năm mươi giây im lặng.'
+        }
+      }
+    ];
+
+    const baseMock = new MockTtsProvider(8.0);
+    const nonSilentFixtureProvider = {
+      id: 'gemini_tts_test_fixture',
+      voice: 'Kore',
+      isSilentFixture: false,
+      synthesize: (text: string, outputPath: string) =>
+        baseMock.synthesize(text, outputPath)
+    };
+
+    const outDir4 = join(tempDir, 'run4');
+    const result4 = await synchronizer.synchronizeStoryboard(inflatedScene, {
+      ttsProvider: nonSilentFixtureProvider,
+      audioCache: cache,
+      outputDir: outDir4,
+      preRollSeconds: 0.5,
+      postRollSeconds: 0.5
+    });
+
+    const s = result4.sceneTimings[0];
+    assert.ok(s.adjustedDurationSeconds >= 9.0, `Must include speech + pre/post roll, got ${s.adjustedDurationSeconds}`);
+    assert.ok(
+      s.adjustedDurationSeconds <= 11.0,
+      `Must NOT pad 50s of dead silence after 8s speech; got ${s.adjustedDurationSeconds}s`
+    );
+  });
 });
 

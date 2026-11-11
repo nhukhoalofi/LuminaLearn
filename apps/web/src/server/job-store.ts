@@ -89,10 +89,16 @@ function publicJob(job: JobRecord): Omit<JobRecord, 'outputPath'> {
 function transition(jobId: string, next: JobState, details: Partial<JobRecord> = {}): void {
   const current = store.jobs.get(jobId);
   if (!current) throw new Error('Job not found');
-  assertJobTransition(current.status, next);
+  if (current.status !== next) {
+    assertJobTransition(current.status, next);
+  }
   const updated = {
-    ...current, ...details, status: next, progress: progressByState[next],
-    message: details.message ?? messageByState[next], updatedAt: new Date().toISOString()
+    ...current,
+    ...details,
+    status: next,
+    progress: details.progress ?? progressByState[next],
+    message: details.message ?? messageByState[next],
+    updatedAt: new Date().toISOString()
   };
   store.jobs.set(jobId, updated);
   repository.save(updated);
@@ -113,16 +119,19 @@ async function runEntry(entry: QueuedJob): Promise<void> {
     if (entry.v3Artifact) {
       if (!entry.authorizeV3Artifact) throw new Error('v3_authorization_callback_missing');
 
-      if (isLongFormDuration(entry.v3Artifact.request.targetDurationSeconds)) {
-        // CHECKPOINT 0.C: Reject unsupported narration modes for long-form rendering
-        if (entry.v3Artifact.request.narrationMode !== 'none') {
-          throw new SecurityError(
-            400,
-            'unsupported_longform_narration_mode',
-            `Long-form rendering (>= 60s) currently only supports narrationMode='none'. Mode '${entry.v3Artifact.request.narrationMode}' is not supported.`
-          );
-        }
+      const isLongForm = isLongFormDuration(entry.v3Artifact.request.targetDurationSeconds);
+      const isAuthorizedLongFormTts =
+        entry.v3Artifact.request.narrationMode === 'gemini_tts' && Boolean(entry.consentRecord);
 
+      if (isLongForm && entry.v3Artifact.request.narrationMode !== 'none' && !isAuthorizedLongFormTts) {
+        throw new SecurityError(
+          400,
+          'unsupported_longform_narration_mode',
+          `Long-form rendering (>= 60s) requires narrationMode='none' or signed Gemini TTS consent. Mode '${entry.v3Artifact.request.narrationMode}' is not supported.`
+        );
+      }
+
+      if (isLongForm && entry.v3Artifact.request.narrationMode === 'none') {
         // CHECKPOINT 0.A: Correct state transitions: queued -> planning -> validating -> rendering_remotion -> completed
         transition(entry.jobId, 'planning', { message: 'Đang lập kế hoạch phân đoạn bài giảng dài' });
         const planner = new LongFormSegmentPlannerV3();
@@ -186,7 +195,13 @@ async function runEntry(entry: QueuedJob): Promise<void> {
           jobId: entry.jobId,
           authorizeArtifact: entry.authorizeV3Artifact,
           consentRecord: entry.consentRecord,
-          onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
+          onStage: (stage) =>
+            stage === 'merging_media'
+              ? transition(entry.jobId, 'rendering_remotion', {
+                  progress: 90,
+                  message: 'Đang ghép âm thanh và đồng bộ video'
+                })
+              : transition(entry.jobId, stage)
         });
       }
     } else if (entry.v2Artifact) {
@@ -297,12 +312,18 @@ export async function createV3JobFromArtifact(
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const artifact = ApprovedRenderArtifactV3Schema.parse(input);
 
-  // CHECKPOINT 0.C: Explicitly reject unsupported long-form narration modes prior to enqueue
-  if (isLongFormDuration(artifact.request.targetDurationSeconds) && artifact.request.narrationMode !== 'none') {
+  // CHECKPOINT 0.C: Explicitly reject unsupported long-form narration modes prior to enqueue unless signed Gemini TTS consent is present
+  const isAuthorizedLongFormTts =
+    artifact.request.narrationMode === 'gemini_tts' && Boolean(consentRecord);
+  if (
+    isLongFormDuration(artifact.request.targetDurationSeconds) &&
+    artifact.request.narrationMode !== 'none' &&
+    !isAuthorizedLongFormTts
+  ) {
     throw new SecurityError(
       400,
       'unsupported_longform_narration_mode',
-      `Long-form rendering (>= 60s) currently only supports narrationMode='none'. Voiceover mode '${artifact.request.narrationMode}' is not supported.`
+      `Long-form rendering (>= 60s) requires narrationMode='none' or signed Gemini TTS consent. Voiceover mode '${artifact.request.narrationMode}' is not supported.`
     );
   }
 
@@ -364,7 +385,8 @@ export async function resumeV3Job(
   ownerId: string,
   authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
   artifactOverride: ApprovedRenderArtifactV3,
-  expected: { artifactId: string; contentHash: string }
+  expected: { artifactId: string; contentHash: string },
+  consentRecord?: ExternalApiConsentRecordV3
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const job = store.jobs.get(jobId);
   if (!job) throw new SecurityError(404, 'job_not_found', `Job '${jobId}' not found`);
@@ -421,7 +443,8 @@ export async function resumeV3Job(
     store.queue.push({
       jobId,
       v3Artifact: artifact,
-      authorizeV3Artifact: authorizeArtifact
+      authorizeV3Artifact: authorizeArtifact,
+      consentRecord
     });
     pump();
     return publicJob(resumedJob);

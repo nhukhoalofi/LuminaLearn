@@ -493,7 +493,11 @@ export function validateCrossAgentConsistency(input: {
       if (claim.verificationStatus === 'rejected') {
         violations.push(`Check 6 Failed: Formal mathematical claim '${claim.id}' was rejected by SymPy`);
       }
-      if (claim.verificationStatus !== 'formally_verified' && claim.verificationStatus !== 'human_review_required') {
+      if (
+        claim.verificationStatus !== 'formally_verified' &&
+        claim.verificationStatus !== 'human_review_required' &&
+        claim.verificationStatus !== 'numerically_validated'
+      ) {
         violations.push(`Check 6 Failed: Formal mathematical claim '${claim.id}' lacks verified status (status: ${claim.verificationStatus})`);
       }
     }

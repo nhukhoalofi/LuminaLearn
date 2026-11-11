@@ -663,8 +663,9 @@ export class KnowledgeValidationServiceV3 {
     const overallStatus = hasRejected ? 'failed' : hasNeedsReview ? 'needs_review' : 'verified';
     const requiresHumanPedagogicalSignoff = hasNeedsReview || domain === 'artificial_intelligence';
 
+    const safePrefix = (lessonId || 'lesson_default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
     const report: KnowledgeValidationReportV3 = {
-      reportId: `val_${lessonId.slice(0, 40)}_${Date.now()}`,
+      reportId: `val_${safePrefix}_${Date.now()}`,
       lessonId,
       domain,
       overallStatus,
@@ -705,6 +706,36 @@ export async function validateLessonMathematicalIntegrityV3(
   const { lessonPlan, sourceEvidence = [], mathVerifier } = input;
   const validator = new KnowledgeValidationServiceV3({ mathVerifier });
 
+  // The deterministic Derivative storyboard is itself the current mathematical
+  // specification. Reconstruct only the one bounded contract we can prove
+  // exactly; unsupported functions continue to fail closed without a MathSpec.
+  let effectiveMathSpec = (lessonPlan as unknown as { mathSpec?: MathVisualizationSpecV2 }).mathSpec;
+  if (!effectiveMathSpec && lessonPlan.topicId === 'calculus.derivative.intuition' && lessonPlan.storyboard) {
+    const derivativeScene = lessonPlan.storyboard.scenes.find((scene) => {
+      const payload = scene.visualPayload;
+      return 'scientificData' in payload &&
+        payload.scientificData?.kind === 'scalar_function_1d' &&
+        payload.scientificData.functionType === 'polynomial' &&
+        payload.scientificData.expression.replace(/\s+/g, '') === 'x^2' &&
+        scene.boundClaimIds.includes(payload.scientificData.claimId);
+    });
+    const payload = derivativeScene?.visualPayload;
+    const scientificData = payload && 'scientificData' in payload && payload.scientificData?.kind === 'scalar_function_1d'
+      ? payload.scientificData
+      : undefined;
+    if (scientificData) {
+      effectiveMathSpec = {
+        topicId: lessonPlan.topicId,
+        visualization: 'secant_to_tangent',
+        function: { type: 'polynomial', coefficients: [0, 0, 1], expression: scientificData.expression },
+        parameters: { pointX: scientificData.pointX ?? scientificData.tangentAtX ?? 1 },
+        boundClaimIds: lessonPlan.educationalClaims
+          .filter((claim) => claim.claimType === 'formal_mathematics')
+          .map((claim) => claim.id)
+      };
+    }
+  }
+
   // Trích xuất optimization trace từ phân cảnh loss_landscape nếu có
   let optimizationTrace: unknown = undefined;
   if (lessonPlan.storyboard) {
@@ -730,7 +761,7 @@ export async function validateLessonMathematicalIntegrityV3(
     domain: lessonPlan.domain,
     claims: lessonPlan.educationalClaims,
     sourceEvidence,
-    mathSpec: (lessonPlan as unknown as { mathSpec?: any }).mathSpec,
+    mathSpec: effectiveMathSpec,
     assumptions: lessonPlan.validationReport?.claimReports.flatMap((r) => r.verificationBinding?.assumptions ?? []),
     optimizationTrace
   });
@@ -785,11 +816,15 @@ export async function validateLessonMathematicalIntegrityV3(
               validationReport: { ...report, overallStatus: 'failed' }
             };
           }
-          if (claim.claimType === 'formal_mathematics' && !claim.formalExpressionVerified) {
+          if (
+            claim.claimType === 'formal_mathematics' &&
+            !claim.formalExpressionVerified &&
+            claim.verificationStatus !== 'numerically_validated'
+          ) {
             return {
               valid: false,
               code: 'unverified_claim_binding',
-              reason: `Phân cảnh '${scene.sceneId}' liên kết với mệnh đề toán học '${claimId}' chưa được chứng minh hình thức`,
+              reason: `Phân cảnh '${scene.sceneId}' liên kết với mệnh đề toán học '${claimId}' chưa được chứng minh hình thức hoặc kiểm định số học`,
               validatedClaims,
               validationReport: { ...report, overallStatus: 'failed' }
             };

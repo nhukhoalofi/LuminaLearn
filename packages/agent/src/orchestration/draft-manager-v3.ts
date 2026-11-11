@@ -395,8 +395,8 @@ export class LessonDraftManagerV3 {
           if (claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified') {
             throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' has invalid status '${claim.verificationStatus}'`);
           }
-          if (isMathDomain && claim.claimType === 'formal_mathematics' && claim.verificationStatus !== 'formally_verified') {
-            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' is not formally verified by SymPy`);
+          if (isMathDomain && claim.claimType === 'formal_mathematics' && claim.formalExpressionVerified !== true) {
+            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' has no trusted formal SymPy verification`);
           }
         }
       }

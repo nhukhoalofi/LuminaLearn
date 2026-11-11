@@ -63,6 +63,7 @@ export interface SynchronizeAudioOptions {
   fps?: number;
   preRollSeconds?: number;
   postRollSeconds?: number;
+  maxPostSpeechHoldSeconds?: number;
   maxSceneExtensionSeconds?: number;
   ownerId?: string;
   outputDir: string;
@@ -127,13 +128,14 @@ async function padSceneAudioSegment(
  */
 async function concatenateAudioSegments(
   segmentPaths: string[],
-  masterOutputPath: string
+  masterOutputPath: string,
+  targetDurationSeconds?: number
 ): Promise<void> {
   if (segmentPaths.length === 0) {
     throw new Error('sync_audio_empty_segments: No audio segments to concatenate');
   }
 
-  if (segmentPaths.length === 1) {
+  if (segmentPaths.length === 1 && targetDurationSeconds === undefined) {
     // Single segment: copy directly to output
     const data = await readFile(segmentPaths[0]);
     await writeFile(masterOutputPath, data);
@@ -149,7 +151,11 @@ async function concatenateAudioSegments(
     filterInputs += `[${i}:a]`;
   }
 
-  const filterComplex = `${filterInputs}concat=n=${segmentPaths.length}:v=0:a=1[outa]`;
+  const trimChain =
+    typeof targetDurationSeconds === 'number' && Number.isFinite(targetDurationSeconds) && targetDurationSeconds > 0
+      ? `,apad,atrim=0:${targetDurationSeconds.toFixed(3)}`
+      : '';
+  const filterComplex = `${filterInputs}concat=n=${segmentPaths.length}:v=0:a=1${trimChain}[outa]`;
   args.push(
     '-filter_complex', filterComplex,
     '-map', '[outa]',
@@ -181,8 +187,18 @@ export class SceneAudioSynchronizer {
     const fps = options.fps ?? 24;
     const preRollSeconds = options.preRollSeconds ?? 0.5;
     const postRollSeconds = options.postRollSeconds ?? 0.5;
-    const voice = options.voice ?? 'vi-VN-Neural2-A';
-    const language = options.language ?? 'vi-VN';
+    const providerDefaultVoice =
+      'voice' in options.ttsProvider && typeof options.ttsProvider.voice === 'string' && options.ttsProvider.voice.trim().length > 0
+        ? options.ttsProvider.voice
+        : options.ttsProvider.id === 'gemini_tts'
+          ? (process.env.GEMINI_TTS_VOICE || 'Kore')
+          : 'vi-VN-Neural2-A';
+    const providerDefaultLanguage =
+      'languageCode' in options.ttsProvider && typeof options.ttsProvider.languageCode === 'string' && options.ttsProvider.languageCode.trim().length > 0
+        ? options.ttsProvider.languageCode
+        : 'vi-VN';
+    const voice = options.voice ?? providerDefaultVoice;
+    const language = options.language ?? providerDefaultLanguage;
     const speakingRate = options.speakingRate ?? 1.0;
     const pitch = options.pitch ?? 0.0;
     const outputDir = options.outputDir;
@@ -276,8 +292,15 @@ export class SceneAudioSynchronizer {
       });
 
       // Duration reconciliation: adjust scene presentation duration to fit speech
+      // without padding long silent gaps after real TTS speech completes.
       const minRequiredFrames = Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds) * fps);
-      const durationFrames = Math.max(targetDurationFrames, minRequiredFrames);
+      const maxPostSpeechHold =
+        options.maxPostSpeechHoldSeconds ??
+        (options.ttsProvider.isSilentFixture ? Number.POSITIVE_INFINITY : 1.5);
+      const maxSpeechBoundFrames = Number.isFinite(maxPostSpeechHold)
+        ? Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds + maxPostSpeechHold) * fps)
+        : targetDurationFrames;
+      const durationFrames = Math.max(minRequiredFrames, Math.min(targetDurationFrames, maxSpeechBoundFrames));
       const extensionSeconds = (durationFrames - targetDurationFrames) / fps;
       if (extensionSeconds > (options.maxSceneExtensionSeconds ?? 60)) {
         throw new Error(`sync_audio_extension_unsupported: Scene '${scene.id}' requires ${extensionSeconds.toFixed(2)}s extension`);
@@ -334,13 +357,13 @@ export class SceneAudioSynchronizer {
     }
 
     // Concatenate master audio track
+    const totalFrames = currentStartFrame;
+    const totalDurationSeconds = totalFrames / fps;
     const masterAudioPath = resolve(outputDir, 'narration-master.mp3');
-    await concatenateAudioSegments(paddedSegmentPaths, masterAudioPath);
+    await concatenateAudioSegments(paddedSegmentPaths, masterAudioPath, totalDurationSeconds);
 
     // Verify master audio duration matches total presentation duration
     const masterProbe = await probeAudio(masterAudioPath, 1200);
-    const totalFrames = currentStartFrame;
-    const totalDurationSeconds = totalFrames / fps;
     const srtContent = srtCues.length > 0 ? srtCues.join('\n') + '\n' : '';
 
     return {

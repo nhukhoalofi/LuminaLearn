@@ -35,6 +35,7 @@ type Draft = {
   version: number;
   status: string;
   semanticReviewConfirmed: boolean;
+  request?: { narrationMode: 'none' | 'gemini_tts' | 'provided_audio' | 'google_cloud_tts' };
   approvedArtifact?: { artifactId: string; contentHash: string };
   lessonPlan: {
     title: string;
@@ -60,7 +61,8 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
-  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('60s');
+  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('300s');
+  const [narrationMode, setNarrationMode] = useState<'none' | 'gemini_tts'>('none');
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
   const [trace, setTrace] = useState<SupervisorTrace>();
@@ -76,6 +78,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [loginError, setLoginError] = useState('');
   const [myDrafts, setMyDrafts] = useState<Array<{ draftId: string; version: number; status: string; lessonPlan: { title: string } }>>([]);
   const [showMyDrafts, setShowMyDrafts] = useState(false);
+  const externalApiRequired = mode === 'live' || narrationMode === 'gemini_tts';
 
   useEffect(() => {
     fetch('/api/auth/session')
@@ -150,14 +153,14 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     return data;
   }
 
-  async function generate() {
+  async function generate(requestedMode: 'mock' | 'live' = mode) {
     setBusy(true); setError(''); setJob(undefined); setTrace(undefined); setHasMathChanges(false);
     try {
       const targetSeconds = durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : durationPreset === '60s' ? 60 : 35;
       const responseData = await jsonRequest('/api/v3/supervisor', 'POST', {
-        requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
+        requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: requestedMode,
         targetAudience: 'high_school',
-        targetDurationSeconds: targetSeconds, narrationMode: 'none', subtitlesEnabled,
+        targetDurationSeconds: targetSeconds, narrationMode, subtitlesEnabled,
         fps: 24, width: 720, height: 1280, confirmExternalApi
       });
       if (responseData.trace) {
@@ -168,6 +171,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         version: 1,
         status: 'needs_review',
         semanticReviewConfirmed: false,
+        request: { narrationMode },
         lessonPlan: responseData.lessonPlan
       });
       if (responseData.lessonPlan.storyboard?.scenes?.[0]) {
@@ -197,9 +201,10 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   async function generateLegacyFallback() {
     setBusy(true); setError(''); setJob(undefined); setTrace(undefined); setHasMathChanges(false);
     try {
+      const targetSeconds = durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : durationPreset === '60s' ? 60 : 35;
       const legacyData = await jsonRequest('/api/v3/lessons/draft', 'POST', {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
-        targetDurationSeconds: 35, narrationMode: 'none', subtitlesEnabled,
+        targetDurationSeconds: targetSeconds, narrationMode, subtitlesEnabled,
         fps: 24, width: 720, height: 1280, confirmExternalApi
       });
       setDraft(legacyData);
@@ -231,7 +236,10 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     if (!draft?.approvedArtifact) return;
     setBusy(true); setError('');
     try {
-      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/enqueue`, 'POST', draft.approvedArtifact);
+      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/enqueue`, 'POST', {
+        ...draft.approvedArtifact,
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
+      });
       setJob(result.job);
     } catch (err) {
       const failure = err as Error & { status?: number };
@@ -250,7 +258,8 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     try {
       const result = await jsonRequest(`/api/jobs/${job.jobId}/resume`, 'POST', {
         artifactId: draft.approvedArtifact.artifactId,
-        contentHash: draft.approvedArtifact.contentHash
+        contentHash: draft.approvedArtifact.contentHash,
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
       });
       setJob(result.job);
     } catch (err) {
@@ -306,7 +315,11 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     if (!draft) return;
     setBusy(true); setError('');
     try {
-      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/approve`, 'POST', { expectedVersion: draft.version, note: 'Teacher approved from V3 Studio' });
+      const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/approve`, 'POST', {
+        expectedVersion: draft.version,
+        note: 'Teacher approved from V3 Studio',
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
+      });
       setDraft(result.draft); setJob(result.job);
     } catch (err) {
       const failure = err as Error & { status?: number };
@@ -426,6 +439,9 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
                       if (res.ok) {
                         const loaded = await res.json();
                         setDraft(loaded);
+                        if (loaded.request?.narrationMode === 'gemini_tts' || loaded.request?.narrationMode === 'none') {
+                          setNarrationMode(loaded.request.narrationMode);
+                        }
                         setShowMyDrafts(false);
                       }
                     }}
@@ -510,12 +526,33 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       </select>
       <label><input type="checkbox" checked={subtitlesEnabled} onChange={(event) => setSubtitlesEnabled(event.target.checked)} /> Ghi phụ đề vào video và tạo SRT</label>
       <label className="form-label">Chế độ tạo nội dung</label>
-      <select className="form-input" value={mode} onChange={(event) => setMode(event.target.value as 'mock' | 'live')}>
+      <select className="form-input" value={mode} onChange={(event) => {
+        const nextMode = event.target.value as 'mock' | 'live';
+        setMode(nextMode);
+        setConfirmExternalApi(false);
+        if (nextMode === 'live') {
+          setNarrationMode('gemini_tts');
+        }
+      }}>
         <option value="mock">Mock offline (khuyến nghị demo)</option>
         <option value="live" disabled={!liveEnabled}>Gemini Live</option>
       </select>
-      {mode === 'live' && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini cho yêu cầu này.</label>}
-      <button className="btn-generate" disabled={busy || (mode === 'live' && !confirmExternalApi)} onClick={generate}>Tạo bài học V3</button>
+      <label className="form-label">Giọng đọc trong MP4</label>
+      <select className="form-input" value={narrationMode} onChange={(event) => {
+        const nextNarration = event.target.value as 'none' | 'gemini_tts';
+        setNarrationMode(nextNarration);
+        setConfirmExternalApi(false);
+      }}>
+        <option value="none" disabled={mode === 'live'}>Không giọng đọc</option>
+        <option value="gemini_tts">Gemini TTS tiếng Việt — tạo audio thật</option>
+      </select>
+      {narrationMode === 'gemini_tts' && (
+        <p style={{ color: '#38BDF8', fontSize: 12 }}>
+          Đồng bộ âm thanh Gemini TTS theo từng phân cảnh: thời lượng mỗi cảnh tự động co giãn khớp với lời giảng thực tế (không chèn khoảng lặng dài).
+        </p>
+      )}
+      {externalApiRequired && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini Live/Gemini TTS và sử dụng quota cho yêu cầu này.</label>}
+      <button className="btn-generate" disabled={busy || (externalApiRequired && !confirmExternalApi)} onClick={() => void generate()}>Tạo bài học V3</button>
       {error && (
         <div style={{ marginTop: '8px' }}>
           <p role="alert" className="error-message">{error}</p>
@@ -539,9 +576,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
               onClick={() => {
                 setMode('mock');
                 setError('');
-                setTimeout(() => {
-                  generate();
-                }, 50);
+                void generate('mock');
               }}
             >
               ⚙️ Chuyển sang Mock offline (Khuyến nghị để không bị gián đoạn)
@@ -749,8 +784,8 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="quick-chip" disabled={busy || draft.status === 'approved'} onClick={save}>Lưu & tái kiểm định</button>
             <button className="quick-chip" disabled={busy || draft.status !== 'needs_review'} onClick={review}>Xác nhận rà soát ngữ nghĩa</button>
-            <button className="btn-generate" disabled={busy || hasMathChanges || draft.status !== 'ready_for_approval' || draft.lessonPlan.capabilityReport.renderReadiness !== 'render_ready'} onClick={approve}>Duyệt & render MP4</button>
-            <button className="quick-chip" disabled={busy || draft.status !== 'approved' || !draft.approvedArtifact} onClick={retryEnqueue}>Xếp hàng lại bản đã duyệt</button>
+            <button className="btn-generate" disabled={busy || hasMathChanges || draft.status !== 'ready_for_approval' || draft.lessonPlan.capabilityReport.renderReadiness !== 'render_ready' || (narrationMode === 'gemini_tts' && !confirmExternalApi)} onClick={approve}>Duyệt & render MP4</button>
+            <button className="quick-chip" disabled={busy || draft.status !== 'approved' || !draft.approvedArtifact || (narrationMode === 'gemini_tts' && !confirmExternalApi)} onClick={retryEnqueue}>Xếp hàng lại bản đã duyệt</button>
           </div>
         </div>
       )}
@@ -769,7 +804,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
               <p role="alert" className="error-message">{job.error}</p>
               {(job.status === 'failed' || job.status === 'interrupted') && draft?.approvedArtifact && (
                 <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                  <button type="button" className="quick-chip" disabled={busy} onClick={resumeJob}>
+                  <button type="button" className="quick-chip" disabled={busy || (narrationMode === 'gemini_tts' && !confirmExternalApi)} onClick={resumeJob}>
                     🔄 Tiếp tục Render (Resume từ Checkpoint)
                   </button>
                   <button type="button" className="quick-chip" disabled={busy} onClick={retryEnqueue}>
