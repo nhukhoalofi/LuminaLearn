@@ -83,6 +83,14 @@ export function formatApiError(error: unknown, fallbackCode = 'request_failed', 
     }
   }
 
+  if (/gemini_transient_failed|high demand|\b503\b|service unavailable|temporarily unavailable/i.test(rawMessage) || code === 'gemini_transient_failed') {
+    return {
+      error: 'gemini_transient_failed',
+      message: 'Gemini đang quá tải tạm thời (HTTP 503 - High Demand từ Google). Hệ thống đã tự động thử lại nhưng máy chủ Google vẫn đang bận. Vui lòng bấm thử lại sau giây lát hoặc chuyển sang Mock offline để tiếp tục ngay lập tức.',
+      provenance
+    };
+  }
+
   return {
     error: code,
     message: rawMessage,

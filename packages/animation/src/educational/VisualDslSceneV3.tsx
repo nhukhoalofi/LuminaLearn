@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import katex from 'katex';
 import type {
   VisualElementV3,
@@ -14,10 +14,12 @@ import {
   sampleGraphPoints,
   generateGraphSvgPath,
   computeTangentLine,
+  computeSecantLine,
   generateAxesAndGrid,
   type CoordinateTransform,
   type ScreenBox
 } from './graph-math';
+import { deriveMotionRecipeFrameV3 } from './motion-recipes-v3';
 
 // Standard 9:16 vertical coordinate box for graph/axes (centered with safe margins)
 const DEFAULT_GRAPH_BOX: ScreenBox = {
@@ -37,6 +39,8 @@ const positionOf = (element: VisualElementV3, index: number) => {
   if (element.elementType === 'neural_node') {
     return { x: 140 + element.layerIndex * 210, y: 880 + element.nodeIndex * 110 };
   }
+  if (element.elementType === 'callout') return { x: 360, y: 1080 };
+  if (element.elementType === 'shape') return { x: 360, y: 640 };
   return { x: 70 + (index % 2) * 330, y: 190 + Math.floor(index / 2) * 150 };
 };
 
@@ -63,10 +67,15 @@ export interface TrustedProofContextV3 {
   approvedDraftVersion: number;
 }
 
-export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3 }> = ({ definition, trustedProofContext }) => {
+export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3; frame?: number; durationInFrames?: number }> = ({ definition, trustedProofContext, frame = 0, durationInFrames = definition.timeline?.durationFrames ?? 240 }) => {
+  const graphTrace = deriveMotionRecipeFrameV3({ recipeId: 'R03', frame, endFrame: durationInFrames });
+  const tangentReveal = deriveMotionRecipeFrameV3({ recipeId: 'R05', frame, startFrame: Math.min(12, Math.floor(durationInFrames * 0.15)), endFrame: durationInFrames });
+  const parameterMotion = deriveMotionRecipeFrameV3({ recipeId: 'R04', frame, startFrame: Math.floor(durationInFrames * 0.2), endFrame: Math.floor(durationInFrames * 0.82) });
+  const informationFlow = deriveMotionRecipeFrameV3({ recipeId: 'R07', frame, endFrame: durationInFrames, itemCount: Math.max(1, definition.elements.filter((element) => element.elementType === 'neural_connection').length) });
   const supported = new Set<VisualElementV3['elementType']>([
     'text', 'formula', 'graph', 'axes', 'point', 'vector', 'arrow',
-    'matrix', 'labeled_step', 'neural_node', 'neural_connection'
+    'matrix', 'labeled_step', 'neural_node', 'neural_connection',
+    'shape', 'highlighted_region', 'polygon', 'segment', 'callout'
   ]);
 
   const unsupported = definition.elements.find((element) => !supported.has(element.elementType));
@@ -82,6 +91,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   const graphElement = definition.elements.find(
     (el): el is VisualGraphElement => el.elementType === 'graph'
   );
+  const axesElement = definition.elements.find((element) => element.elementType === 'axes');
 
   const xRange: [number, number] = graphElement?.xRange ?? [-3, 3];
   const yRange: [number, number] = graphElement?.yRange ?? [-1, 9];
@@ -96,16 +106,28 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   // Pre-calculate real graph curve, tangent, and axes
   let graphPath = '';
   let tangentLine: ReturnType<typeof computeTangentLine> | null = null;
+  let secantLine: ReturnType<typeof computeSecantLine> | null = null;
+  let secantMovingPoint: { x: number; y: number } | null = null;
   const axesGrid = generateAxesAndGrid(transform);
 
   if (graphElement) {
     try {
+      if (graphElement.showSecantLine && (graphElement.secantFromX === undefined || graphElement.secantToX === undefined || graphElement.secantFromX === graphElement.secantToX)) {
+        throw new Error('invalid_secant_endpoints');
+      }
       const parsedFn = parseGraphFunction(graphElement.functionType, graphElement.expression);
       const points = sampleGraphPoints(parsedFn, transform, 120);
       graphPath = generateGraphSvgPath(points);
 
       if (graphElement.showTangentLine && typeof graphElement.tangentAtX === 'number') {
         tangentLine = computeTangentLine(parsedFn, graphElement.tangentAtX, transform);
+      }
+      if (graphElement.showSecantLine && typeof graphElement.secantFromX === 'number' && typeof graphElement.secantToX === 'number') {
+        const movingX = graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
+        if (Math.abs(movingX - graphElement.secantFromX) >= 1e-8) {
+          secantLine = computeSecantLine(parsedFn, graphElement.secantFromX, movingX, transform);
+          secantMovingPoint = { x: transform.toScreenX(movingX), y: transform.toScreenY(parsedFn.evaluate(movingX)) };
+        }
       }
     } catch (error) {
       // Re-throw with clear message to prevent substituting fake graphics
@@ -114,15 +136,17 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   }
 
   const isChalkboard = definition.style === 'math_chalkboard';
-  const bgColor = isChalkboard ? '#102A22' : '#070B14';
-  const axisColor = isChalkboard ? '#4E7D6A' : '#334155';
-  const gridColor = isChalkboard ? 'rgba(78, 125, 106, 0.3)' : 'rgba(51, 65, 85, 0.4)';
+  const isWhiteboard = definition.style === 'systems_whiteboard';
+  const bgColor = isChalkboard ? '#102A22' : isWhiteboard ? '#F8FAFC' : '#070B14';
+  const foregroundColor = isWhiteboard ? '#0F172A' : '#F8FAFC';
+  const axisColor = isChalkboard ? '#4E7D6A' : isWhiteboard ? '#64748B' : '#334155';
+  const gridColor = isChalkboard ? 'rgba(78, 125, 106, 0.3)' : isWhiteboard ? 'rgba(148, 163, 184, 0.3)' : 'rgba(51, 65, 85, 0.4)';
 
   return (
     <AbsoluteFill
       style={{
         background: bgColor,
-        color: '#F8FAFC',
+        color: foregroundColor,
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         overflow: 'hidden'
       }}
@@ -151,6 +175,9 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               width={DEFAULT_GRAPH_BOX.width + 4}
               height={DEFAULT_GRAPH_BOX.height + 4}
             />
+          </clipPath>
+          <clipPath id="graph-trace-clip">
+            <rect x={DEFAULT_GRAPH_BOX.xMin - 2} y={DEFAULT_GRAPH_BOX.yMin - 2} width={(DEFAULT_GRAPH_BOX.width + 4) * graphTrace.progress} height={DEFAULT_GRAPH_BOX.height + 4} />
           </clipPath>
 
           {/* Arrow markers for axes, vectors, and connections */}
@@ -260,7 +287,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               fontSize="16"
               fontWeight="bold"
             >
-              w
+              {axesElement?.xLabel ?? 'x'}
             </text>
             <text
               x={(axesGrid.yAxisScreenX ?? DEFAULT_GRAPH_BOX.xMin) - 15}
@@ -269,14 +296,14 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               fontSize="16"
               fontWeight="bold"
             >
-              L(w)
+              {axesElement?.yLabel ?? 'f(x)'}
             </text>
           </g>
         )}
 
         {/* 2. Real Mathematical Graph Curve (Clipped to Viewport) */}
         {graphElement && graphPath && (
-          <g clipPath="url(#graph-viewport-clip)">
+          <g clipPath="url(#graph-trace-clip)" data-motion-recipe="R03" data-progress={graphTrace.progress.toFixed(4)}>
             <path
               key={`graph-${graphElement.elementId}`}
               d={graphPath}
@@ -289,9 +316,25 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
           </g>
         )}
 
-        {/* 3. Real Tangent Line & Derivative indicator */}
+        {/* 3. Secant approaches the verified tangent; intermediate positions are illustrative, not iterations. */}
+        {secantLine && (
+          <g clipPath="url(#graph-viewport-clip)" opacity={1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
+            <line x1={secantLine.screenX1} y1={secantLine.screenY1} x2={secantLine.screenX2} y2={secantLine.screenY2} stroke="#A78BFA" strokeWidth="3" strokeDasharray="8 5" />
+            {secantMovingPoint && <circle cx={secantMovingPoint.x} cy={secantMovingPoint.y} r="6" fill="#A78BFA" stroke="#FFFFFF" strokeWidth="2" />}
+            {secantMovingPoint && (
+              <g data-dynamic-label="secant-motion">
+                <rect x={secantMovingPoint.x + 8} y={secantMovingPoint.y - 28} width="140" height="24" rx="6" fill="rgba(15, 23, 42, 0.85)" stroke="#A78BFA" strokeWidth="1" />
+                <text x={secantMovingPoint.x + 14} y={secantMovingPoint.y - 12} fill="#DDD6FE" fontSize="11" fontWeight="bold" fontFamily="monospace">
+                  cát tuyến → tiếp tuyến
+                </text>
+              </g>
+            )}
+          </g>
+        )}
+
+        {/* 4. Real Tangent Line & Derivative indicator with dynamic numeric label */}
         {tangentLine && (
-          <g clipPath="url(#graph-viewport-clip)">
+          <g clipPath="url(#graph-viewport-clip)" opacity={graphElement?.showSecantLine ? parameterMotion.progress : tangentReveal.opacity} data-motion-recipe="R05">
             <line
               x1={tangentLine.screenX1}
               y1={tangentLine.screenY1}
@@ -310,10 +353,33 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               stroke="#FFFFFF"
               strokeWidth="2"
             />
+            {/* Dynamic numeric label for tangent slope and contact point */}
+            <g data-dynamic-label="tangent-slope">
+              <rect
+                x={Math.min(540, tangentLine.screenX0 + 10)}
+                y={Math.max(DEFAULT_GRAPH_BOX.yMin + 10, tangentLine.screenY0 - 32)}
+                width="140"
+                height="26"
+                rx="6"
+                fill="rgba(15, 23, 42, 0.9)"
+                stroke="#F59E0B"
+                strokeWidth="1.2"
+              />
+              <text
+                x={Math.min(540, tangentLine.screenX0 + 10) + 8}
+                y={Math.max(DEFAULT_GRAPH_BOX.yMin + 10, tangentLine.screenY0 - 32) + 17}
+                fill="#FDE68A"
+                fontSize="12"
+                fontWeight="bold"
+                fontFamily="monospace"
+              >
+                f'({tangentLine.x0}) = {tangentLine.slope.toFixed(2)}
+              </text>
+            </g>
           </g>
         )}
 
-        {/* 4. Vectors and Points mapped on the Mathematical Coordinate System */}
+        {/* 5. Vectors, Segments, Polygons, and Points mapped on the Mathematical Coordinate System */}
         {definition.elements.map((element) => {
           if (element.elementType === 'point') {
             const [mx, my] = (element as VisualPointElement).coordinates;
@@ -336,6 +402,68 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                     fontFamily="monospace"
                   >
                     {element.label}
+                  </text>
+                )}
+              </g>
+            );
+          }
+
+          if (element.elementType === 'segment') {
+            const seg = element as any;
+            const sx1 = transform.toScreenX(seg.start[0]);
+            const sy1 = transform.toScreenY(seg.start[1]);
+            const sx2 = transform.toScreenX(seg.end[0]);
+            const sy2 = transform.toScreenY(seg.end[1]);
+            return (
+              <g key={element.elementId} data-geometry-primitive="segment">
+                <line
+                  x1={sx1}
+                  y1={sy1}
+                  x2={sx2}
+                  y2={sy2}
+                  stroke={seg.color ?? '#E2E8F0'}
+                  strokeWidth={seg.strokeWidth ?? 2.5}
+                  strokeDasharray={seg.strokeDasharray}
+                />
+                {seg.label && (
+                  <text
+                    x={(sx1 + sx2) / 2 + 8}
+                    y={(sy1 + sy2) / 2 - 8}
+                    fill={seg.color ?? '#E2E8F0'}
+                    fontSize="13"
+                    fontWeight="bold"
+                  >
+                    {seg.label}
+                  </text>
+                )}
+              </g>
+            );
+          }
+
+          if (element.elementType === 'polygon') {
+            const poly = element as any;
+            const svgPoints = poly.points
+              .map(([mx, my]: [number, number]) => `${transform.toScreenX(mx)},${transform.toScreenY(my)}`)
+              .join(' ');
+            return (
+              <g key={element.elementId} data-geometry-primitive="polygon">
+                <polygon
+                  points={svgPoints}
+                  fill={poly.fill ?? '#38BDF8'}
+                  fillOpacity={poly.fillOpacity ?? 0.28}
+                  stroke={poly.strokeColor ?? '#38BDF8'}
+                  strokeWidth={poly.strokeWidth ?? 2}
+                  strokeLinejoin="round"
+                />
+                {poly.label && (
+                  <text
+                    x={transform.toScreenX(poly.points[0][0]) + 10}
+                    y={transform.toScreenY(poly.points[0][1]) + 20}
+                    fill={poly.strokeColor ?? '#38BDF8'}
+                    fontSize="13"
+                    fontWeight="bold"
+                  >
+                    {poly.label}
                   </text>
                 )}
               </g>
@@ -396,8 +524,10 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
           if (element.elementType === 'neural_connection') {
             const from = neuralPosition(element.fromLayer, element.fromNode);
             const to = neuralPosition(element.toLayer, element.toNode);
+            const edgeIndex = definition.elements.filter((candidate) => candidate.elementType === 'neural_connection').findIndex((candidate) => candidate.elementId === element.elementId);
+            const revealed = edgeIndex < informationFlow.completedCount || edgeIndex === informationFlow.activeIndex;
             return (
-              <g key={element.elementId}>
+              <g key={element.elementId} opacity={revealed ? 1 : 0.16} data-motion-recipe="R07">
                 <line
                   x1={from.x}
                   y1={from.y}
@@ -469,6 +599,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               key={element.elementId}
               style={{
                 ...baseStyle,
+                opacity: deriveMotionRecipeFrameV3({ recipeId: 'R01', frame, endFrame: durationInFrames }).opacity,
+                transform: `translate(-50%, -50%) translateY(${deriveMotionRecipeFrameV3({ recipeId: 'R01', frame, endFrame: durationInFrames }).translateY}px)`,
                 background: 'rgba(15, 23, 42, 0.88)',
                 border: '1px solid rgba(56, 189, 248, 0.3)',
                 padding: '16px 28px',
@@ -499,6 +631,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
         }
 
         if (element.elementType === 'matrix') {
+          const matrixReveal = deriveMotionRecipeFrameV3({ recipeId: 'R08', frame, endFrame: durationInFrames, itemCount: element.rows * element.cols });
           return (
             <div
               key={element.elementId}
@@ -519,6 +652,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               >
                 {element.values.flat().map((value, i) => {
                   const intensity = Math.min(1, Math.max(0, Math.abs(value)));
+                  const revealed = i < matrixReveal.completedCount || i === matrixReveal.activeIndex;
                   const cellBg = element.showHeatmap
                     ? `rgba(56, 189, 248, ${0.15 + intensity * 0.75})`
                     : '#1E293B';
@@ -534,8 +668,10 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                         fontFamily: 'monospace',
                         fontSize: 14,
                         fontWeight: 'bold',
-                        color: intensity > 0.6 ? '#FFFFFF' : '#E2E8F0'
+                        color: intensity > 0.6 ? '#FFFFFF' : '#E2E8F0',
+                        opacity: revealed ? 1 : 0.12
                       }}
+                      data-motion-recipe="R08"
                     >
                       {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(2)) : value}
                     </div>
@@ -626,8 +762,59 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
           );
         }
 
+        if (element.elementType === 'callout') {
+          const callout = element as any;
+          const isWarning = callout.calloutType === 'warning';
+          const isTip = callout.calloutType === 'pedagogical_tip';
+          const borderColor = isWarning ? '#F59E0B' : isTip ? '#10B981' : '#38BDF8';
+          return (
+            <div
+              key={element.elementId}
+              style={{
+                ...baseStyle,
+                width: 620,
+                padding: '14px 20px',
+                background: 'rgba(15, 23, 42, 0.94)',
+                borderLeft: `4px solid ${borderColor}`,
+                borderRadius: 10,
+                fontSize: 16,
+                color: '#E2E8F0',
+                lineHeight: 1.4,
+                boxShadow: '0 6px 16px rgba(0,0,0,0.35)'
+              }}
+            >
+              {callout.text}
+            </div>
+          );
+        }
+
+        if (element.elementType === 'shape') {
+          const shape = element as any;
+          const isCircle = shape.shapeType === 'circle';
+          return (
+            <div
+              key={element.elementId}
+              style={{
+                ...baseStyle,
+                width: shape.width,
+                height: shape.height,
+                borderRadius: isCircle ? '50%' : 10,
+                background: shape.fill,
+                border: shape.borderColor ? `${shape.borderWidth ?? 1}px solid ${shape.borderColor}` : 'none'
+              }}
+            />
+          );
+        }
+
         return null;
       })}
     </AbsoluteFill>
   );
+};
+
+/** Remotion runtime wrapper; the core component remains deterministic and server-render-testable. */
+export const AnimatedVisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3 }> = (props) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  return <VisualDslSceneV3 {...props} frame={frame} durationInFrames={durationInFrames} />;
 };

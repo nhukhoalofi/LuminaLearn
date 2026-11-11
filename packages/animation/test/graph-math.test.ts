@@ -7,6 +7,7 @@ import {
   sampleGraphPoints,
   generateGraphSvgPath,
   computeTangentLine,
+  computeSecantLine,
   generateAxesAndGrid
 } from '../src/educational/graph-math';
 
@@ -50,6 +51,15 @@ describe('Graph Math Engine — Scientific Correctness & Coordinate Transforms',
 
     // Non-convex (a <= 0) must throw
     assert.throws(() => parseGraphFunction('convex_quadratic', '-x^2'), /invalid_convex_quadratic/);
+  });
+
+  test('2b. Computes a secant from two points on the same source function', () => {
+    const fn = parseGraphFunction('polynomial', 'x^2');
+    const transform = createCoordinateTransform([-2, 3], [-1, 9], { xMin: 80, yMin: 320, width: 560, height: 480 });
+    const secant = computeSecantLine(fn, 1, 2, transform);
+    assert.equal(secant.y0, 1);
+    assert.equal(secant.slope, 3);
+    assert.throws(() => computeSecantLine(fn, 1, 1, transform), /invalid_secant_endpoints/);
   });
 
   test('3. Parses linear functions with exact slope and intercept', () => {

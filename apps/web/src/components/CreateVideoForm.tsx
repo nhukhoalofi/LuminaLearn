@@ -108,6 +108,9 @@ function vietnameseApiError(payload: unknown, fallback: string): string {
   const code = typeof value?.error === 'string' ? value.error : value?.error?.code;
   const message = value?.message ?? (typeof value?.error === 'object' ? value.error.message : undefined);
   const classification = `${code ?? ''} ${message ?? ''}`.toLowerCase();
+  if (/gemini_transient_failed|service unavailable|temporarily unavailable|high demand|\b503\b|unavailable/.test(classification)) {
+    return 'Gemini đang quá tải tạm thời (HTTP 503). Không có dữ liệu nào bị mất; vui lòng chờ vài giây rồi bấm tạo bản thảo lại. Nếu lỗi lặp lại, hãy chuyển sang Mock offline để tiếp tục mà không gọi API.';
+  }
   if (/statement_requires_semantic_review|human semantic review|prose_unverified/.test(classification)) {
     return 'Các mệnh đề diễn giải tự do cần giáo viên xác nhận ngữ nghĩa. Vui lòng kiểm tra và tích chọn ô "Giáo viên xác nhận mệnh đề diễn giải tự do..." ở dưới danh sách mệnh đề trước khi duyệt.';
   }
@@ -306,6 +309,51 @@ export function CreateVideoForm({
         visualStyleId,
         subtitlesEnabled,
         confirmExternalApi,
+        aspectRatio: '9:16'
+      };
+
+      const res = await fetch('/api/lessons/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(vietnameseApiError(data, 'Tạo bản thảo bài học thất bại'));
+      }
+
+      setDraft(data);
+      window.localStorage.setItem('lumina:lastDraftId', data.draftId);
+      syncControlsFromDraft(data);
+      setDraftDirty(false);
+      if (data.stage === 'needs_review') {
+        setError(null);
+      }
+      setUiState('reviewing');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setUiState('failed');
+    }
+  }
+
+  async function handleFallbackToMock(): Promise<void> {
+    setRenderMode('mock');
+    setError(null);
+    setUiState('drafting');
+    try {
+      const payload = {
+        topic: topic.trim(),
+        inputMode,
+        sourceDocumentIds: ingestedDoc ? [ingestedDoc.documentId] : [],
+        audience: 'Học sinh phổ thông',
+        language: 'vi',
+        targetDurationSeconds: 40,
+        renderMode: 'mock' as const,
+        narrationMode: voiceoverMode === 'gemini_tts' ? 'none' : voiceoverMode,
+        visualStyleId,
+        subtitlesEnabled,
+        confirmExternalApi: false,
         aspectRatio: '9:16'
       };
 
@@ -944,9 +992,41 @@ export function CreateVideoForm({
       </div>
 
       {error ? (
-        <p className="error-message" role="alert" style={{ marginTop: '1rem' }}>
-          {error}
-        </p>
+        <div style={{ marginTop: '1rem' }}>
+          <p className="error-message" role="alert">
+            {error}
+          </p>
+          {(error.includes('503') || error.includes('quá tải') || error.includes('gemini_transient_failed') || error.includes('Gemini') || error.includes('High Demand') || error.includes('thất bại')) && (
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '8px 14px', fontSize: '13px', borderRadius: '8px' }}
+                disabled={busy}
+                onClick={handleCreateDraft}
+              >
+                🔄 Thử lại
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '13px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(34, 211, 238, 0.15)',
+                  color: '#22d3ee',
+                  borderColor: 'rgba(34, 211, 238, 0.4)',
+                  fontWeight: 600
+                }}
+                disabled={busy}
+                onClick={handleFallbackToMock}
+              >
+                ⚙️ Chuyển sang Mock offline (Khuyến nghị)
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
 
       {/* Draft Review Card */}

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "quality-sprint-b-evidence-v1",
+  "generatedAt": "2026-11-11T00:50:10.662Z",
+  "renderProfile": {
+    "width": 720,
+    "height": 1280,
+    "fps": 24
+  },
+  "formulaChecks": [
+    {
+      "stepId": "identity_start",
+      "hasProofReference": true,
+      "hasClaimBinding": true,
+      "hasDisplayExpression": true
+    },
+    {
+      "stepId": "identity_distribute",
+      "hasProofReference": true,
+      "hasClaimBinding": true,
+      "hasDisplayExpression": true
+    },
+    {
+      "stepId": "identity_combine",
+      "hasProofReference": true,
+      "hasClaimBinding": true,
+      "hasDisplayExpression": true
+    }
+  ],
+  "derivativeChecks": {
+    "point": {
+      "x": 1,
+      "y": 1,
+      "expectedY": 1
+    },
+    "tangent": {
+      "x": 1,
+      "slope": 2,
+      "expectedSlope": 2
+    },
+    "initialSecant": {
+      "fromX": 1,
+      "toX": 2.25,
+      "slope": 3.25,
+      "bothEndpointsOnCurve": true
+    }
+  },
+  "gradientChecks": [
+    {
+      "stepNumber": 1,
+      "lossMatchesCurve": true,
+      "gradientMatchesDerivative": true,
+      "updateMatchesLearningRate": true
+    },
+    {
+      "stepNumber": 2,
+      "lossMatchesCurve": true,
+      "gradientMatchesDerivative": true,
+      "updateMatchesLearningRate": true
+    },
+    {
+      "stepNumber": 3,
+      "lossMatchesCurve": true,
+      "gradientMatchesDerivative": true,
+      "updateMatchesLearningRate": null
+    }
+  ],
+  "capabilityReadiness": {
+    "formula_sequence": "render_ready",
+    "cartesian_graph": "render_ready",
+    "optimization_trace": "render_ready",
+    "directed_diagram": "render_ready",
+    "attention_matrix": "render_ready",
+    "geometry_2d": "planning_only",
+    "probability_tree": "planning_only"
+  },
+  "motionReadiness": {
+    "R01": "render_ready",
+    "R02": "render_ready",
+    "R03": "render_ready",
+    "R04": "render_ready",
+    "R05": "render_ready",
+    "R06": "planning_only",
+    "R07": "render_ready",
+    "R08": "render_ready",
+    "R09": "planning_only",
+    "R10": "render_ready"
+  },
+  "renderFrames": [
+    {
+      "fileName": "formula-frame-36.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 523028,
+      "sha256": "b0bed5497453f223bc688a581270e58276f7fa1f2fbcf4568c8fb33c96cfc946"
+    },
+    {
+      "fileName": "formula-frame-144.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 516207,
+      "sha256": "d12ae306493396a7961221ba1b81b451571541485d1968f8873e7658173e7b74"
+    },
+    {
+      "fileName": "formula-frame-220.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 508956,
+      "sha256": "672b3e59e13d96d3a622d5f0bcc389a62a2dfc3c5cb55b03fb97000aab9bd1f2"
+    },
+    {
+      "fileName": "derivative-frame-36.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 51558,
+      "sha256": "2790b2e09a25fde4d8d9cba30cbe11e93d3092bbfae5b70479560fb8677e7615"
+    },
+    {
+      "fileName": "derivative-frame-120.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 61481,
+      "sha256": "960b0e33742bcec396192fb8de1769018296f24473099ef14b2c5dec88cf1322"
+    },
+    {
+      "fileName": "derivative-frame-220.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 61700,
+      "sha256": "9b94caf4d6d9d495d40fdfc6789f9f5281981054042974e8fbf09fbfbd731dbc"
+    },
+    {
+      "fileName": "gradient-frame-270.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 73394,
+      "sha256": "b534991ce3d66c495541d00fda1db594c836cdbff79db6b450550e0f1ab9d272"
+    },
+    {
+      "fileName": "gradient-frame-360.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 71493,
+      "sha256": "a541b4ed4d3dfaaf6606700e772cc0b4b7f06b7e1d2546c736fada6d955148c9"
+    },
+    {
+      "fileName": "gradient-frame-620.png",
+      "width": 720,
+      "height": 1280,
+      "byteLength": 71929,
+      "sha256": "97f2f94a3e2eba3aa2bee1e8cc10c8430797c22b17bb2adf501783e0636e3410"
+    }
+  ],
+  "automatedResult": {
+    "pass": true,
+    "humanVisualInspectionRequired": true
+  }
+}

@@ -7,9 +7,10 @@ import {
   RenderManifestV2Schema,
   EducationalStoryboardV3Schema,
   EducationalSceneV3Schema,
-  VisualSceneDefinitionV3Schema
+  VisualSceneDefinitionV3Schema,
+  VerifiedFormulaStepsDataV1Schema
 } from '@luminalearn/scene-schema';
-import { VisualDslSceneV3 } from '@luminalearn/animation';
+import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3 } from '@luminalearn/animation';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
@@ -23,6 +24,8 @@ import { gradientDescentStoryboardV3 } from './fixtures/v3/gradient-descent-v3';
 import { attentionStoryboardV3 } from './fixtures/v3/attention-v3';
 import { visualDslFixtureV3 } from './fixtures/v3/visual-dsl-v3';
 import { mathTypographySceneV3 } from './fixtures/v3/math-typography-v3';
+import { sprintBFormulaFixtureV3 } from './fixtures/v3/sprint-b-formula-v3';
+import { sprintBDerivativeGraphFixtureV3 } from './fixtures/v3/sprint-b-derivative-graph-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -47,6 +50,7 @@ const LuminaScenePreviewV3Schema = z.object({
   }).strict().optional()
 });
 const VisualDslCompositionV3Schema = z.object({ definition: VisualSceneDefinitionV3Schema });
+const FormulaSequenceCompositionV3Schema = z.object({ data: VerifiedFormulaStepsDataV1Schema, subtitleText: z.string().optional() });
 
 export const Root: React.FC = () => {
   return (
@@ -107,6 +111,26 @@ export const Root: React.FC = () => {
         defaultProps={{ scene: perceptronStoryboardV3.scenes[0], subtitlesEnabled: true }}
         calculateMetadata={({ props }) => ({ durationInFrames: Math.max(1, Math.round(props.scene.durationSeconds * 24)) })}
       />
+      <Composition
+        id="SprintBFormulaEngineV3"
+        component={FormulaSequenceSceneV3}
+        durationInFrames={240}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={FormulaSequenceCompositionV3Schema}
+        defaultProps={{ data: sprintBFormulaFixtureV3, subtitleText: 'Từng bước biến đổi giữ nguyên mệnh đề đại số đã được kiểm tra.' }}
+      />
+      <Composition
+        id="SprintBDerivativeGraphV3"
+        component={AnimatedVisualDslSceneV3}
+        durationInFrames={240}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={VisualDslCompositionV3Schema}
+        defaultProps={{ definition: sprintBDerivativeGraphFixtureV3 }}
+      />
       <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
         id="LuminaSceneV3Perceptron"
         component={LuminaSceneV3}
@@ -139,7 +163,7 @@ export const Root: React.FC = () => {
       />
       <Composition
         id="VisualDslSceneV3"
-        component={VisualDslSceneV3}
+        component={AnimatedVisualDslSceneV3}
         durationInFrames={visualDslFixtureV3.timeline?.durationFrames ?? 240}
         fps={24}
         width={720}

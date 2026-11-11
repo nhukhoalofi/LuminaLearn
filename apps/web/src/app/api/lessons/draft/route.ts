@@ -81,9 +81,10 @@ export async function POST(req: Request) {
       );
     }
     const message = error instanceof Error ? error.message : String(error);
+    const transient = /^(?:gemini_transient_failed)\b|\b503\b|temporarily unavailable|high demand/i.test(message);
     return NextResponse.json(
       { error: 'draft_creation_failed', message },
-      { status: 400 }
+      transient ? { status: 503, headers: { 'Retry-After': '5' } } : { status: 400 }
     );
   }
 }

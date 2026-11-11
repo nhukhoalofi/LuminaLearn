@@ -488,6 +488,23 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
               ⚙️ Tạo bằng bộ lập kế hoạch đơn lẻ (Legacy Fallback)
             </button>
           )}
+          {(error.includes('503') || error.includes('quá tải') || error.includes('Gemini') || error.includes('gemini_transient_failed')) && (
+            <button
+              type="button"
+              className="quick-chip"
+              style={{ marginTop: '6px', background: 'rgba(34, 211, 238, 0.15)', borderColor: 'rgba(34, 211, 238, 0.4)', color: '#22d3ee' }}
+              disabled={busy}
+              onClick={() => {
+                setMode('mock');
+                setError('');
+                setTimeout(() => {
+                  generate();
+                }, 50);
+              }}
+            >
+              ⚙️ Chuyển sang Mock offline (Khuyến nghị để không bị gián đoạn)
+            </button>
+          )}
         </div>
       )}
 

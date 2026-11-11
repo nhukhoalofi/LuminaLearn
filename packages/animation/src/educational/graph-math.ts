@@ -437,6 +437,36 @@ export function computeTangentLine(
   };
 }
 
+/** Computes the line through two actual points on the same function. */
+export function computeSecantLine(
+  fn: EvaluatedFunction,
+  fromX: number,
+  toX: number,
+  transform: CoordinateTransform,
+  lineLengthMath = 2.0
+): TangentLineResult {
+  if (!Number.isFinite(fromX) || !Number.isFinite(toX) || Math.abs(toX - fromX) < 1e-8) {
+    throw new Error('invalid_secant_endpoints');
+  }
+  const y0 = fn.evaluate(fromX);
+  const toY = fn.evaluate(toX);
+  const slope = (toY - y0) / (toX - fromX);
+  const x1Math = fromX - lineLengthMath;
+  const x2Math = fromX + lineLengthMath;
+  return {
+    x0: fromX,
+    y0,
+    slope: Math.round(slope * 1000) / 1000,
+    screenX0: transform.toScreenX(fromX),
+    screenY0: transform.toScreenY(y0),
+    screenX1: transform.toScreenX(x1Math),
+    screenY1: transform.toScreenY(y0 + slope * (x1Math - fromX)),
+    screenX2: transform.toScreenX(x2Math),
+    screenY2: transform.toScreenY(y0 + slope * (x2Math - fromX)),
+    label: `secant slope = ${Math.round(slope * 100) / 100}`
+  };
+}
+
 /**
  * Generates coordinate axes, ticks, and grid lines for the coordinate box.
  */

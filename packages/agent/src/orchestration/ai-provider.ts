@@ -80,8 +80,8 @@ export class LiveGeminiAIProvider implements AIProvider {
     const rawModel = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
     // Google GenAI API deprecated gemini-2.5-flash; fallback safely to gemini-3.5-flash-lite
     this.model = rawModel === 'gemini-2.5-flash' ? 'gemini-3.5-flash-lite' : rawModel;
-    this.maxRetries = options.maxRetries ?? 1;
-    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 250;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
     this.defaultBudget = options.requestBudget;
     this.transport = options.transport;
     this.randomFn = options.randomFn ?? Math.random;
@@ -100,11 +100,22 @@ export class LiveGeminiAIProvider implements AIProvider {
       ? `${request.systemPrompt}\n\nUSER REQUEST:\n${request.userPrompt}`
       : request.userPrompt;
 
+    const fallbackModelCandidates = [
+      this.model,
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-2.5-flash'
+    ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
     let attempts = 0;
     let lastError: Error | undefined;
+    let activeModel = this.model;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
-      const attemptId = budget.consume(category, this.model);
+      if (attempt > 0 && lastError && /503|high demand|unavailable/i.test(lastError.message)) {
+        activeModel = fallbackModelCandidates[attempt % fallbackModelCandidates.length] ?? this.model;
+      }
+      const attemptId = budget.consume(category, activeModel);
       attempts += 1;
 
       try {
@@ -113,13 +124,13 @@ export class LiveGeminiAIProvider implements AIProvider {
         let candidatesTokens: number | undefined;
 
         if (this.transport) {
-          const customResponse = await this.transport(fullPrompt, request as AIStructuredRequest<unknown>, this.model);
+          const customResponse = await this.transport(fullPrompt, request as AIStructuredRequest<unknown>, activeModel);
           responseText = customResponse.text;
           promptTokens = customResponse.usage?.promptTokens;
           candidatesTokens = customResponse.usage?.candidatesTokens;
         } else {
           const response = await this.client!.models.generateContent({
-            model: this.model,
+            model: activeModel,
             contents: fullPrompt,
             config: {
               temperature: 0.2,
@@ -164,7 +175,7 @@ export class LiveGeminiAIProvider implements AIProvider {
         return {
           data: validated,
           mode: 'ai_generated_live',
-          model: this.model,
+          model: activeModel,
           attempts,
           usage: {
             promptTokens,
@@ -189,9 +200,11 @@ export class LiveGeminiAIProvider implements AIProvider {
           throw classified.error;
         }
 
+        const is503 = classified.status === 503 || /503|high demand|unavailable/i.test(classified.message);
+        const effectiveBaseDelay = is503 ? Math.max(1200, this.retryBaseDelayMs) : this.retryBaseDelayMs;
         const delayMs = computeBackoffWithJitterMs(
           attempt + 1,
-          this.retryBaseDelayMs,
+          effectiveBaseDelay,
           classified.retryAfterMs,
           this.randomFn
         );

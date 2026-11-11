@@ -43,7 +43,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof SecurityError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
     const formatted = formatApiError(error, 'v3_draft_creation_failed', 'generation_failed');
-    return NextResponse.json(formatted, { status: 400 });
+    const transient = /^gemini_transient_failed\b/.test(formatted.error) || /\b503\b|temporarily unavailable|high demand/i.test(formatted.message);
+    return NextResponse.json(formatted, transient ? { status: 503, headers: { 'Retry-After': '5' } } : { status: 400 });
   }
 }
 export async function GET(request: Request): Promise<Response> {

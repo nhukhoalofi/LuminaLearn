@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { NoExecutableString, SafeIdString } from '../v2/document';
+import { ScientificVisualDataV1Schema } from './visual-engine';
 
 /**
  * CHECKPOINT E: STRICT VISUAL SCENE DSL
@@ -222,7 +223,8 @@ export const GenericSceneVisualPayloadSchema = z.object({
   sceneType: z.enum(['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table']),
   headline: NoExecutableString.optional(),
   formulaTex: NoExecutableString.optional(),
-  notes: NoExecutableString.optional()
+  notes: NoExecutableString.optional(),
+  scientificData: ScientificVisualDataV1Schema.optional()
 }).strict();
 export type GenericSceneVisualPayload = z.infer<typeof GenericSceneVisualPayloadSchema>;
 
@@ -291,7 +293,9 @@ export type VisualLayoutPresetV3 = z.infer<typeof VisualLayoutPresetV3Schema>;
 export const VisualStylePresetV3Schema = z.enum([
   'clean_educational_infographic',
   'math_chalkboard',
-  'ai_neural_visualization'
+  'ai_neural_visualization',
+  'ai_data_story',
+  'systems_whiteboard'
 ]);
 export type VisualStylePresetV3 = z.infer<typeof VisualStylePresetV3Schema>;
 
@@ -352,6 +356,9 @@ export const VisualGraphElementSchema = z.object({
   yRange: z.tuple([z.number().finite(), z.number().finite()]).default([-1, 9]),
   showTangentLine: z.boolean().default(false),
   tangentAtX: z.number().finite().optional(),
+  showSecantLine: z.boolean().optional(),
+  secantFromX: z.number().finite().optional(),
+  secantToX: z.number().finite().optional(),
   animation: VisualAnimationPresetV3Schema.default('draw_line')
 }).strict();
 
@@ -446,6 +453,29 @@ export const VisualShapeElementSchema = z.object({
   borderWidth: z.number().nonnegative().default(1)
 }).strict();
 
+export const VisualPolygonElementSchema = z.object({
+  elementType: z.literal('polygon'),
+  elementId: SafeIdString,
+  points: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(3).max(16),
+  fill: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8'),
+  fillOpacity: z.number().min(0).max(1).default(0.25),
+  strokeColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8'),
+  strokeWidth: z.number().nonnegative().default(2),
+  label: z.string().max(50).optional(),
+  claimId: SafeIdString.optional()
+}).strict();
+
+export const VisualSegmentElementSchema = z.object({
+  elementType: z.literal('segment'),
+  elementId: SafeIdString,
+  start: z.tuple([z.number().finite(), z.number().finite()]),
+  end: z.tuple([z.number().finite(), z.number().finite()]),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#94A3B8'),
+  strokeWidth: z.number().nonnegative().default(2),
+  strokeDasharray: z.string().max(20).optional(),
+  label: z.string().max(50).optional()
+}).strict();
+
 export const VisualCalloutElementSchema = z.object({
   elementType: z.literal('callout'),
   elementId: SafeIdString,
@@ -494,6 +524,8 @@ export const VisualElementV3Schema = z.discriminatedUnion('elementType', [
   VisualAxesElementSchema,
   VisualPointElementSchema,
   VisualVectorElementSchema,
+  VisualSegmentElementSchema,
+  VisualPolygonElementSchema,
   VisualArrowElementSchema,
   VisualMatrixElementSchema,
   VisualChartElementSchema,
@@ -509,6 +541,10 @@ export type VisualElementV3 = z.infer<typeof VisualElementV3Schema>;
 export type VisualGraphElement = Extract<VisualElementV3, { elementType: 'graph' }>;
 export type VisualPointElement = Extract<VisualElementV3, { elementType: 'point' }>;
 export type VisualVectorElement = Extract<VisualElementV3, { elementType: 'vector' }>;
+export type VisualSegmentElement = Extract<VisualElementV3, { elementType: 'segment' }>;
+export type VisualPolygonElement = Extract<VisualElementV3, { elementType: 'polygon' }>;
+export type VisualShapeElement = Extract<VisualElementV3, { elementType: 'shape' }>;
+export type VisualHighlightedRegionElement = Extract<VisualElementV3, { elementType: 'highlighted_region' }>;
 export type VisualFormulaElement = Extract<VisualElementV3, { elementType: 'formula' }>;
 export type VisualMatrixElement = Extract<VisualElementV3, { elementType: 'matrix' }>;
 

@@ -518,7 +518,18 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             sceneType: 'formula_derivation',
             headline: 'Giới hạn tỉ số biến thiên',
             formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h} = 2x",
-            notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0'
+            notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0',
+            scientificData: {
+              kind: 'scalar_function_1d',
+              functionType: 'polynomial',
+              expression: 'x^2',
+              xRange: [-2, 3],
+              yRange: [-1, 9],
+              pointX: 1,
+              tangentAtX: 1,
+              claimId: 'claim_poly_deriv',
+              validation: 'formally_verified'
+            }
           }
         },
         {
@@ -547,6 +558,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Đạo hàm & Tiếp tuyến', 'claim_poly_deriv');
     } else if (
       capability.topicId === 'calculus.riemann_integral.intuition' ||
       capability.topicId === 'calculus.integral.riemann_sum'
@@ -634,6 +646,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Tích phân Riemann', 'claim_riemann_int');
     } else if (capability.topicId === 'linear_algebra.matrix_transform') {
       summary = 'Ma trận vuông biểu diễn một phép biến đổi tuyến tính kéo giãn hoặc quay không gian vector.';
       learningObjectives = [
@@ -691,6 +704,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Biến đổi tuyến tính Ma trận', 'claim_lin_basis');
     } else if (capability.topicId === 'probability.bayes_theorem') {
       summary = 'Định lý Bayes cho phép cập nhật xác suất của giả thuyết khi có thêm bằng chứng thực nghiệm.';
       learningObjectives = ['Phân biệt xác suất tiên nghiệm (prior) và xác suất hậu nghiệm (posterior)'];
@@ -747,6 +761,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Định lý Bayes', 'claim_bayes_formula');
     }
 
     // --- ARTIFICIAL INTELLIGENCE BENCHMARKS ---
@@ -823,6 +838,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Perceptron & Hàm kích hoạt', 'claim_perceptron_structure');
     } else if (capability.topicId === 'ai.gradient_descent.optimization') {
       summary = 'Gradient Descent là thuật toán tối ưu hóa lặp giúp mạng neural tìm đáy của hàm mất mát.';
       learningObjectives = [
@@ -1664,6 +1680,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Lan truyền ngược Backpropagation', 'claim_chain_rule_bp');
     } else if (capability.topicId === 'ai.embeddings.vector_space') {
       summary = 'Không gian vector nhúng mã hóa ý nghĩa ngữ nghĩa của từ thành các tọa độ hình học nhiều chiều.';
       learningObjectives = [
@@ -1729,6 +1746,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           }
         }
       ];
+      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Không gian Vector nhúng Embeddings', 'claim_vector_similarity');
     } else {
       // Fallback tổng quát cho chủ đề hợp lệ
       summary = `Kế hoạch bài học tổng quát về chủ đề ${topic}.`;
@@ -1776,6 +1794,105 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         chapters: buildChaptersForScenes(scenes, totalSeconds, 24)
       }
     };
+  }
+
+  /**
+   * Expands a base scene array when the total capacity (scenes × 120 s) is
+   * insufficient for the requested target duration.
+   *
+   * Rules:
+   *  - Base scenes are NEVER modified; they are prepended as-is.
+   *  - Only adaptive generic expansion scenes are appended.
+   *  - Each emitted scene has durationSeconds = 1 (a nominal placeholder).
+   *    The timeline normalizer will re-allocate durations proportionally, so the
+   *    exact placeholder value is irrelevant as long as it passes schema validation.
+   *  - If base scenes already cover the target, they are returned unchanged.
+   *
+   * This helper MUST NOT invent mathematical claims or alter approved content.
+   */
+  private expandScenesForDuration(
+    baseScenes: EducationalStoryboardV3['scenes'],
+    targetDurationSeconds: number,
+    topicTitle: string,
+    primaryClaimId: string
+  ): EducationalStoryboardV3['scenes'] {
+    const MAX_SCENE_DURATION = 120;
+    const maxCapacity = baseScenes.length * MAX_SCENE_DURATION;
+    if (targetDurationSeconds <= maxCapacity) {
+      return baseScenes;
+    }
+
+    // How many additional scenes are needed beyond the base capacity?
+    const extraSecondsNeeded = targetDurationSeconds - maxCapacity;
+    const extraCount = Math.ceil(extraSecondsNeeded / MAX_SCENE_DURATION);
+
+    const expansionStages = [
+      {
+        sceneId: 'sc_expand_examples',
+        title: `Ví dụ ứng dụng thực tế: ${topicTitle}`,
+        goal: `Minh họa bài toán thực tế áp dụng kiến thức ${topicTitle}`,
+        narration: `Ta cùng xem xét một số ví dụ thực tế giúp hiểu rõ hơn ${topicTitle} trong thực tiễn.`,
+        subtitle: `Ví dụ ứng dụng thực tế của ${topicTitle}.`
+      },
+      {
+        sceneId: 'sc_expand_misconceptions',
+        title: `Lưu ý quan trọng & Tránh lỗi thường gặp`,
+        goal: `Làm rõ các ngộ nhận phổ biến khi tìm hiểu ${topicTitle}`,
+        narration: `Trong quá trình học ${topicTitle}, nhiều bạn thường mắc một số nhầm lẫn phổ biến cần chú ý.`,
+        subtitle: `Phân tích và tránh các lỗi thường gặp về ${topicTitle}.`
+      },
+      {
+        sceneId: 'sc_expand_deeper',
+        title: `Phân tích chuyên sâu: ${topicTitle}`,
+        goal: `Khảo sát các trường hợp đặc biệt và hành vi nâng cao của ${topicTitle}`,
+        narration: `Phân tích sâu hơn về ${topicTitle} tiết lộ những tính chất và hành vi thú vị ở cấp độ nâng cao.`,
+        subtitle: `Phân tích nâng cao và trường hợp đặc biệt của ${topicTitle}.`
+      },
+      {
+        sceneId: 'sc_expand_comparison',
+        title: `So sánh & Liên hệ kiến thức tổng thể`,
+        goal: `Kết nối ${topicTitle} với các kiến thức và mô hình liên quan`,
+        narration: `Ta liên hệ ${topicTitle} với các chủ đề có liên quan để thấy bức tranh toàn cảnh hơn.`,
+        subtitle: `Kết nối ${topicTitle} với kiến thức rộng hơn.`
+      },
+      {
+        sceneId: 'sc_expand_practice',
+        title: `Luyện tập & Câu hỏi tư duy phản biện`,
+        goal: `Thử thách học viên kiểm chứng hiểu biết về ${topicTitle}`,
+        narration: `Hãy tự kiểm tra hiểu biết của mình qua các câu hỏi thực hành về ${topicTitle}.`,
+        subtitle: `Bài tập và câu hỏi tư duy về ${topicTitle}.`
+      }
+    ];
+
+    const extraScenes: EducationalStoryboardV3['scenes'] = Array.from(
+      { length: extraCount },
+      (_, i) => {
+        const stage = expansionStages[i % expansionStages.length];
+        return {
+          sceneId: `${stage.sceneId}_${i + 1}`,
+          sceneType: 'concept_intro' as const,
+          title: stage.title,
+          pedagogicalGoal: stage.goal,
+          durationSeconds: 30, // Nominal; timeline normalizer will redistribute
+          boundClaimIds: [primaryClaimId],
+          rendererTarget: 'remotion_infographic' as const,
+          narration: {
+            vietnamese: stage.narration,
+            subtitleVietnamese: stage.subtitle
+          },
+          visualPayload: {
+            sceneType: 'concept_intro' as const,
+            centralQuestion: `Khía cạnh này của ${topicTitle} có ý nghĩa gì trong thực tế?`,
+            keyConcept: topicTitle,
+            accentColor: '#6366F1',
+            visualStyleId: 'clean_educational_infographic' as const,
+            reducedMotion: false
+          }
+        };
+      }
+    );
+
+    return [...baseScenes, ...extraScenes];
   }
 
   private getDefaultClaimsForTopic(capability: TopicCapabilityReportV3): EducationalClaimV3[] {
