@@ -399,7 +399,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: [`claim_identity_${i + 1}`],
             rendererTarget: 'remotion_infographic' as const,
             narration: {
-              vietnamese: `${label}. Ta tìm hiểu ý nghĩa và cấu trúc của biểu thức.`,
+              vietnamese: `${label}. Ta tìm hiểu ý nghĩa và cấu trúc của biểu thức: ${left} tương đương với ${right}. Trong đại số, hằng đẳng thức giúp biến đổi nhanh biểu thức và giải quyết các bài toán phân tích nhân tử.`,
               subtitleVietnamese: `${left} bằng ${right}.`
             },
             visualPayload: {
@@ -424,7 +424,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: [`claim_identity_${i + 1}`],
             rendererTarget: 'remotion_infographic' as const,
             narration: {
-              vietnamese: `${label}. Ta biến đổi từng bước và đối chiếu hai vế để thấy chúng hoàn toàn tương đương.`,
+              vietnamese: `${label}. Ta biến đổi từng bước theo quy tắc nhân phân phối đa thức và đối chiếu hai vế để thấy chúng hoàn toàn tương đương. Hãy ghi nhớ quy tắc này để vận dụng linh hoạt.`,
               subtitleVietnamese: `${left} bằng ${right}.`
             },
             visualPayload: {
@@ -438,6 +438,264 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
               ],
               presentation: (i < 5 ? 'expansion' : 'factorization') as 'expansion' | 'factorization'
             }
+          });
+        }
+      } else if (targetDurationSeconds >= 240) {
+        // CHECKPOINT 5-MINUTE (300s): Comprehensive 9-scene pedagogical progression for (a+b)^2
+        const isSpecificSquareSum = /\(\s*a\s*\+\s*b\s*\)\s*(?:\^\s*2|²)|bình phương.*tổng|square_sum|a\^2\s*\+\s*2ab/i.test(topic);
+        if (isSpecificSquareSum || !topic.includes('7')) {
+          scenes = [
+            {
+              sceneId: 'sc_identity_hook',
+              sceneType: 'concept_intro' as const,
+              title: '1. Bản chất hình học & đại số của (a+b)²',
+              pedagogicalGoal: 'Khơi gợi tư duy: vì sao bình phương một tổng không đơn giản là a² + b²',
+              durationSeconds: 32,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Chào mừng các em đến với LuminaLearn. Trong đại số, hằng đẳng thức bình phương của một tổng là một công thức nền tảng vô cùng quan trọng. Nhiều bạn học sinh thường nhầm lẫn rằng a cộng b tất cả bình phương chỉ đơn giản bằng a bình cộng b bình. Liệu điều này có đúng không? Trong bài học này, chúng ta sẽ cùng khám phá bản chất đại số và hình học đằng sau công thức nhé.',
+                subtitleVietnamese: 'Vì sao (a+b)² = a² + 2ab + b² mà không phải là a² + b²?'
+              },
+              visualPayload: {
+                sceneType: 'concept_intro' as const,
+                centralQuestion: 'Tại sao (a+b)² lại xuất hiện thêm số hạng 2ab?',
+                keyConcept: 'Bình phương của một tổng',
+                accentColor: '#38BDF8',
+                visualStyleId: 'clean_educational_infographic' as const,
+                reducedMotion: false
+              }
+            },
+            {
+              sceneId: 'sc_identity_distributive',
+              sceneType: 'algebra_identity' as const,
+              title: '2. Khai triển nhân đa thức với đa thức',
+              pedagogicalGoal: 'Khai triển tích hai nhị thức và nhận diện từng số hạng thành phần',
+              durationSeconds: 34,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Trước hết, hãy cùng tiếp cận bài toán bằng phép biến đổi đại số. Lũy thừa bậc hai của một tổng chính là tích của biểu thức đó nhân với chính nó: ta viết a cộng b nhân với a cộng b. Tiếp theo, áp dụng quy tắc phân phối nhân đa thức với đa thức: lấy a nhân với a được a bình phương, a nhân với b được a b, rồi lấy b nhân với a và b nhân với b.',
+                subtitleVietnamese: '(a+b)(a+b) = a² + ab + ba + b²'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Bình phương của một tổng ban đầu.', highlightTerms: ['(a+b)^2'] },
+                  { expression: '(a+b)*(a+b)', explanationVietnamese: 'Viết dưới dạng tích của hai nhị thức.', highlightTerms: ['(a+b)'] },
+                  { expression: 'a^2+a*b+b*a+b^2', explanationVietnamese: 'Áp dụng quy tắc phân phối nhân từng hạng tử.', highlightTerms: ['a*b', 'b*a'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Khai triển hoàn chỉnh.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_crossterms',
+              sceneType: 'algebra_identity' as const,
+              title: '3. Gom hạng tử đồng dạng xuất hiện 2ab',
+              pedagogicalGoal: 'Chứng minh ab + ba = 2ab nhờ tính chất giao hoán',
+              durationSeconds: 32,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Quan sát kỹ các hạng tử vừa khai triển: chúng ta có a nhân b và b nhân a. Nhờ tính chất giao hoán của phép nhân các số thực, tích b nhân a hoàn toàn bằng a nhân b. Do đó, hai hạng tử này đồng dạng và cộng lại thành đúng hai lần a b. Ta thu được kết quả hoàn chỉnh: a bình phương cộng hai a b cộng b bình phương.',
+                subtitleVietnamese: 'ab + ba = 2ab ⟹ (a+b)² = a² + 2ab + b²'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Bình phương một tổng.', highlightTerms: ['(a+b)^2'] },
+                  { expression: 'a^2+a*b+b*a+b^2', explanationVietnamese: 'Biểu thức có hai hạng tử ab và ba.', highlightTerms: ['a*b', 'b*a'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Gom hai hạng tử đồng dạng: ab + ba = 2ab.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_geometry_split',
+              sceneType: 'algebra_identity' as const,
+              title: '4. Trực quan hình học: Chia cạnh hình vuông',
+              pedagogicalGoal: 'Minh họa hình học bằng hình vuông lớn cạnh (a+b)',
+              durationSeconds: 34,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Bên cạnh đại số, hình học mang lại trực giác trực quan tuyệt vời để hiểu công thức này. Hãy tưởng tượng một hình vuông lớn có độ dài mỗi cạnh bằng a cộng b. Diện tích của toàn bộ hình vuông lớn này chính là vế trái: a cộng b tất cả bình phương. Bây giờ, trên mỗi cạnh, ta chia thành hai đoạn có độ dài lần lượt là a và b.',
+                subtitleVietnamese: 'Hình vuông lớn cạnh (a+b) có diện tích toàn phần là (a+b)²'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Diện tích hình vuông lớn cạnh a + b.', highlightTerms: ['(a+b)^2'] },
+                  { expression: '(a+b)*(a+b)', explanationVietnamese: 'Cạnh thứ nhất a + b nhân cạnh thứ hai a + b.', highlightTerms: ['(a+b)'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Khai triển diện tích bốn phần.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_four_regions',
+              sceneType: 'algebra_identity' as const,
+              title: '5. Bốn mảnh ghép diện tích hoàn chỉnh',
+              pedagogicalGoal: 'Chứng minh tổng 4 vùng con a² + ab + ab + b² đúng bằng diện tích hình vuông lớn',
+              durationSeconds: 34,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Khi kẻ các đường phân chia, hình vuông lớn được tách thành đúng bốn phần riêng biệt: một hình vuông lớn góc dưới có diện tích a bình phương; một hình vuông nhỏ góc trên có diện tích b bình phương; cùng hai hình chữ nhật hai bên mỗi hình có diện tích a nhân b. Tổng diện tích bốn phần này chính là a bình cộng hai a b cộng b bình phương, minh chứng hoàn hảo cho công thức!',
+                subtitleVietnamese: 'Bốn vùng diện tích: a² + ab + ba + b² = a² + 2ab + b²'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Diện tích toàn phần ban đầu.', highlightTerms: ['(a+b)^2'] },
+                  { expression: 'a^2+a*b+b*a+b^2', explanationVietnamese: 'Bốn vùng diện tích ghép lại: a², ab, ba, b².', highlightTerms: ['a^2', 'b^2', 'a*b', 'b*a'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Hai hình chữ nhật ghép thành 2ab.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_worked_example',
+              sceneType: 'algebra_identity' as const,
+              title: '6. Ví dụ số học kiểm chứng: a=3, b=2',
+              pedagogicalGoal: 'Thử nghiệm tính toán bằng số nguyên cụ thể để đối chiếu hai vế',
+              durationSeconds: 34,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Để khắc sâu kiến thức, chúng ta hãy thử nghiệm với những con số cụ thể. Giả sử ta chọn a bằng 3 và b bằng 2. Khi đó, vế trái là 3 cộng 2 bằng 5, và 5 bình phương bằng 25. Tính vế phải: 3 bình là 9, hai nhân 3 nhân 2 là 12, và 2 bình là 4. Cộng lại: 9 cộng 12 cộng 4 đúng bằng 25! Hai vế hoàn toàn khớp nhau.',
+                subtitleVietnamese: '(3+2)² = 25; 3² + 2(3)(2) + 2² = 9 + 12 + 4 = 25'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Chọn a = 3 và b = 2: vế trái là (3+2)² = 25.', highlightTerms: ['(a+b)^2'] },
+                  { expression: '(a+b)*(a+b)', explanationVietnamese: 'Tích hai thừa số (3+2)(3+2) = 5 * 5 = 25.', highlightTerms: ['(a+b)'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Vế phải: 3² + 2(3)(2) + 2² = 9 + 12 + 4 = 25.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_mental_math',
+              sceneType: 'algebra_identity' as const,
+              title: '7. Ứng dụng tính nhẩm nhanh: 31² = 961',
+              pedagogicalGoal: 'Ứng dụng hằng đẳng thức vào tính nhẩm bình phương trong thực tế',
+              durationSeconds: 34,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Hằng đẳng thức này còn là một công cụ tính nhẩm siêu tốc mà bạn có thể áp dụng hàng ngày. Ví dụ, để tính 31 bình phương mà không cần máy tính, bạn tách 31 thành 30 cộng 1 tất cả bình. Áp dụng hằng đẳng thức: 30 bình phương là 900, hai nhân 30 nhân 1 là 60, và 1 bình là 1. Nhẩm nhanh: 900 cộng 60 cộng 1 bằng 961 trong tích tắc!',
+                subtitleVietnamese: '31² = (30+1)² = 900 + 60 + 1 = 961'
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: 'square_sum',
+                leftExpression: '(a+b)^2',
+                rightExpression: 'a^2+2*a*b+b^2',
+                presentation: 'expansion' as const,
+                transformationSteps: [
+                  { expression: '(a+b)^2', explanationVietnamese: 'Tách 31 = 30 + 1: vế trái là (30 + 1)²', highlightTerms: ['(a+b)^2'] },
+                  { expression: '(a+b)*(a+b)', explanationVietnamese: 'Tích hai nhân tử (30 + 1)(30 + 1).', highlightTerms: ['(a+b)'] },
+                  { expression: 'a^2+2*a*b+b^2', explanationVietnamese: 'Khai triển: 30² + 2(30)(1) + 1² = 900 + 60 + 1 = 961.', highlightTerms: ['2*a*b'] }
+                ]
+              }
+            },
+            {
+              sceneId: 'sc_identity_misconceptions',
+              sceneType: 'concept_intro' as const,
+              title: '8. Sai lầm kinh điển Freshmen\'s Dream',
+              pedagogicalGoal: 'Cảnh báo và giải thích lý do không được bỏ quên 2ab',
+              durationSeconds: 33,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Bây giờ, hãy quay lại câu hỏi đầu bài: tại sao a cộng b tất cả bình không bằng a bình cộng b bình? Lỗi này phổ biến đến mức trong toán học quốc tế nó được đặt tên là Freshmen\'s Dream. Nhìn vào trực quan hình học, nếu chỉ lấy a bình cộng b bình, bạn đã vô tình đánh mất hai hình chữ nhật hai a b. Đừng bao giờ quên số hạng hai a b nhé!',
+                subtitleVietnamese: 'Cảnh báo: (a+b)² ≠ a² + b² (Thiếu mất hai hình chữ nhật 2ab)'
+              },
+              visualPayload: {
+                sceneType: 'concept_intro' as const,
+                centralQuestion: 'Tại sao (a+b)² ≠ a² + b²? Đừng quên hai hình chữ nhật 2ab!',
+                keyConcept: 'Tránh lỗi Freshmen\'s Dream',
+                accentColor: '#EF4444',
+                visualStyleId: 'clean_educational_infographic' as const,
+                reducedMotion: false
+              }
+            },
+            {
+              sceneId: 'sc_identity_summary',
+              sceneType: 'summary' as const,
+              title: '9. Tổng kết & Khẩu quyết ghi nhớ',
+              pedagogicalGoal: 'Khái quát hóa công thức và khắc sâu quy tắc ghi nhớ',
+              durationSeconds: 33,
+              boundClaimIds: ['claim_identity_1'],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: 'Tổng kết lại bài học hôm nay: Bình phương của một tổng luôn bằng bình phương số thứ nhất, cộng hai lần tích số thứ nhất với số thứ hai, cộng bình phương số thứ hai. Công thức này là chìa khóa mở đường cho các hằng đẳng thức bậc ba và phân tích đa thức thành nhân tử phức tạp hơn. Cảm ơn các bạn đã theo dõi và chúc các bạn học tốt!',
+                subtitleVietnamese: '(a+b)² = a² + 2ab + b² — Bình phương thứ nhất + 2 lần tích + Bình phương thứ hai'
+              },
+              visualPayload: {
+                sceneType: 'summary' as const,
+                title: 'Khẩu quyết: Bình phương một tổng',
+                takeaways: [
+                  '(a+b)² = a² + 2ab + b²',
+                  'Đại số: tích (a+b)(a+b) nhân phân phối và gom hạng tử chéo',
+                  'Hình học: diện tích hình vuông chia thành 4 phần a², ab, ab, b²',
+                  'Ứng dụng: tính nhẩm nhanh và giải phương trình đại số'
+                ],
+                verifiedFacts: ['(a+b)^2 = a^2 + 2*a*b + b^2'],
+                reviewNotes: [],
+                finalCallout: '(a+b)² = a² + 2ab + b²'
+              }
+            }
+          ];
+        } else {
+          // Comprehensive multi-scene plan for all 7 identities
+          const baseDuration = Math.floor(targetDurationSeconds / identities.length);
+          const remainder = targetDurationSeconds - baseDuration * identities.length;
+          scenes = identities.map(([id, left, right, label], index) => {
+            const isLast = index === identities.length - 1;
+            const durationSeconds = isLast ? baseDuration + remainder : baseDuration;
+            return {
+              sceneId: `sc_identity_${index + 1}`,
+              sceneType: 'algebra_identity' as const,
+              title: `${index + 1}. ${label}`,
+              pedagogicalGoal: index < 5 ? 'Khai triển theo quy tắc phân phối và gom các hạng tử đồng dạng' : 'Phân tích biểu thức thành tích của hai nhân tử',
+              durationSeconds,
+              boundClaimIds: [`claim_identity_${index + 1}`],
+              rendererTarget: 'remotion_infographic' as const,
+              narration: {
+                vietnamese: `${label}: Biểu thức vế trái ${left} tương đương với vế phải ${right}. Khi khai triển hoặc phân tích nhân tử, ta áp dụng quy tắc nhân phân phối và gom các hạng tử đồng dạng. Công thức này giúp rút gọn nhanh các biểu thức đại số phức tạp trong chương trình phổ thông và ứng dụng vào giải phương trình.`,
+                subtitleVietnamese: `${left} = ${right}.`
+              },
+              visualPayload: {
+                sceneType: 'algebra_identity' as const,
+                identityId: id,
+                leftExpression: left,
+                rightExpression: right,
+                transformationSteps: identitySteps[id] ?? [
+                  { expression: left, explanationVietnamese: 'Giữ nguyên biểu thức ban đầu.', highlightTerms: [left] },
+                  { expression: right, explanationVietnamese: 'Khai triển hoặc phân tích nhân tử.', highlightTerms: [right] }
+                ],
+                presentation: (index < 5 ? 'expansion' : 'factorization') as 'expansion' | 'factorization'
+              }
+            };
           });
         }
       } else {
@@ -498,87 +756,326 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           verificationStatus: 'unverified'
         }
       ];
-      scenes = [
-        {
-          sceneId: 'sc_intro',
-          sceneType: 'concept_intro',
-          title: 'Khái niệm cát tuyến trên parabol',
-          pedagogicalGoal: 'Khởi đầu với đường thẳng nối hai điểm trên đồ thị y = x^2',
-          durationSeconds: 12,
-          boundClaimIds: ['claim_poly_deriv'],
-          rendererTarget: 'manim_hybrid',
-          narration: {
-            vietnamese: 'Chào mừng các bạn. Ta xét đường cát tuyến nối hai điểm phân biệt trên đường cong parabol.',
-            subtitleVietnamese: 'Xét cát tuyến nối hai điểm phân biệt trên parabol.'
+      if (targetDurationSeconds >= 240 && targetDurationSeconds < 600) {
+        // CHECKPOINT 5-MINUTE (300s): Comprehensive 8-scene pedagogical progression for Calculus Derivative
+        scenes = [
+          {
+            sceneId: 'sc_hook_velocity',
+            sceneType: 'concept_intro' as const,
+            title: '1. Vấn đề biến thiên tức thời trong chuyển động',
+            pedagogicalGoal: 'Khơi gợi tư duy: vận tốc tức thời tại đúng một khoảnh khắc được đo bằng cách nào',
+            durationSeconds: 35,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'remotion_infographic' as const,
+            narration: {
+              vietnamese: 'Chào mừng các bạn đến với thế giới giải tích. Khi một chiếc xe di chuyển, vận tốc trung bình trên một quãng đường rất dễ tính bằng quãng đường chia cho thời gian. Nhưng làm thế nào ta đo được vận tốc tức thời tại đúng một khoảnh khắc của đồng hồ tốc độ? Bài toán tìm tốc độ biến thiên tức thời này đã thôi thúc các nhà toán học phát minh ra khái niệm đạo hàm.',
+              subtitleVietnamese: 'Làm thế nào để xác định vận tốc tức thời tại đúng một thời điểm?'
+            },
+            visualPayload: {
+              sceneType: 'concept_intro' as const,
+              centralQuestion: 'Làm thế nào xác định tốc độ thay đổi tức thời tại một điểm duy nhất?',
+              keyConcept: 'Biến thiên tức thời & Đạo hàm',
+              accentColor: '#38BDF8',
+              visualStyleId: 'clean_educational_infographic' as const,
+              reducedMotion: false
+            }
           },
-          visualPayload: {
-            sceneType: 'concept_intro',
-            centralQuestion: 'Làm thế nào để xác định hệ số góc tiếp tuyến tại một điểm duy nhất?',
-            keyConcept: 'Cát tuyến và Tiếp tuyến',
-            accentColor: '#22D3EE',
-            visualStyleId: 'clean_educational_infographic',
-            reducedMotion: false
-          }
-        },
-        {
-          sceneId: 'sc_limit',
-          sceneType: 'formula_derivation',
-          title: 'Khoảng cách h co về 0',
-          pedagogicalGoal: 'Mô phỏng cát tuyến tiệm cận tiếp tuyến khi hai điểm chập một',
-          durationSeconds: 16,
-          boundClaimIds: ['claim_secant_limit'],
-          rendererTarget: 'manim_hybrid',
-          narration: {
-            vietnamese: 'Khi cho khoảng cách h co dần về 0, đường cát tuyến xoay dần và trở thành tiếp tuyến duy nhất.',
-            subtitleVietnamese: 'Khi h co về 0, cát tuyến trở thành tiếp tuyến duy nhất.'
+          {
+            sceneId: 'sc_parabola_curve',
+            sceneType: 'formula_derivation' as const,
+            title: '2. Đồ thị parabol f(x) = x² và điểm cố định P(1, 1)',
+            pedagogicalGoal: 'Mô hình hóa hàm bậc hai và xác định vị trí khảo sát độ dốc',
+            durationSeconds: 36,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Để mô hình hóa trực quan, ta xét hàm số đa thức quen thuộc f của x bằng x bình phương. Đồ thị của hàm số là một đường cong parabol đối xứng qua trục tung. Ta chọn một điểm cố định P trên parabol có hoành độ x bằng 1, tung độ tương ứng là 1 bình phương bằng 1, tức điểm P có tọa độ 1, 1. Ta muốn biết độ dốc của đồ thị tại đúng điểm P này.',
+              subtitleVietnamese: 'Xét hàm số f(x) = x² và điểm cố định P(1, 1) trên parabol.'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Hàm số f(x) = x² và Điểm P(1, 1)',
+              formulaTex: 'f(x) = x^2, \\quad P(1, 1)',
+              notes: 'Khảo sát độ dốc đường cong tại x = 1',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
           },
-          visualPayload: {
-            sceneType: 'formula_derivation',
-            headline: 'Giới hạn tỉ số biến thiên',
-            formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h} = 2x",
-            notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0',
-            scientificData: {
-              kind: 'scalar_function_1d',
-              functionType: 'polynomial',
-              expression: 'x^2',
-              xRange: [-2, 3],
-              yRange: [-1, 9],
-              pointX: 1,
-              tangentAtX: 1,
-              secantFromX: 1,
-              secantToX: 2.25,
-              claimId: 'claim_poly_deriv',
-              validation: 'formally_verified'
+          {
+            sceneId: 'sc_secant_secant',
+            sceneType: 'formula_derivation' as const,
+            title: '3. Cát tuyến nối hai điểm P và Q',
+            pedagogicalGoal: 'Thiết lập cát tuyến qua hai điểm và tính hệ số góc m = x + 1',
+            durationSeconds: 38,
+            boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Vì một điểm duy nhất không thể xác định một đường thẳng, ta lấy thêm điểm thứ hai là Q di động trên đường cong với hoành độ x khác 1. Đường thẳng đi qua hai điểm P và Q cắt đồ thị tại hai vị trí, được gọi là cát tuyến. Hệ số góc của cát tuyến PQ được tính bằng độ chênh lệch tung độ chia độ chênh lệch hoành độ: x bình trừ 1 chia cho x trừ 1, rút gọn bằng x cộng 1.',
+              subtitleVietnamese: 'Cát tuyến PQ có hệ số góc m = (x² - 1) / (x - 1) = x + 1'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Hệ số góc cát tuyến PQ',
+              formulaTex: 'm_{PQ} = \\frac{f(x) - f(1)}{x - 1} = \\frac{x^2 - 1}{x - 1} = x + 1',
+              notes: 'Đường thẳng cắt đồ thị tại hai điểm phân biệt P và Q',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                secantFromX: 1,
+                secantToX: 2.0,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
+          },
+          {
+            sceneId: 'sc_limit_approach',
+            sceneType: 'formula_derivation' as const,
+            title: '4. Quá trình giới hạn khi Q tiến về P',
+            pedagogicalGoal: 'Quan sát chuyển động của cát tuyến khi delta x tiến về 0',
+            durationSeconds: 40,
+            boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Bây giờ điều kỳ diệu bắt đầu. Hãy quan sát khi điểm Q trượt dọc theo parabol tiến ngày càng gần về điểm P. Khi khoảng cách delta x co dần về 0, x tiến dần tới 1, cát tuyến PQ bắt đầu xoay quanh điểm P và áp sát dần vào đường cong parabol. Dù không thể gán x bằng 1 trực tiếp vì mẫu số bằng 0, nhưng giới hạn của hệ số góc khi x tiến về 1 lại hoàn toàn xác định.',
+              subtitleVietnamese: 'Khi Q ⟶ P (Δx ⟶ 0), cát tuyến PQ xoay dần áp sát đường cong.'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Quá trình Giới hạn Δx ⟶ 0',
+              formulaTex: '\\lim_{x \\to 1} m_{PQ} = \\lim_{x \\to 1} (x + 1) = 2',
+              notes: 'Khoảng cách giữa hai điểm co lại vô cùng bé',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                secantFromX: 1,
+                secantToX: 1.3,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
+          },
+          {
+            sceneId: 'sc_tangent_slope',
+            sceneType: 'formula_derivation' as const,
+            title: '5. Tiếp tuyến và giá trị đạo hàm f\'(1) = 2',
+            pedagogicalGoal: 'Khẳng định cát tuyến hóa tiếp tuyến và giá trị đạo hàm tại x=1',
+            durationSeconds: 38,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Tại vị trí giới hạn khi Q trùng với P, đường cát tuyến chính thức trở thành tiếp tuyến của parabol tại P. Hệ số góc của đường tiếp tuyến này chính là giới hạn của x cộng 1 khi x tiến về 1, và nó có giá trị chính xác bằng 2. Ta nói đạo hàm của hàm số x bình phương tại x bằng 1 bằng 2, ký hiệu f phẩy tại 1 bằng 2.',
+              subtitleVietnamese: 'Cát tuyến trở thành tiếp tuyến tại P. Đạo hàm f\'(1) = 2.00'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Tiếp tuyến Hoàn chỉnh & Đạo hàm',
+              formulaTex: "f'(1) = \\lim_{x \\to 1} \\frac{f(x) - f(1)}{x - 1} = 2",
+              notes: 'Hệ số góc tiếp tuyến m = 2 chính là f\'(1)',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                secantFromX: 1,
+                secantToX: 1.05,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
+          },
+          {
+            sceneId: 'sc_tangent_equation',
+            sceneType: 'formula_derivation' as const,
+            title: '6. Phương trình đường tiếp tuyến y = 2x - 1',
+            pedagogicalGoal: 'Lập phương trình tiếp tuyến dựa trên điểm tiếp xúc và đạo hàm',
+            durationSeconds: 37,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Biết được hệ số góc bằng 2 và điểm tiếp xúc P tọa độ 1, 1, ta dễ dàng lập phương trình đường thẳng tiếp tuyến: y trừ 1 bằng 2 nhân với x trừ 1. Khai triển và rút gọn, ta thu được phương trình tiếp tuyến y bằng 2 x trừ 1. Tiếp tuyến này chạm vào parabol tại đúng điểm P và là đường xấp xỉ tuyến tính tốt nhất của đồ thị quanh lân cận đó.',
+              subtitleVietnamese: 'Phương trình tiếp tuyến: y - 1 = 2(x - 1) ⟹ y = 2x - 1'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Phương trình Tiếp tuyến tại P(1, 1)',
+              formulaTex: 'y - y_0 = f\'(x_0)(x - x_0) \\implies y = 2x - 1',
+              notes: 'Đường thẳng xấp xỉ tuyến tính tốt nhất quanh lân cận P',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
+          },
+          {
+            sceneId: 'sc_general_formula',
+            sceneType: 'formula_derivation' as const,
+            title: '7. Tổng quát hóa công thức đạo hàm f\'(x) = 2x',
+            pedagogicalGoal: 'Khai triển định nghĩa đạo hàm bằng giới hạn cho điểm x tổng quát',
+            durationSeconds: 38,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'manim_hybrid' as const,
+            narration: {
+              vietnamese: 'Nếu thay điểm x bằng 1 bằng một điểm x bất kỳ, tỷ số gia f của x cộng h trừ f của x tất cả chia cho h sẽ bằng x cộng h tất cả bình trừ x bình chia h. Khai triển tử số được hai x h cộng h bình, chia cho h ta còn hai x cộng h. Khi h tiến dần về 0, giới hạn đúng bằng hai x. Do đó, đạo hàm tổng quát của x bình phương chính là hai x.',
+              subtitleVietnamese: 'f\'(x) = lim_{h⟶0} [(x+h)² - x²] / h = lim_{h⟶0} (2x + h) = 2x'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation' as const,
+              headline: 'Công thức Đạo hàm Tổng quát',
+              formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{(x+h)^2 - x^2}{h} = \\lim_{h \\to 0} (2x + h) = 2x",
+              notes: 'Quy tắc lũy thừa: (x^n)\' = n * x^(n-1)',
+              scientificData: {
+                kind: 'scalar_function_1d' as const,
+                functionType: 'polynomial' as const,
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified' as const
+              }
+            }
+          },
+          {
+            sceneId: 'sc_calculus_summary',
+            sceneType: 'summary' as const,
+            title: '8. Ý nghĩa hình học & Ứng dụng trong AI',
+            pedagogicalGoal: 'Tổng kết bản chất tiếp tuyến và mở rộng tới tối ưu hóa học máy',
+            durationSeconds: 38,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'remotion_infographic' as const,
+            narration: {
+              vietnamese: 'Tổng kết lại, đạo hàm vừa là tốc độ biến thiên tức thời trong vật lý, vừa là hệ số góc tiếp tuyến trong hình học. Trong trí tuệ nhân tạo và học máy, đạo hàm chính là công cụ tính vector độ dốc để cập nhật trọng số trong thuật toán Gradient Descent. Nắm vững bản chất tiếp tuyến sẽ giúp các bạn tự tin bước vào thế giới toán học cao cấp và AI. Hẹn gặp lại các bạn!',
+              subtitleVietnamese: 'Đạo hàm là hệ số góc tiếp tuyến, tốc độ tức thời và là nền tảng tối ưu hóa AI.'
+            },
+            visualPayload: {
+              sceneType: 'summary' as const,
+              title: 'Ý nghĩa Cốt lõi của Đạo hàm',
+              takeaways: [
+                'Hình học: Đạo hàm f\'(x₀) là hệ số góc tiếp tuyến tại điểm (x₀, y₀)',
+                'Giải tích: Tiếp tuyến là vị trí giới hạn của cát tuyến khi khoảng cách h ⟶ 0',
+                'Công thức tổng quát: (x²)\' = 2x, tại x = 1 ta có f\'(1) = 2',
+                'Ứng dụng AI: Đạo hàm hướng dẫn chiều cập nhật tham số trong Gradient Descent'
+              ],
+              verifiedFacts: ['diff(x^2, x) = 2x'],
+              reviewNotes: [],
+              finalCallout: "f'(x) = 2x \\quad \\text{và} \\quad m = 2 \\quad \\text{tại} \\quad x = 1"
             }
           }
-        },
-        {
-          sceneId: 'sc_summary',
-          sceneType: 'summary',
-          title: 'Ý nghĩa đạo hàm',
-          pedagogicalGoal: 'Khái quát hệ số góc tiếp tuyến chính là giá trị đạo hàm tại điểm',
-          durationSeconds: 12,
-          boundClaimIds: ['claim_poly_deriv'],
-          rendererTarget: 'remotion_infographic',
-          narration: {
-            vietnamese: 'Như vậy, đạo hàm tại một điểm chính là tốc độ biến thiên tức thời và là hệ số góc tiếp tuyến.',
-            subtitleVietnamese: 'Đạo hàm là hệ số góc tiếp tuyến và tốc độ biến thiên tức thời.'
+        ];
+      } else {
+        scenes = [
+          {
+            sceneId: 'sc_intro',
+            sceneType: 'concept_intro',
+            title: 'Khái niệm cát tuyến trên parabol',
+            pedagogicalGoal: 'Khởi đầu với đường thẳng nối hai điểm trên đồ thị y = x^2',
+            durationSeconds: 12,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'manim_hybrid',
+            narration: {
+              vietnamese: 'Chào mừng các bạn. Ta xét đường cát tuyến nối hai điểm phân biệt trên đường cong parabol.',
+              subtitleVietnamese: 'Xét cát tuyến nối hai điểm phân biệt trên parabol.'
+            },
+            visualPayload: {
+              sceneType: 'concept_intro',
+              centralQuestion: 'Làm thế nào để xác định hệ số góc tiếp tuyến tại một điểm duy nhất?',
+              keyConcept: 'Cát tuyến và Tiếp tuyến',
+              accentColor: '#22D3EE',
+              visualStyleId: 'clean_educational_infographic',
+              reducedMotion: false
+            }
           },
-          visualPayload: {
+          {
+            sceneId: 'sc_limit',
+            sceneType: 'formula_derivation',
+            title: 'Khoảng cách h co về 0',
+            pedagogicalGoal: 'Mô phỏng cát tuyến tiệm cận tiếp tuyến khi hai điểm chập một',
+            durationSeconds: 16,
+            boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
+            rendererTarget: 'manim_hybrid',
+            narration: {
+              vietnamese: 'Khi cho khoảng cách h co dần về 0, đường cát tuyến xoay dần và trở thành tiếp tuyến duy nhất.',
+              subtitleVietnamese: 'Khi h co về 0, cát tuyến trở thành tiếp tuyến duy nhất.'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation',
+              headline: 'Giới hạn tỉ số biến thiên',
+              formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h} = 2x",
+              notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0',
+              scientificData: {
+                kind: 'scalar_function_1d',
+                functionType: 'polynomial',
+                expression: 'x^2',
+                xRange: [-2, 3],
+                yRange: [-1, 9],
+                pointX: 1,
+                tangentAtX: 1,
+                secantFromX: 1,
+                secantToX: 2.25,
+                claimId: 'claim_poly_deriv',
+                validation: 'formally_verified'
+              }
+            }
+          },
+          {
+            sceneId: 'sc_summary',
             sceneType: 'summary',
-            title: 'Ý nghĩa hình học của đạo hàm',
-            takeaways: [
-              'Cát tuyến nối 2 điểm tiến tới tiếp tuyến khi h co về 0',
-              'Đạo hàm là hệ số góc tiếp tuyến tại điểm xét',
-              'f\'(x) = 2x cho hàm số f(x) = x^2'
-            ],
-            verifiedFacts: ['diff(x^2, x) = 2x'],
-            reviewNotes: [],
-            finalCallout: 'Đạo hàm là nền tảng của các thuật toán tối ưu hóa trong học máy.'
+            title: 'Ý nghĩa đạo hàm',
+            pedagogicalGoal: 'Khái quát hệ số góc tiếp tuyến chính là giá trị đạo hàm tại điểm',
+            durationSeconds: 12,
+            boundClaimIds: ['claim_poly_deriv'],
+            rendererTarget: 'remotion_infographic',
+            narration: {
+              vietnamese: 'Như vậy, đạo hàm tại một điểm chính là tốc độ biến thiên tức thời và là hệ số góc tiếp tuyến.',
+              subtitleVietnamese: 'Đạo hàm là hệ số góc tiếp tuyến và tốc độ biến thiên tức thời.'
+            },
+            visualPayload: {
+              sceneType: 'summary',
+              title: 'Ý nghĩa hình học của đạo hàm',
+              takeaways: [
+                'Cát tuyến nối 2 điểm tiến tới tiếp tuyến khi h co về 0',
+                'Đạo hàm là hệ số góc tiếp tuyến tại điểm xét',
+                'f\'(x) = 2x cho hàm số f(x) = x^2'
+              ],
+              verifiedFacts: ['diff(x^2, x) = 2x'],
+              reviewNotes: [],
+              finalCallout: 'Đạo hàm là nền tảng của các thuật toán tối ưu hóa trong học máy.'
+            }
           }
-        }
-      ];
-      scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Đạo hàm & Tiếp tuyến', 'claim_poly_deriv');
+        ];
+        scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Đạo hàm & Tiếp tuyến', 'claim_poly_deriv');
+      }
     } else if (
       capability.topicId === 'calculus.riemann_integral.intuition' ||
       capability.topicId === 'calculus.integral.riemann_sum'
@@ -885,10 +1382,10 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         }
       ];
       if (targetDurationSeconds >= 300) {
-        // 8-stage comprehensive pedagogical progression for >= 5 min
-        const dur1 = Math.round(targetDurationSeconds * 0.1); // ~30s
-        const dur2 = Math.round(targetDurationSeconds * 0.15); // ~45s
-        const remainder = targetDurationSeconds - (dur1 * 2 + dur2 * 5);
+        // 8-stage comprehensive pedagogical progression for >= 5 min (well-balanced durations: 30-40s)
+        const dur1 = Math.round(targetDurationSeconds * 0.1); // 30s
+        const dur2 = Math.round(targetDurationSeconds * 0.13); // ~39s (e.g. 39 * 5 = 195s)
+        const remainder = targetDurationSeconds - (dur1 * 2 + dur2 * 5); // 300 - (60 + 195) = 45s
         scenes = [
           {
             sceneId: 'sc_intro',
@@ -899,8 +1396,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Chào mừng các bạn. Ta sẽ tìm hiểu Gradient Descent, linh hồn tối ưu hóa đằng sau các mô hình AI hiện đại.',
-              subtitleVietnamese: 'Gradient Descent là thuật toán tìm cực tiểu hàm mất mát trong AI.'
+              vietnamese: 'Chào mừng các bạn đến với bài học chuyên sâu về Gradient Descent — trái tim của các thuật toán tối ưu hóa trong học máy hiện đại. Khi huấn luyện một mô hình AI, từ mạng nơ-ron cơ bản đến các mô hình ngôn ngữ lớn như Transformer, làm thế nào cỗ máy có thể tự động điều chỉnh hàng triệu trọng số để ngày càng thông minh hơn? Câu trả lời nằm ở nguyên lý hạ độ dốc mà chúng ta sắp khám phá.',
+              subtitleVietnamese: 'Gradient Descent là thuật toán cốt lõi tự động điều chỉnh trọng số giảm thiểu sai số.'
             },
             visualPayload: {
               sceneType: 'concept_intro',
@@ -920,8 +1417,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Hãy hình dung hàm mất mát như một thung lũng, mục tiêu của ta là đưa quả bóng lăn xuống đáy sâu nhất.',
-              subtitleVietnamese: 'Hàm mất mát như thung lũng, mô hình cần lăn xuống đáy sâu nhất.'
+              vietnamese: 'Để hiểu trực quan, hãy hình dung hàm mất mát như một bề mặt thung lũng hình cái bát trong không gian. Trục hoành biểu thị giá trị của trọng số w, còn trục tung biểu thị độ sai lệch hay hàm mất mát L của w. Đáy của thung lũng là vị trí mà sai số đạt mức nhỏ nhất có thể, tức là điểm tối ưu w sao. Nhiệm vụ của thuật toán tối ưu là đưa một điểm khởi tạo ngẫu nhiên trên sườn dốc trượt dần từng bước xuống tận đáy sâu nhất của thung lũng.',
+              subtitleVietnamese: 'Hàm mất mát như một thung lũng lồi, mục tiêu là đưa tham số trượt xuống đáy tối ưu.'
             },
             visualPayload: {
               sceneType: 'loss_landscape',
@@ -947,8 +1444,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Đạo hàm riêng biểu diễn độ dốc. Vector gradient chỉ hướng hàm số tăng nhanh nhất.',
-              subtitleVietnamese: 'Vector gradient chỉ hướng tăng dốc nhất của hàm số.'
+              vietnamese: 'Làm sao mô hình biết phải bước sang trái hay sang phải khi đang đứng giữa thung lũng sương mù? Câu trả lời đến từ vector Gradient. Về mặt toán học, gradient là đạo hàm riêng của hàm mất mát theo từng trọng số. Điểm cốt lõi cần ghi nhớ: vector Gradient luôn luôn chỉ theo hướng mà hàm số tăng trưởng dốc nhất. Do đó, nếu muốn giảm mất mát nhanh nhất, mô hình bắt buộc phải đi ngược hướng với vector Gradient, tức là mang dấu trừ.',
+              subtitleVietnamese: 'Vector Gradient chỉ hướng tăng dốc nhất; bước ngược dấu trừ sẽ làm giảm mất mát nhanh nhất.'
             },
             visualPayload: {
               sceneType: 'flowchart_simulation',
@@ -966,8 +1463,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_lr_intuition'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Learning rate là độ dài bước nhảy. Quá lớn gây vọt xà, quá nhỏ khiến học rất chậm.',
-              subtitleVietnamese: 'Learning rate quyết định bước nhảy tham số ở mỗi vòng lặp.'
+              vietnamese: 'Nguyên lý này được đúc kết thành công thức cập nhật trọng số kinh điển: w mới bằng w cũ trừ đi eta nhân với đạo hàm của L theo w. Trong công thức này, eta được gọi là learning rate hay tốc độ học. Nó đóng vai trò như độ dài sải chân của người đi bộ. Dấu trừ đảm bảo ta luôn đi ngược chiều đạo hàm để hạ độ cao, còn learning rate quyết định mỗi bước ta sẽ nhảy xa bao nhiêu trên bề mặt hàm mất mát.',
+              subtitleVietnamese: 'w_{mới} = w_{cũ} - η · ∇L(w) — Learning rate η quyết định độ dài sải chân cập nhật.'
             },
             visualPayload: {
               sceneType: 'loss_landscape',
@@ -992,8 +1489,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Với w bằng 2, gradient bằng 4, eta bằng 0.3, tham số mới w1 trở thành 0.8.',
-              subtitleVietnamese: 'w_1 = 2.0 - 0.3 * 4.0 = 0.8'
+              vietnamese: 'Hãy quan sát mô phỏng cụ thể từng bước lặp: Ban đầu ta khởi tạo trọng số w0 bằng 2. Tại điểm này độ dốc rất lớn, gradient bằng 4. Với learning rate eta bằng 0.3, bước nhảy là 0.3 nhân 4 bằng 1.2. Trọng số mới w1 trở thành 2 trừ 1.2 bằng 0.8, và hàm mất mát giảm đột ngột từ 4.0 xuống còn 0.64. Ta thấy sai số đã được thu hẹp rõ rệt chỉ sau một bước duy nhất!',
+              subtitleVietnamese: 'w₁ = 2.0 - 0.3 × 4.0 = 0.8 ⟹ Mất mát L giảm từ 4.0 xuống 0.64'
             },
             visualPayload: {
               sceneType: 'flowchart_simulation',
@@ -1011,8 +1508,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Qua nhiều vòng lặp, mô hình tiến sát về đáy thung lũng nơi gradient bằng 0.',
-              subtitleVietnamese: 'Quỹ đạo tham số hội tụ về đáy nơi gradient bằng 0.'
+              vietnamese: 'Tiếp tục sang bước thứ hai, gradient giảm còn 1.6, bước nhảy tự động ngắn lại thành 0.48, đưa w tới 0.32. Càng tiến gần đáy, độ dốc càng thoải dần, các bước nhảy tự động thu ngắn lại một cách êm ái, đảm bảo điểm tham số không bị vọt lố qua đỉnh đối diện mà hội tụ vững chắc về điểm đáy tối ưu w sao bằng 0.',
+              subtitleVietnamese: 'Càng gần đáy, gradient càng nhỏ, các bước nhảy tự động ngắn lại và hội tụ êm ái.'
             },
             visualPayload: {
               sceneType: 'loss_landscape',
@@ -1038,8 +1535,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_lr_intuition'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Cần chú ý hiện tượng gradient triệt tiêu và rơi vào điểm yên ngựa trong không gian đa chiều.',
-              subtitleVietnamese: 'Lưu ý điểm yên ngựa và tốc độ học không phù hợp.'
+              vietnamese: 'Việc lựa chọn learning rate eta là một nghệ thuật sống còn trong huấn luyện AI. Nếu chọn eta quá nhỏ, mô hình sẽ bước những bước li ti và mất nhiều tuần lễ. Ngược lại, nếu chọn eta quá lớn, bước nhảy quá đà có thể khiến mô hình bắn vọt qua bên kia sườn dốc và phân kỳ. Ngoài ra, trong không gian đa chiều, cần chú ý hiện tượng điểm yên ngựa và gradient triệt tiêu.',
+              subtitleVietnamese: 'Lưu ý: Learning rate quá nhỏ gây chậm, quá lớn gây phân kỳ dao động.'
             },
             visualPayload: {
               sceneType: 'flowchart_simulation',
@@ -1057,8 +1554,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             boundClaimIds: ['claim_gd_update_rule'],
             rendererTarget: 'remotion_infographic',
             narration: {
-              vietnamese: 'Tóm lại, Gradient Descent bước ngược dốc theo tỉ lệ learning rate để giảm tối đa sai số.',
-              subtitleVietnamese: 'Gradient Descent tối ưu hóa lặp giảm thiểu hàm mất mát.'
+              vietnamese: 'Tổng kết lại, Gradient Descent là phương pháp tối ưu hóa lặp đi lặp lại dựa trên đạo hàm: tính độ dốc, bước ngược hướng gradient theo tỷ lệ learning rate, và lặp lại cho đến khi hội tụ tại điểm cực tiểu. Đây là nền tảng chi phối mọi tiến bộ của học sâu hiện đại. Cảm ơn các bạn đã theo dõi bài giảng LuminaLearn!',
+              subtitleVietnamese: 'Gradient Descent: Bước ngược hướng gradient theo tỉ lệ learning rate để tối thiểu hóa sai số.'
             },
             visualPayload: {
               sceneType: 'summary',
@@ -1066,7 +1563,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
               takeaways: [
                 'Gradient chỉ hướng tăng dốc nhất của hàm mất mát',
                 'Quy tắc cập nhật: w_mới = w_cũ - eta * nabla L(w)',
-                'Hội tụ tại điểm đáy nơi độ dốc tiệm cận 0'
+                'Hội tụ tại điểm đáy nơi độ dốc tiệm cận 0',
+                'Learning rate điều phối sự cân bằng giữa tốc độ và độ ổn định'
               ],
               verifiedFacts: [],
               reviewNotes: [],
