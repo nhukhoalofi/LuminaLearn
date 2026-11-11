@@ -75,7 +75,8 @@ function scientificDataForScene(scene: EducationalSceneV3, claims: EducationalCl
   if ('scientificData' in payload && payload.scientificData) return ScientificVisualDataV1Schema.parse(payload.scientificData);
   if (payload.sceneType === 'algebra_identity') {
     const verified = claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified' && Boolean(claim.formalProofSummary));
-    const realProofRecordId = claims[0]?.sourceReferenceId;
+    // Differentiate source citation IDs (sourceReferenceId) from SymPy verification record IDs (proofRecordId)
+    const realProofRecordId = claims[0]?.proofRecordId;
     const trustedProofRef = verified && realProofRecordId ? realProofRecordId : undefined;
     return VerifiedFormulaStepsDataV1Schema.parse({
       kind: 'verified_formula_steps',
@@ -138,7 +139,8 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
     const intent = intentForData(scientificData);
     const availableValidation = new Set(validationForClaims(claims));
     const hasRejectedClaim = claims.some((c) => c.verificationStatus === 'rejected');
-    if ((scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric' && !hasRejectedClaim) {
+    const isExplicitlyVerifiedNumericContract = (scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric';
+    if (isExplicitlyVerifiedNumericContract && !hasRejectedClaim) {
       availableValidation.add('deterministic_numeric');
     }
     if (scientificData.kind === 'directed_diagram' && scientificData.validation === 'human_review_required') availableValidation.add('human_review');

@@ -33,7 +33,7 @@ export const devfestDerivativeStoryboardV3: EducationalStoryboardV3 = {
       pedagogicalGoal: 'Trực quan hóa chuyển động điểm Q tiến dần về P=(1,1) trên parabol y=x²',
       durationSeconds: 24,
       boundClaimIds: ['claim_derivative_tangent'],
-      rendererTarget: 'manim_hybrid',
+      rendererTarget: 'remotion_infographic',
       narration: {
         vietnamese: 'Xét điểm P tại tọa độ một một trên đồ thị parabol y bằng x bình. Ta chọn điểm thứ hai Q và vẽ cát tuyến. Khi Q tiến dần về P, cát tuyến xoay dần và trở thành đường tiếp tuyến duy nhất có hệ số góc bằng hai.',
         subtitleVietnamese: 'Khi điểm Q tiến về P(1,1), cát tuyến tiệm cận tiếp tuyến f\'(1) = 2.00.'

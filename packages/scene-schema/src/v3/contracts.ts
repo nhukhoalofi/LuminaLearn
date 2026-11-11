@@ -56,6 +56,7 @@ export const EducationalClaimV3Schema = z.object({
   verificationStatus: EducationalVerificationStatusSchema,
   formalProofSummary: z.string().trim().max(500).optional(),
   sourceReferenceId: SafeIdString.optional(),
+  proofRecordId: SafeIdString.optional(),
   humanReviewComment: z.string().trim().max(500).optional(),
   formalExpressionVerified: z.boolean().optional(),
   statementSemanticStatus: StatementSemanticStatusSchema.optional(),

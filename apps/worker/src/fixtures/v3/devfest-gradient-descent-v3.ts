@@ -82,8 +82,8 @@ export const devfestGradientDescentStoryboardV3: EducationalStoryboardV3 = {
       boundClaimIds: ['claim_gd_update_rule'],
       rendererTarget: 'remotion_infographic',
       narration: {
-        vietnamese: 'Từ một nơ-ron đơn lẻ đến những mô hình ngôn ngữ lớn mạnh mẽ nhất, Gradient Descent chính là động cơ bền bỉ giúp trí tuệ nhân tạo liên tục tiến hóa từ dữ liệu.',
-        subtitleVietnamese: 'Gradient Descent: Động cơ vạn năng đứng sau mọi thành tựu AI hiện đại.'
+        vietnamese: 'Từ một hàm hồi quy đơn giản đến các mô hình học sâu, Gradient Descent cùng các biến thể tối ưu hóa là công cụ nền tảng giúp hệ thống học hỏi hiệu quả từ dữ liệu.',
+        subtitleVietnamese: 'Gradient Descent: Động lực tối ưu hóa trọng yếu của các mô hình học sâu.'
       },
       visualPayload: {
         sceneType: 'summary',
@@ -91,7 +91,7 @@ export const devfestGradientDescentStoryboardV3: EducationalStoryboardV3 = {
         takeaways: [
           'Vector gradient chỉ hướng dốc lên nhanh nhất của hàm mất mát',
           'Bước ngược gradient một khoảng bằng learning rate η để đi xuống',
-          'Lặp lại liên tục cho đến khi chạm đáy cực tiểu toàn cục'
+          'Với hàm lồi và tốc độ học phù hợp, giải thuật hội tụ ổn định về điểm cực tiểu'
         ],
         verifiedFacts: [
           'L(w) = (w-2)^2 + 1',

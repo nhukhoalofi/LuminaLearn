@@ -502,17 +502,23 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                   strokeWidth={poly.strokeWidth ?? 2}
                   strokeLinejoin="round"
                 />
-                {poly.label && (
-                  <text
-                    x={transform.toScreenX(poly.points[0][0]) + 10}
-                    y={transform.toScreenY(poly.points[0][1]) + 20}
-                    fill={poly.strokeColor ?? '#38BDF8'}
-                    fontSize="13"
-                    fontWeight="bold"
-                  >
-                    {poly.label}
-                  </text>
-                )}
+                {poly.label && (() => {
+                  const centerX = poly.points.reduce((sum: number, [x]: [number, number]) => sum + x, 0) / poly.points.length;
+                  const centerY = poly.points.reduce((sum: number, [, y]: [number, number]) => sum + y, 0) / poly.points.length;
+                  return (
+                    <text
+                      x={transform.toScreenX(centerX)}
+                      y={transform.toScreenY(centerY)}
+                      fill={poly.strokeColor ?? '#38BDF8'}
+                      fontSize="14"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      {poly.label}
+                    </text>
+                  );
+                })()}
               </g>
             );
           }
@@ -907,8 +913,13 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 };
 
 /** Remotion runtime wrapper; the core component remains deterministic and server-render-testable. */
-export const AnimatedVisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3 }> = (props) => {
+export const AnimatedVisualDslSceneV3: React.FC<{
+  definition: VisualSceneDefinitionV3;
+  trustedProofContext?: TrustedProofContextV3;
+  durationInFrames?: number;
+}> = (props) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const videoConfig = useVideoConfig();
+  const durationInFrames = props.durationInFrames ?? props.definition.timeline?.durationFrames ?? videoConfig.durationInFrames;
   return <VisualDslSceneV3 {...props} frame={frame} durationInFrames={durationInFrames} />;
 };

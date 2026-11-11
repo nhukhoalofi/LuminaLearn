@@ -71,21 +71,23 @@ export function adaptGeometry2dV3(input: GeometryData, sceneId = 'scientific_geo
     { elementType: 'axes', elementId: `${sceneId}_axes`, xLabel: 'x', yLabel: 'y', showGrid: true, gridColor: '#334155' }
   ];
 
-  // Render polygons as area visualization first (background layer)
+  // Render polygons as area visualization first (background layer) with distinct chalkboard colors
+  const CHALKBOARD_PALETTE = ['#38BDF8', '#34D399', '#F472B6', '#FBBF24'];
   data.polygons.forEach((poly, index) => {
     const coords = poly.pointIds.map((id) => {
       const p = pointMap.get(id)!;
       return [p.x, p.y] as [number, number];
     });
+    const color = poly.fill ?? CHALKBOARD_PALETTE[index % CHALKBOARD_PALETTE.length];
     elements.push({
       elementType: 'polygon',
       elementId: `${sceneId}_poly_${index + 1}`,
       points: coords,
-      fill: '#38BDF8',
-      fillOpacity: 0.28,
-      strokeColor: '#38BDF8',
+      fill: color,
+      fillOpacity: 0.32,
+      strokeColor: color,
       strokeWidth: 2.5,
-      label: poly.areaClaimId ? `Diện tích: ${poly.areaClaimId}` : undefined,
+      label: poly.label ?? undefined,
       claimId: poly.areaClaimId
     });
   });

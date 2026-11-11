@@ -172,7 +172,12 @@ export const Geometry2dDataV1Schema = z.object({
   kind: z.literal('geometry_2d'),
   points: z.array(GeometryPointV1Schema).min(2).max(24),
   segments: z.array(z.object({ fromPointId: SafeIdString, toPointId: SafeIdString }).strict()).max(36),
-  polygons: z.array(z.object({ pointIds: z.array(SafeIdString).min(3).max(12), areaClaimId: SafeIdString.optional() }).strict()).max(8),
+  polygons: z.array(z.object({
+    pointIds: z.array(SafeIdString).min(3).max(12),
+    areaClaimId: SafeIdString.optional(),
+    label: z.string().trim().max(64).optional(),
+    fill: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional()
+  }).strict()).max(8),
   claimIds: z.array(SafeIdString).default([]),
   validation: z.enum(['formally_verified', 'human_review_required'])
 }).strict().superRefine((data, ctx) => {

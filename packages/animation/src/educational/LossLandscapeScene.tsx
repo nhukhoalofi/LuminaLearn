@@ -7,21 +7,24 @@ export interface LossLandscapeSceneProps {
   title: string;
   payload: LossLandscapeVisualPayload;
   subtitleText?: string;
+  durationInFrames?: number;
 }
 
 export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
   title,
   payload,
-  subtitleText
+  subtitleText,
+  durationInFrames: propDuration
 }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const sceneProgress = spring({ frame, fps, config: { damping: 15, stiffness: 90 } });
 
   const exitOpacity = interpolate(
     frame,
-    [Math.max(0, durationInFrames - 12), durationInFrames],
+    [Math.max(0, effectiveDuration - 12), effectiveDuration],
     [1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
@@ -66,7 +69,7 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
   const curvePath = `M ${curvePoints.join(' L ')}`;
 
   // Derive every animated value from one validated quadratic function, frame by frame.
-  const motion = deriveLossLandscapeFrameV3(payload, frame, durationInFrames);
+  const motion = deriveLossLandscapeFrameV3(payload, frame, effectiveDuration);
   const currentX = toSvgX(motion.w);
   const currentY = toSvgY(motion.loss);
 

@@ -106,10 +106,10 @@ export const devfestAlgebraStoryboardV3: EducationalStoryboardV3 = {
             { fromPointId: 'pt_G', toPointId: 'pt_C' }
           ],
           polygons: [
-            { pointIds: ['pt_O', 'pt_A', 'pt_M', 'pt_G'], areaClaimId: 'claim_identity_square_sum' },
-            { pointIds: ['pt_A', 'pt_B', 'pt_C', 'pt_M'], areaClaimId: 'claim_identity_square_sum' },
-            { pointIds: ['pt_G', 'pt_M', 'pt_E', 'pt_F'], areaClaimId: 'claim_identity_square_sum' },
-            { pointIds: ['pt_M', 'pt_C', 'pt_D', 'pt_E'], areaClaimId: 'claim_identity_square_sum' }
+            { pointIds: ['pt_O', 'pt_A', 'pt_M', 'pt_G'], areaClaimId: 'claim_identity_square_sum', label: 'a² = 9', fill: '#38BDF8' },
+            { pointIds: ['pt_A', 'pt_B', 'pt_C', 'pt_M'], areaClaimId: 'claim_identity_square_sum', label: 'ab = 6', fill: '#34D399' },
+            { pointIds: ['pt_G', 'pt_M', 'pt_E', 'pt_F'], areaClaimId: 'claim_identity_square_sum', label: 'ab = 6', fill: '#F472B6' },
+            { pointIds: ['pt_M', 'pt_C', 'pt_D', 'pt_E'], areaClaimId: 'claim_identity_square_sum', label: 'b² = 4', fill: '#FBBF24' }
           ],
           claimIds: ['claim_identity_square_sum'],
           validation: 'formally_verified'

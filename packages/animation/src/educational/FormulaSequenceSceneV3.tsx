@@ -3,6 +3,7 @@ import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { VerifiedFormulaStepsDataV1Schema, type ScientificVisualDataV1 } from '@luminalearn/scene-schema';
 import { MathExpression } from './MathExpression';
 import { deriveMotionRecipeFrameV3 } from './motion-recipes-v3';
+import type { TrustedProofContextV3 } from './VisualDslSceneV3';
 
 export type VerifiedFormulaStepsDataV1 = Extract<ScientificVisualDataV1, { kind: 'verified_formula_steps' }>;
 
@@ -15,6 +16,7 @@ export interface FormulaStepCardProps {
   revealOpacity: number;
   revealTranslateY: number;
   highlightPulseProgress: number;
+  trustedProofContext?: TrustedProofContextV3;
 }
 
 /** Reusable formula step card with verified KaTeX rendering and term highlight animation. */
@@ -25,7 +27,8 @@ export const FormulaStepCard: React.FC<FormulaStepCardProps> = ({
   isVisible,
   revealOpacity,
   revealTranslateY,
-  highlightPulseProgress
+  highlightPulseProgress,
+  trustedProofContext
 }) => {
   const isSubstitution = step.explanation.toLowerCase().includes('thay') || step.explanation.toLowerCase().includes('substitut');
   const isExpansion = step.explanation.toLowerCase().includes('khai triển') || step.explanation.toLowerCase().includes('expand');
@@ -89,8 +92,15 @@ export const FormulaStepCard: React.FC<FormulaStepCardProps> = ({
           )}
         </div>
         {step.proofReferenceId && (
-          <span style={{ fontSize: 10, color: '#86EFAC', fontFamily: 'monospace' }}>
-            ✓ ref: {step.proofReferenceId}
+          <span
+            style={{
+              fontSize: 10,
+              color: trustedProofContext?.artifactIntegrityVerified ? '#86EFAC' : '#FCD34D',
+              fontFamily: 'monospace'
+            }}
+          >
+            {trustedProofContext?.artifactIntegrityVerified ? '✓ SymPy: ' : 'ref: '}
+            {step.proofReferenceId}
           </span>
         )}
       </div>
@@ -161,10 +171,13 @@ export const FormulaSequenceSceneV3: React.FC<{
   data: VerifiedFormulaStepsDataV1;
   subtitleText?: string;
   layout?: 'stacked' | 'multiline_aligned';
-}> = ({ data: input, subtitleText, layout = 'stacked' }) => {
+  durationInFrames?: number;
+  trustedProofContext?: TrustedProofContextV3;
+}> = ({ data: input, subtitleText, layout = 'stacked', durationInFrames: propDuration, trustedProofContext }) => {
   const data = VerifiedFormulaStepsDataV1Schema.parse(input);
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const videoConfig = useVideoConfig();
+  const durationInFrames = propDuration ?? videoConfig.durationInFrames;
   const progression = deriveMotionRecipeFrameV3({
     recipeId: 'R10',
     frame,
@@ -224,6 +237,7 @@ export const FormulaSequenceSceneV3: React.FC<{
               revealOpacity={reveal.opacity}
               revealTranslateY={reveal.translateY}
               highlightPulseProgress={isActive ? highlightMotion.progress : 0}
+              trustedProofContext={trustedProofContext}
             />
           );
         })}

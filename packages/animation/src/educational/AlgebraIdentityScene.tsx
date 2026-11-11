@@ -2,14 +2,18 @@ import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { AlgebraIdentityVisualPayload } from '@luminalearn/scene-schema';
 import { MathExpression } from './MathExpression';
+import type { TrustedProofContextV3 } from './VisualDslSceneV3';
 
 export const AlgebraIdentityScene: React.FC<{
   title: string;
   payload: AlgebraIdentityVisualPayload;
   subtitleText?: string;
-}> = ({ title, payload, subtitleText }) => {
+  durationInFrames?: number;
+  trustedProofContext?: TrustedProofContextV3;
+}> = ({ title, payload, subtitleText, durationInFrames: propDuration, trustedProofContext }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const isSquareIdentity =
     payload.identityId === 'square_sum' ||
@@ -23,7 +27,7 @@ export const AlgebraIdentityScene: React.FC<{
 
   // Compute active transformation step based on playback progress
   const stepCount = payload.transformationSteps.length;
-  const stepDuration = Math.max(1, Math.floor(durationInFrames / stepCount));
+  const stepDuration = Math.max(1, Math.floor(effectiveDuration / stepCount));
   const activeStepIndex = Math.min(stepCount - 1, Math.floor(frame / stepDuration));
   const currentStep = payload.transformationSteps[activeStepIndex] ?? payload.transformationSteps[0];
 
@@ -209,8 +213,8 @@ export const AlgebraIdentityScene: React.FC<{
           <span style={{ fontSize: 13, fontWeight: 700, color: '#38BDF8', letterSpacing: 1 }}>
             BƯỚC {activeStepIndex + 1} / {stepCount}
           </span>
-          <span style={{ fontSize: 12, color: '#94A3B8' }}>
-            Biến đổi tương đương SymPy
+          <span style={{ fontSize: 12, color: trustedProofContext?.artifactIntegrityVerified ? '#4ADE80' : '#94A3B8' }}>
+            {trustedProofContext?.artifactIntegrityVerified ? 'Biến đổi tương đương SymPy' : 'Biến đổi đại số từng bước'}
           </span>
         </div>
 

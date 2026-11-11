@@ -98,9 +98,20 @@ export const BurnedInSubtitleOverlayV3: React.FC<{
 /**
  * SceneDispatcherV3: Dispatch từng phân cảnh theo sceneType với contract visualPayload nghiêm ngặt.
  */
-export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean; trustedProofContext?: TrustedProofContextV3 }> = ({ scene, subtitlesEnabled, trustedProofContext }) => {
+export const SceneDispatcherV3: React.FC<{
+  scene: EducationalSceneV3;
+  subtitlesEnabled: boolean;
+  trustedProofContext?: TrustedProofContextV3;
+  sceneDurationFrames?: number;
+}> = ({ scene, subtitlesEnabled, trustedProofContext, sceneDurationFrames }) => {
   if (scene.visualDefinition) {
-    return <AnimatedVisualDslSceneV3 definition={scene.visualDefinition} trustedProofContext={trustedProofContext} />;
+    return (
+      <AnimatedVisualDslSceneV3
+        definition={scene.visualDefinition}
+        trustedProofContext={trustedProofContext}
+        durationInFrames={sceneDurationFrames}
+      />
+    );
   }
   const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
@@ -109,43 +120,88 @@ export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesE
   if ('scientificData' in payload && payload.scientificData) {
     const sci = payload.scientificData;
     if (sci.kind === 'verified_formula_steps') {
-      return <FormulaSequenceSceneV3 data={sci} subtitleText={subtitle} />;
+      return (
+        <FormulaSequenceSceneV3
+          data={sci}
+          subtitleText={subtitle}
+          durationInFrames={sceneDurationFrames}
+          trustedProofContext={trustedProofContext}
+        />
+      );
     }
     if (sci.kind === 'scalar_function_1d') {
-      return <AnimatedVisualDslSceneV3 definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return (
+        <AnimatedVisualDslSceneV3
+          definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)}
+          trustedProofContext={trustedProofContext}
+          durationInFrames={sceneDurationFrames}
+        />
+      );
     }
     if (sci.kind === 'geometry_2d') {
-      return <AnimatedVisualDslSceneV3 definition={adaptGeometry2dV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return (
+        <AnimatedVisualDslSceneV3
+          definition={adaptGeometry2dV3(sci, scene.sceneId)}
+          trustedProofContext={trustedProofContext}
+          durationInFrames={sceneDurationFrames}
+        />
+      );
     }
     if (sci.kind === 'directed_diagram') {
-      return <AnimatedVisualDslSceneV3 definition={adaptDirectedDiagramV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return (
+        <AnimatedVisualDslSceneV3
+          definition={adaptDirectedDiagramV3(sci, scene.sceneId)}
+          trustedProofContext={trustedProofContext}
+          durationInFrames={sceneDurationFrames}
+        />
+      );
     }
     if (sci.kind === 'attention_matrix') {
-      return <AnimatedVisualDslSceneV3 definition={adaptAttentionMatrixV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return (
+        <AnimatedVisualDslSceneV3
+          definition={adaptAttentionMatrixV3(sci, scene.sceneId)}
+          trustedProofContext={trustedProofContext}
+          durationInFrames={sceneDurationFrames}
+        />
+      );
     }
     if (sci.kind === 'probability_tree') {
-      return <AnimatedVisualDslSceneV3 definition={adaptProbabilityTreeV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return (
+        <AnimatedVisualDslSceneV3
+          definition={adaptProbabilityTreeV3(sci, scene.sceneId)}
+          trustedProofContext={trustedProofContext}
+          durationInFrames={sceneDurationFrames}
+        />
+      );
     }
   }
 
   switch (payload.sceneType) {
     case 'concept_intro':
-      return <ConceptIntroScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <ConceptIntroScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'neural_architecture':
-      return <NeuralArchitectureScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <NeuralArchitectureScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'loss_landscape':
-      return <LossLandscapeScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <LossLandscapeScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'attention_heatmap':
-      return <AttentionHeatmapScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <AttentionHeatmapScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'algebra_identity':
-      return <AlgebraIdentityScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return (
+        <AlgebraIdentityScene
+          title={scene.title}
+          payload={payload}
+          subtitleText={subtitle}
+          durationInFrames={sceneDurationFrames}
+          trustedProofContext={trustedProofContext}
+        />
+      );
     case 'summary':
-      return <SummaryScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <SummaryScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'formula_derivation':
     case 'graph_plot':
     case 'flowchart_simulation':
     case 'comparison_table':
-      return <GenericPlotScene title={scene.title} payload={payload} subtitleText={subtitle} />;
+      return <GenericPlotScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     default: {
       const unsupported: never = payload;
       throw new Error(`unsupported_v3_scene_payload: ${String(unsupported)}`);
@@ -202,6 +258,7 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
               scene={scene}
               subtitlesEnabled={hasAuthoritativeCues ? false : subtitlesEnabled}
               trustedProofContext={trustedProofContext}
+              sceneDurationFrames={sceneDurationFrames}
             />
           </Sequence>
         );
