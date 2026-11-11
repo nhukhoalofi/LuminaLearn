@@ -26,6 +26,9 @@ import { visualDslFixtureV3 } from './fixtures/v3/visual-dsl-v3';
 import { mathTypographySceneV3 } from './fixtures/v3/math-typography-v3';
 import { sprintBFormulaFixtureV3 } from './fixtures/v3/sprint-b-formula-v3';
 import { sprintBDerivativeGraphFixtureV3 } from './fixtures/v3/sprint-b-derivative-graph-v3';
+import { devfestAlgebraStoryboardV3 } from './fixtures/v3/devfest-algebra-v3';
+import { devfestDerivativeStoryboardV3 } from './fixtures/v3/devfest-derivative-v3';
+import { devfestGradientDescentStoryboardV3 } from './fixtures/v3/devfest-gradient-descent-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -180,6 +183,46 @@ export const Root: React.FC = () => {
         height={1280}
         schema={LuminaScenePreviewV3Schema}
         defaultProps={{ scene: mathTypographySceneV3, subtitlesEnabled: true }}
+      />
+      {/* DevFest 2026 Release Candidate Compositions */}
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestAlgebraIdentityV3"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(devfestAlgebraStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestAlgebraStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24))
+        })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestDerivativeTangentV3"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(devfestDerivativeStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestDerivativeStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24))
+        })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestGradientDescentV3"
+        component={LuminaSceneV3}
+        durationInFrames={Math.round(devfestGradientDescentStoryboardV3.totalDurationSeconds * 24)}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestGradientDescentStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24))
+        })}
       />
     </>
   );

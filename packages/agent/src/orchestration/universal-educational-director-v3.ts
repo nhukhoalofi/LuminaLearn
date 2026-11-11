@@ -75,7 +75,8 @@ function scientificDataForScene(scene: EducationalSceneV3, claims: EducationalCl
   if ('scientificData' in payload && payload.scientificData) return ScientificVisualDataV1Schema.parse(payload.scientificData);
   if (payload.sceneType === 'algebra_identity') {
     const verified = claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified' && Boolean(claim.formalProofSummary));
-    const trustedProofRef = verified && claims[0]?.formalProofSummary ? `proof_${claims[0].id}` : undefined;
+    const realProofRecordId = claims[0]?.sourceReferenceId;
+    const trustedProofRef = verified && realProofRecordId ? realProofRecordId : undefined;
     return VerifiedFormulaStepsDataV1Schema.parse({
       kind: 'verified_formula_steps',
       title: scene.title,
@@ -86,7 +87,7 @@ function scientificDataForScene(scene: EducationalSceneV3, claims: EducationalCl
         explanation: step.explanationVietnamese,
         highlightTerms: step.highlightTerms,
         claimIds: scene.boundClaimIds,
-        ...(verified && trustedProofRef ? { proofReferenceId: trustedProofRef } : {})
+        ...(trustedProofRef ? { proofReferenceId: trustedProofRef } : {})
       }))
     });
   }
@@ -136,8 +137,8 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
   if (scientificData) {
     const intent = intentForData(scientificData);
     const availableValidation = new Set(validationForClaims(claims));
-    const claimsNumericallyValid = claims.length > 0 && claims.every((c) => ['formally_verified', 'numerically_validated'].includes(c.verificationStatus));
-    if ((scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric' && claimsNumericallyValid) {
+    const hasRejectedClaim = claims.some((c) => c.verificationStatus === 'rejected');
+    if ((scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric' && !hasRejectedClaim) {
       availableValidation.add('deterministic_numeric');
     }
     if (scientificData.kind === 'directed_diagram' && scientificData.validation === 'human_review_required') availableValidation.add('human_review');

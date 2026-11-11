@@ -49,17 +49,17 @@ describe('Quality Sprint B scientific visual adapters', () => {
     const scene = adaptGeometry2dV3({
       kind: 'geometry_2d',
       points: [
-        { pointId: 'A', x: 0, y: 0 },
-        { pointId: 'B', x: 4, y: 0 },
-        { pointId: 'C', x: 0, y: 3 }
+        { pointId: 'point_A', x: 0, y: 0 },
+        { pointId: 'point_B', x: 4, y: 0 },
+        { pointId: 'point_C', x: 0, y: 3 }
       ],
       segments: [
-        { fromPointId: 'A', toPointId: 'B' },
-        { fromPointId: 'B', toPointId: 'C' },
-        { fromPointId: 'C', toPointId: 'A' }
+        { fromPointId: 'point_A', toPointId: 'point_B' },
+        { fromPointId: 'point_B', toPointId: 'point_C' },
+        { fromPointId: 'point_C', toPointId: 'point_A' }
       ],
       polygons: [
-        { pointIds: ['A', 'B', 'C'], areaClaimId: 'claim_triangle_area' }
+        { pointIds: ['point_A', 'point_B', 'point_C'], areaClaimId: 'claim_triangle_area' }
       ],
       claimIds: ['claim_triangle_area'],
       validation: 'formally_verified'

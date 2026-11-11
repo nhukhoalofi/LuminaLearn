@@ -527,6 +527,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
               yRange: [-1, 9],
               pointX: 1,
               tangentAtX: 1,
+              secantFromX: 1,
+              secantToX: 2.25,
               claimId: 'claim_poly_deriv',
               validation: 'formally_verified'
             }

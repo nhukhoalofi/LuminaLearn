@@ -9,6 +9,7 @@ import {
   SummaryScene,
   GenericPlotScene,
   AlgebraIdentityScene,
+  AnimatedVisualDslSceneV3,
   VisualDslSceneV3,
   FormulaSequenceSceneV3,
   adaptScalarFunctionGraphV3,
@@ -99,7 +100,7 @@ export const BurnedInSubtitleOverlayV3: React.FC<{
  */
 export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesEnabled: boolean; trustedProofContext?: TrustedProofContextV3 }> = ({ scene, subtitlesEnabled, trustedProofContext }) => {
   if (scene.visualDefinition) {
-    return <VisualDslSceneV3 definition={scene.visualDefinition} trustedProofContext={trustedProofContext} />;
+    return <AnimatedVisualDslSceneV3 definition={scene.visualDefinition} trustedProofContext={trustedProofContext} />;
   }
   const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
@@ -111,19 +112,19 @@ export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesE
       return <FormulaSequenceSceneV3 data={sci} subtitleText={subtitle} />;
     }
     if (sci.kind === 'scalar_function_1d') {
-      return <VisualDslSceneV3 definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return <AnimatedVisualDslSceneV3 definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
     }
     if (sci.kind === 'geometry_2d') {
-      return <VisualDslSceneV3 definition={adaptGeometry2dV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return <AnimatedVisualDslSceneV3 definition={adaptGeometry2dV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
     }
     if (sci.kind === 'directed_diagram') {
-      return <VisualDslSceneV3 definition={adaptDirectedDiagramV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return <AnimatedVisualDslSceneV3 definition={adaptDirectedDiagramV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
     }
     if (sci.kind === 'attention_matrix') {
-      return <VisualDslSceneV3 definition={adaptAttentionMatrixV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return <AnimatedVisualDslSceneV3 definition={adaptAttentionMatrixV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
     }
     if (sci.kind === 'probability_tree') {
-      return <VisualDslSceneV3 definition={adaptProbabilityTreeV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+      return <AnimatedVisualDslSceneV3 definition={adaptProbabilityTreeV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
     }
   }
 

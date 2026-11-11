@@ -130,14 +130,16 @@ export function adaptGeometry2dV3(input: GeometryData, sceneId = 'scientific_geo
       fps: 24,
       markers: [{ frame: 24, label: 'Dựng hình học', eventType: 'reveal' }, { frame: 96, label: 'Tô miền diện tích', eventType: 'highlight' }]
     },
-    mathBindings: data.claimIds.map((cid, i) => ({
-      bindingId: `${sceneId}_binding_${i + 1}`,
-      claimId: cid,
-      elementId: `${sceneId}_poly_${Math.min(i + 1, Math.max(1, data.polygons.length))}`,
-      formalExpression: 'Area(P)',
-      mathSymbol: 'S',
-      isVerified: data.validation === 'formally_verified'
-    })),
+    mathBindings: data.polygons.length > 0
+      ? data.claimIds.map((cid, i) => ({
+          bindingId: `${sceneId}_binding_${i + 1}`,
+          claimId: cid,
+          elementId: `${sceneId}_poly_${Math.min(i + 1, data.polygons.length)}`,
+          formalExpression: 'Area(P)',
+          mathSymbol: 'S',
+          isVerified: data.validation === 'formally_verified'
+        }))
+      : [],
     trustedMathBindings: [],
     dataBindings: []
   });

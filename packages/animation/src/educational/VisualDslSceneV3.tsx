@@ -121,15 +121,22 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
       const maxX = Math.max(...xs);
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
-      const spanX = Math.max(1, maxX - minX);
-      const spanY = Math.max(1, maxY - minY);
-      // Isometric aspect ratio (1:1): keep scale identical so right angles and polygons are never distorted
-      const maxSpan = Math.max(spanX, spanY);
+      const spanX = Math.max(0.1, maxX - minX);
+      const spanY = Math.max(0.1, maxY - minY);
       const midX = (minX + maxX) / 2;
       const midY = (minY + maxY) / 2;
-      const pad = Math.max(0.5, maxSpan * 0.2);
-      geomXRange = [Number((midX - maxSpan / 2 - pad).toFixed(2)), Number((midX + maxSpan / 2 + pad).toFixed(2))];
-      geomYRange = [Number((midY - maxSpan / 2 - pad).toFixed(2)), Number((midY + maxSpan / 2 + pad).toFixed(2))];
+
+      // Isometric aspect ratio (1:1): guarantee pixelsPerMathUnitX === pixelsPerMathUnitY
+      // DEFAULT_GRAPH_BOX is 560 x 480. We use 78% of the viewport for comfortable margin.
+      const usableW = DEFAULT_GRAPH_BOX.width * 0.78;
+      const usableH = DEFAULT_GRAPH_BOX.height * 0.78;
+      const pixelsPerMathUnit = Math.min(usableW / spanX, usableH / spanY);
+
+      const totalMathX = DEFAULT_GRAPH_BOX.width / pixelsPerMathUnit;
+      const totalMathY = DEFAULT_GRAPH_BOX.height / pixelsPerMathUnit;
+
+      geomXRange = [Number((midX - totalMathX / 2).toFixed(4)), Number((midX + totalMathX / 2).toFixed(4))];
+      geomYRange = [Number((midY - totalMathY / 2).toFixed(4)), Number((midY + totalMathY / 2).toFixed(4))];
     }
   }
 

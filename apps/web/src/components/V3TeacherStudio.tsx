@@ -450,6 +450,49 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         <option value="mathematics">Toán học</option>
         <option value="artificial_intelligence">Trí tuệ nhân tạo / Học máy</option>
       </select>
+      <div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(34, 211, 238, 0.08)', borderRadius: 10, border: '1px solid rgba(34, 211, 238, 0.25)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#22D3EE', marginBottom: 8, letterSpacing: 0.5 }}>
+          🌟 DEVFEST 2026 DEMO PRESETS
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{ borderColor: '#38BDF8', color: '#F8FAFC', fontWeight: 600 }}
+            onClick={() => {
+              setDomain('mathematics');
+              setTopic('Vì sao (a+b)² = a² + 2ab + b²?');
+              setDurationPreset('60s');
+            }}
+          >
+            📐 1. Hằng đẳng thức (a+b)²
+          </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{ borderColor: '#38BDF8', color: '#F8FAFC', fontWeight: 600 }}
+            onClick={() => {
+              setDomain('mathematics');
+              setTopic('Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến');
+              setDurationPreset('60s');
+            }}
+          >
+            📈 2. Đạo hàm: Cát tuyến → Tiếp tuyến
+          </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{ borderColor: '#10B981', color: '#F8FAFC', fontWeight: 600 }}
+            onClick={() => {
+              setDomain('artificial_intelligence');
+              setTopic('Gradient Descent — AI tìm điểm tối ưu như thế nào?');
+              setDurationPreset('60s');
+            }}
+          >
+            📉 3. Gradient Descent: Tối ưu hóa AI
+          </button>
+        </div>
+      </div>
       <label className="form-label">Chủ đề</label>
       <textarea className="form-textarea" value={topic} onChange={(event) => setTopic(event.target.value)} />
       <div aria-label="Ví dụ chương trình học">

@@ -624,12 +624,12 @@ export const VisualSceneDefinitionV3Schema = z.object({
   });
   scene.mathBindings.forEach((binding, index) => {
     const element = scene.elements.find((candidate) => candidate.elementId === binding.elementId);
-    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mathBindings', index, 'elementId'], message: 'Math binding phải tham chiếu formula hoặc graph element tồn tại' });
+    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph' && element.elementType !== 'polygon')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mathBindings', index, 'elementId'], message: 'Math binding phải tham chiếu formula, graph hoặc polygon element tồn tại' });
   });
   scene.trustedMathBindings.forEach((binding, index) => {
     const element = scene.elements.find((candidate) => candidate.elementId === binding.elementId);
-    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph') || element.claimId !== binding.claimId || binding.sourceSceneId !== scene.sceneId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trustedMathBindings', index], message: 'Trusted binding phải khớp formula/graph, claim và scene hiện tại' });
+    if (!element || (element.elementType !== 'formula' && element.elementType !== 'graph' && element.elementType !== 'polygon') || element.claimId !== binding.claimId || binding.sourceSceneId !== scene.sceneId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trustedMathBindings', index], message: 'Trusted binding phải khớp formula/graph/polygon, claim và scene hiện tại' });
     }
   });
   scene.dataBindings.forEach((binding, index) => {

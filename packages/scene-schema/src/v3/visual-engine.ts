@@ -95,34 +95,71 @@ export const OptimizationTraceDataV1Schema = z.object({
     }
   }
 
-  const quadMatch = /L\(w\)\s*=\s*([+-]?\d*(?:\.\d+)?)\s*\*?\s*\(w\s*-\s*([+-]?\d*(?:\.\d+)?)\)\^2\s*\+\s*([+-]?\d*(?:\.\d+)?)/.exec(data.expression)
-    || /L\(w\)\s*=\s*([+-]?\d*(?:\.\d+)?)\s*\*?w\^2/.exec(data.expression);
+  const fullExpr = data.expression.trim();
+  // Form A: [L(w) =] [a *] (w [-+] h)^2 [[-+] k]
+  const matchA = /^(?:L\(w\)\s*=\s*)?([+-]?\d*(?:\.\d+)?)\s*\*?\s*\(\s*w\s*([+-])\s*(\d+(?:\.\d+)?)\s*\)\^2(?:\s*([+-])\s*(\d+(?:\.\d+)?))?$/.exec(fullExpr);
+  // Form B: [L(w) =] [a *] w^2 [[-+] k]
+  const matchB = /^(?:L\(w\)\s*=\s*)?([+-]?\d*(?:\.\d+)?)\s*\*?\s*w\^2(?:\s*([+-])\s*(\d+(?:\.\d+)?))?$/.exec(fullExpr);
 
-  if (quadMatch) {
-    const a = quadMatch[1] === '' || quadMatch[1] === '+' ? 1 : quadMatch[1] === '-' ? -1 : Number(quadMatch[1]);
-    const h = quadMatch[2] !== undefined ? Number(quadMatch[2]) : 0;
-    const k = quadMatch[3] !== undefined ? Number(quadMatch[3]) : 0;
-    const tol = 1e-4;
-
-    data.points.forEach((pt, index) => {
-      const delta = pt.parameter - h;
-      const expectedValue = a * delta * delta + k;
-      const expectedGrad = 2 * a * delta;
-      if (Math.abs(pt.value - expectedValue) > tol) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'value'], message: `Loss value ${pt.value} does not match expression (expected ~${expectedValue.toFixed(4)}).` });
-      }
-      if (Math.abs(pt.gradient - expectedGrad) > tol) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'gradient'], message: `Gradient ${pt.gradient} does not match derivative (expected ~${expectedGrad.toFixed(4)}).` });
-      }
-      if (index < data.points.length - 1) {
-        const next = data.points[index + 1];
-        const expectedNextParam = pt.parameter - data.learningRate * pt.gradient;
-        if (Math.abs(next.parameter - expectedNextParam) > tol) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index + 1, 'parameter'], message: `Parameter update ${next.parameter} does not follow gradient descent (expected ~${expectedNextParam.toFixed(4)}).` });
-        }
-      }
+  if (!matchA && !matchB) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['expression'],
+      message: `Unsupported optimization expression '${data.expression}'. Currently only 1D convex quadratics of the form a*(w-h)^2 + k or a*w^2 + k are supported for deterministic numeric validation.`
     });
+    return;
   }
+
+  let a = 1;
+  let h = 0;
+  let k = 0;
+
+  if (matchA) {
+    const aStr = matchA[1];
+    a = aStr === '' || aStr === '+' ? 1 : aStr === '-' ? -1 : Number(aStr);
+    const signH = matchA[2];
+    const valH = Number(matchA[3]);
+    h = signH === '-' ? valH : -valH;
+    if (matchA[4] && matchA[5]) {
+      k = matchA[4] === '-' ? -Number(matchA[5]) : Number(matchA[5]);
+    }
+  } else if (matchB) {
+    const aStr = matchB[1];
+    a = aStr === '' || aStr === '+' ? 1 : aStr === '-' ? -1 : Number(aStr);
+    h = 0;
+    if (matchB[3] && matchB[4]) {
+      k = matchB[3] === '-' ? -Number(matchB[4]) : Number(matchB[4]);
+    }
+  }
+
+  if (a <= 0 || !Number.isFinite(a)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['expression'],
+      message: `Loss function curvature 'a' must be strictly positive and finite (received ${a}).`
+    });
+    return;
+  }
+
+  const tol = 1e-4;
+  data.points.forEach((pt, index) => {
+    const delta = pt.parameter - h;
+    const expectedValue = a * delta * delta + k;
+    const expectedGrad = 2 * a * delta;
+    if (Math.abs(pt.value - expectedValue) > tol) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'value'], message: `Loss value ${pt.value} does not match expression (expected ~${expectedValue.toFixed(4)}).` });
+    }
+    if (Math.abs(pt.gradient - expectedGrad) > tol) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'gradient'], message: `Gradient ${pt.gradient} does not match derivative (expected ~${expectedGrad.toFixed(4)}).` });
+    }
+    if (index < data.points.length - 1) {
+      const next = data.points[index + 1];
+      const expectedNextParam = pt.parameter - data.learningRate * pt.gradient;
+      if (Math.abs(next.parameter - expectedNextParam) > tol) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index + 1, 'parameter'], message: `Parameter update ${next.parameter} does not follow gradient descent (expected ~${expectedNextParam.toFixed(4)}).` });
+      }
+    }
+  });
 });
 
 const GeometryPointV1Schema = z.object({
