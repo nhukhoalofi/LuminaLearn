@@ -269,6 +269,25 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         const scenes = normalized.scenes;
         const totalDuration = normalized.totalDurationSeconds;
 
+        const defaultClaims = this.getDefaultClaimsForTopic(capability, input.topic, targetDuration);
+        const effectiveClaims = candidateClaims.length > 0 ? [...candidateClaims] : [...defaultClaims];
+        const existingClaimIds = new Set(effectiveClaims.map((c) => c.id));
+
+        // Bảo đảm mọi boundClaimId xuất hiện trong scenes đều có mặt trong educationalClaims
+        for (const scene of scenes) {
+          if (Array.isArray(scene.boundClaimIds)) {
+            for (const boundId of scene.boundClaimIds) {
+              if (!existingClaimIds.has(boundId)) {
+                const defaultClaim = defaultClaims.find((c) => c.id === boundId);
+                if (defaultClaim) {
+                  effectiveClaims.push(defaultClaim);
+                  existingClaimIds.add(boundId);
+                }
+              }
+            }
+          }
+        }
+
         return {
           schemaVersion: 'lesson-v3',
           generationProvenance: 'ai_generated_live',
@@ -284,7 +303,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           keyConcepts: Array.isArray(obj.keyConcepts) && obj.keyConcepts.length > 0
             ? obj.keyConcepts.map(String)
             : [capability.displayName],
-          educationalClaims: candidateClaims.length > 0 ? candidateClaims : this.getDefaultClaimsForTopic(capability),
+          educationalClaims: effectiveClaims,
           capabilityReport: capability,
           sourceEvidence: input.documentAnalysis?.evidence || [],
           storyboard: {
@@ -2377,15 +2396,35 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
     return baseScenes;
   }
 
-  private getDefaultClaimsForTopic(capability: TopicCapabilityReportV3): EducationalClaimV3[] {
+  private getDefaultClaimsForTopic(
+    capability: TopicCapabilityReportV3,
+    topic = capability.displayName,
+    targetDuration = 60
+  ): EducationalClaimV3[] {
+    try {
+      const plan = this.buildDeterministicPlan(
+        'default_claims_plan',
+        topic,
+        capability,
+        targetDuration
+      );
+      if (plan.educationalClaims && plan.educationalClaims.length > 0) {
+        return plan.educationalClaims;
+      }
+    } catch {
+      // fallback
+    }
     const isMath = capability.domain === 'mathematics';
     const isAlgebra = capability.topicId === 'algebra.identities.seven';
     return [
       {
-        id: 'claim_default_1',
+        id: isAlgebra ? 'claim_identity_1' : 'claim_default_1',
         claimType: isMath ? 'formal_mathematics' : 'ai_concept',
-        statement: `Khái niệm cơ bản của ${capability.displayName}`,
+        statement: isAlgebra
+          ? 'Bình phương của một tổng: (a+b)^2 = a^2+2*a*b+b^2'
+          : `Khái niệm cơ bản của ${capability.displayName}`,
         formalExpression: isAlgebra ? '(a+b)^2 = a^2+2*a*b+b^2' : isMath ? 'x^2 = x^2' : undefined,
+        validatorKey: isAlgebra ? 'algebra_identity_1' : undefined,
         verificationStatus: 'unverified',
         humanReviewComment: 'Mệnh đề mặc định cần giáo viên xem xét sư phạm.'
       }

@@ -161,6 +161,35 @@ export class MathSpecialist implements SubjectMatterSpecialist {
           verificationStatus: 'unverified'
         };
       });
+
+      // Bảo đảm mọi claimId được liên kết trong storyboard scenes đều có mặt trong claims
+      const boundIds = (plan.storyboard?.scenes ?? []).flatMap((s) => s.boundClaimIds ?? []);
+      const existingIds = new Set(claims.map((c) => c.id));
+      const canonicalIdentities = [
+        ['square_sum', '(a+b)^2', 'a^2+2*a*b+b^2', 'Bình phương của một tổng'],
+        ['square_difference', '(a-b)^2', 'a^2-2*a*b+b^2', 'Bình phương của một hiệu'],
+        ['difference_squares', 'a^2-b^2', '(a-b)*(a+b)', 'Hiệu hai bình phương'],
+        ['cube_sum_expansion', '(a+b)^3', 'a^3+3*a^2*b+3*a*b^2+b^3', 'Lập phương của một tổng'],
+        ['cube_difference_expansion', '(a-b)^3', 'a^3-3*a^2*b+3*a*b^2-b^3', 'Lập phương của một hiệu'],
+        ['sum_cubes', 'a^3+b^3', '(a+b)*(a^2-a*b+b^2)', 'Tổng hai lập phương'],
+        ['difference_cubes', 'a^3-b^3', '(a-b)*(a^2+a*b+b^2)', 'Hiệu hai lập phương']
+      ] as const;
+
+      canonicalIdentities.forEach(([_, left, right, label], idx) => {
+        const id = `claim_identity_${idx + 1}`;
+        if ((boundIds.includes(id) || claims.length === 0) && !existingIds.has(id)) {
+          claims.push({
+            id,
+            claimType: 'formal_mathematics',
+            statement: `${label}: ${left} = ${right}`,
+            formalExpression: `${left}=${right}`,
+            validatorKey: `algebra_identity_${idx + 1}`,
+            verificationStatus: 'unverified'
+          });
+          existingIds.add(id);
+        }
+      });
+
       return {
         claims,
         notes: 'Chuyên gia Toán học: Đã chuẩn hóa 7 hằng đẳng thức với yêu cầu chứng minh ký hiệu SymPy cho toàn bộ các bước biến đổi.'
