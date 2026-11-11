@@ -167,11 +167,15 @@ export function adaptProbabilityTreeV3(input: ProbabilityTreeData, sceneId = 'pr
     { elementType: 'neural_node', elementId: `${sceneId}_root`, layerIndex: 0, nodeIndex: 0, label: data.rootLabel, activation: 'linear', state: 'idle' }
   ];
 
+  const nodePositions = new Map<string, { layerIndex: number; nodeIndex: number }>();
+  nodePositions.set(`${sceneId}_root`, { layerIndex: 0, nodeIndex: 0 });
+
   const layerCounters = new Map<number, number>();
   data.branches.forEach((b) => {
     const level = branchLevel.get(b.branchId) ?? 1;
     const idx = layerCounters.get(level) ?? 0;
     layerCounters.set(level, idx + 1);
+    nodePositions.set(b.branchId, { layerIndex: level, nodeIndex: idx });
     elements.push({
       elementType: 'neural_node',
       elementId: b.branchId,
@@ -182,15 +186,20 @@ export function adaptProbabilityTreeV3(input: ProbabilityTreeData, sceneId = 'pr
       state: 'idle',
       value: b.probability
     });
-    // Connection edge
-    const parentNodeId = b.parentBranchId ?? `${sceneId}_root`;
+  });
+
+  // Create connections with accurate parent nodeIndex mapping
+  data.branches.forEach((b) => {
+    const childPos = nodePositions.get(b.branchId)!;
+    const parentId = b.parentBranchId ?? `${sceneId}_root`;
+    const parentPos = nodePositions.get(parentId) ?? { layerIndex: Math.max(0, childPos.layerIndex - 1), nodeIndex: 0 };
     elements.push({
       elementType: 'neural_connection',
       elementId: `edge_${b.branchId}`,
-      fromLayer: level - 1,
-      fromNode: 0,
-      toLayer: level,
-      toNode: idx,
+      fromLayer: parentPos.layerIndex,
+      fromNode: parentPos.nodeIndex,
+      toLayer: childPos.layerIndex,
+      toNode: childPos.nodeIndex,
       weight: b.probability,
       signalActive: true
     });

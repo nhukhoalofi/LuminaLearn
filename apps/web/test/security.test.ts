@@ -54,10 +54,12 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
 
   it('allows localhost loopback requests in local dev and blocks non-loopback or unauthenticated public requests', () => {
     const origPublic = process.env.LUMINA_PUBLIC_DEPLOYMENT;
+    const origLocal = process.env.LUMINA_LOCAL_DEMO;
     const origToken = process.env.LUMINA_API_AUTH_TOKEN;
 
     try {
       delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
+      delete process.env.LUMINA_LOCAL_DEMO;
       delete process.env.LUMINA_API_AUTH_TOKEN;
 
       // 1. Localhost request succeeds without extra setup
@@ -89,6 +91,7 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
 
       // 4. Public deployment mode requires LUMINA_API_AUTH_TOKEN and valid Bearer header
       process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
+      delete process.env.LUMINA_LOCAL_DEMO;
       process.env.LUMINA_API_AUTH_TOKEN = 'mentor-demo-secret-token-2026';
 
       assert.throws(
@@ -113,6 +116,8 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
     } finally {
       if (origPublic !== undefined) process.env.LUMINA_PUBLIC_DEPLOYMENT = origPublic;
       else delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
+      if (origLocal !== undefined) process.env.LUMINA_LOCAL_DEMO = origLocal;
+      else delete process.env.LUMINA_LOCAL_DEMO;
       if (origToken !== undefined) process.env.LUMINA_API_AUTH_TOKEN = origToken;
       else delete process.env.LUMINA_API_AUTH_TOKEN;
     }
@@ -172,27 +177,38 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
   });
 
   it('enforces session/owner isolation on documents, drafts, and jobs', () => {
-    const reqA = new Request('http://localhost:3000/api/lessons/draft', {
-      headers: { 'x-lumina-owner-id': 'teacher_session_a' }
-    });
-    const reqB = new Request('http://localhost:3000/api/lessons/draft', {
-      headers: { 'x-lumina-owner-id': 'teacher_session_b' }
-    });
+    const oldPublic = process.env.LUMINA_PUBLIC_DEPLOYMENT;
+    const oldLocal = process.env.LUMINA_LOCAL_DEMO;
+    try {
+      delete process.env.LUMINA_PUBLIC_DEPLOYMENT;
+      process.env.LUMINA_LOCAL_DEMO = 'true';
+      const reqA = new Request('http://localhost:3000/api/lessons/draft', {
+        headers: { 'x-lumina-owner-id': 'teacher_session_a' }
+      });
+      const reqB = new Request('http://localhost:3000/api/lessons/draft', {
+        headers: { 'x-lumina-owner-id': 'teacher_session_b' }
+      });
 
-    const ownerA = resolveOwnerId(reqA);
-    const ownerB = resolveOwnerId(reqB);
-    assert.equal(ownerA, 'local-single-user');
-    assert.equal(ownerB, 'local-single-user');
+      const ownerA = resolveOwnerId(reqA);
+      const ownerB = resolveOwnerId(reqB);
+      assert.equal(ownerA, 'local-single-user');
+      assert.equal(ownerB, 'local-single-user');
 
-    assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerA, 'draft_1'));
-    assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerB, 'draft_1'));
+      assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerA, 'draft_1'));
+      assert.doesNotThrow(() => assertOwnerMatch(ownerA, ownerB, 'draft_1'));
+    } finally {
+      if (oldPublic === undefined) delete process.env.LUMINA_PUBLIC_DEPLOYMENT; else process.env.LUMINA_PUBLIC_DEPLOYMENT = oldPublic;
+      if (oldLocal === undefined) delete process.env.LUMINA_LOCAL_DEMO; else process.env.LUMINA_LOCAL_DEMO = oldLocal;
+    }
   });
 
   it('ignores forged owner headers and binds public identity to the validated credential', () => {
     const oldPublic = process.env.LUMINA_PUBLIC_DEPLOYMENT;
+    const oldLocal = process.env.LUMINA_LOCAL_DEMO;
     const oldToken = process.env.LUMINA_API_AUTH_TOKEN;
     try {
       process.env.LUMINA_PUBLIC_DEPLOYMENT = 'true';
+      delete process.env.LUMINA_LOCAL_DEMO;
       process.env.LUMINA_API_AUTH_TOKEN = 'valid-server-token';
       const reqA = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer valid-server-token', 'x-lumina-owner-id': 'victim_a' } });
       const reqB = new Request('https://demo.example/api/documents', { headers: { authorization: 'Bearer valid-server-token', 'x-lumina-owner-id': 'victim_b' } });
@@ -203,6 +219,7 @@ describe('Phase 5 — Local Demo Security, Public Deployment Guard & API Quota P
       assert.throws(() => assertRequestAuthorized(invalid), (error: unknown) => error instanceof SecurityError && error.code === 'unauthorized');
     } finally {
       if (oldPublic === undefined) delete process.env.LUMINA_PUBLIC_DEPLOYMENT; else process.env.LUMINA_PUBLIC_DEPLOYMENT = oldPublic;
+      if (oldLocal === undefined) delete process.env.LUMINA_LOCAL_DEMO; else process.env.LUMINA_LOCAL_DEMO = oldLocal;
       if (oldToken === undefined) delete process.env.LUMINA_API_AUTH_TOKEN; else process.env.LUMINA_API_AUTH_TOKEN = oldToken;
     }
   });

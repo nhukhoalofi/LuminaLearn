@@ -93,8 +93,48 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   );
   const axesElement = definition.elements.find((element) => element.elementType === 'axes');
 
-  const xRange: [number, number] = graphElement?.xRange ?? [-3, 3];
-  const yRange: [number, number] = graphElement?.yRange ?? [-1, 9];
+  const isGeometryScene = definition.elements.some((el) => el.elementType === 'polygon' || el.elementType === 'segment');
+  let geomXRange: [number, number] | undefined;
+  let geomYRange: [number, number] | undefined;
+
+  if (isGeometryScene) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    definition.elements.forEach((el) => {
+      if (el.elementType === 'point') {
+        xs.push(el.coordinates[0]);
+        ys.push(el.coordinates[1]);
+      } else if (el.elementType === 'segment') {
+        const seg = el as any;
+        xs.push(seg.start[0], seg.end[0]);
+        ys.push(seg.start[1], seg.end[1]);
+      } else if (el.elementType === 'polygon') {
+        const poly = el as any;
+        poly.points.forEach(([x, y]: [number, number]) => {
+          xs.push(x);
+          ys.push(y);
+        });
+      }
+    });
+    if (xs.length > 0 && ys.length > 0) {
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const spanX = Math.max(1, maxX - minX);
+      const spanY = Math.max(1, maxY - minY);
+      // Isometric aspect ratio (1:1): keep scale identical so right angles and polygons are never distorted
+      const maxSpan = Math.max(spanX, spanY);
+      const midX = (minX + maxX) / 2;
+      const midY = (minY + maxY) / 2;
+      const pad = Math.max(0.5, maxSpan * 0.2);
+      geomXRange = [Number((midX - maxSpan / 2 - pad).toFixed(2)), Number((midX + maxSpan / 2 + pad).toFixed(2))];
+      geomYRange = [Number((midY - maxSpan / 2 - pad).toFixed(2)), Number((midY + maxSpan / 2 + pad).toFixed(2))];
+    }
+  }
+
+  const xRange: [number, number] = graphElement?.xRange ?? geomXRange ?? [-3, 3];
+  const yRange: [number, number] = graphElement?.yRange ?? geomYRange ?? [-1, 9];
 
   let transform: CoordinateTransform;
   try {
@@ -632,51 +672,98 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         if (element.elementType === 'matrix') {
           const matrixReveal = deriveMotionRecipeFrameV3({ recipeId: 'R08', frame, endFrame: durationInFrames, itemCount: element.rows * element.cols });
+          const hasRowLabels = Array.isArray(element.rowLabels) && element.rowLabels.length > 0;
+          const hasColLabels = Array.isArray(element.colLabels) && element.colLabels.length > 0;
+          const cellWidth = element.cols <= 4 ? 68 : element.cols <= 6 ? 58 : 50;
+
           return (
             <div
               key={element.elementId}
               style={{
                 ...baseStyle,
-                background: 'rgba(15, 23, 42, 0.85)',
-                padding: 16,
+                background: 'rgba(15, 23, 42, 0.92)',
+                padding: '16px 20px',
                 borderRadius: 14,
-                border: '1px solid #334155'
+                border: '1px solid #334155',
+                maxWidth: 660,
+                boxShadow: '0 8px 30px rgba(0,0,0,0.5)'
               }}
             >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${element.cols}, 62px)`,
-                  gap: 6
-                }}
-              >
-                {element.values.flat().map((value, i) => {
-                  const intensity = Math.min(1, Math.max(0, Math.abs(value)));
-                  const revealed = i < matrixReveal.completedCount || i === matrixReveal.activeIndex;
-                  const cellBg = element.showHeatmap
-                    ? `rgba(56, 189, 248, ${0.15 + intensity * 0.75})`
-                    : '#1E293B';
-
-                  return (
+              {/* Optional Column Header Tokens */}
+              {hasColLabels && (
+                <div style={{ display: 'flex', marginLeft: hasRowLabels ? 70 : 0, gap: 6, marginBottom: 8 }}>
+                  {element.colLabels!.map((colLabel, colIdx) => (
                     <div
-                      key={i}
+                      key={`col_${colIdx}`}
                       style={{
-                        padding: '10px 4px',
+                        width: cellWidth,
                         textAlign: 'center',
-                        background: cellBg,
-                        borderRadius: 6,
-                        fontFamily: 'monospace',
-                        fontSize: 14,
-                        fontWeight: 'bold',
-                        color: intensity > 0.6 ? '#FFFFFF' : '#E2E8F0',
-                        opacity: revealed ? 1 : 0.12
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: '#38BDF8',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
                       }}
-                      data-motion-recipe="R08"
                     >
-                      {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(2)) : value}
+                      {colLabel}
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              )}
+
+              {/* Rows with optional row labels and heatmap cells */}
+              <div style={{ display: 'grid', gap: 6 }}>
+                {element.values.map((row, rowIdx) => (
+                  <div key={`row_${rowIdx}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {hasRowLabels && (
+                      <div
+                        style={{
+                          width: 64,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: '#94A3B8',
+                          textAlign: 'right',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {element.rowLabels![rowIdx] ?? ''}
+                      </div>
+                    )}
+                    {row.map((value, colIdx) => {
+                      const flatIndex = rowIdx * element.cols + colIdx;
+                      const intensity = Math.min(1, Math.max(0, Math.abs(value)));
+                      const revealed = flatIndex < matrixReveal.completedCount || flatIndex === matrixReveal.activeIndex;
+                      const cellBg = element.showHeatmap
+                        ? `rgba(56, 189, 248, ${0.12 + intensity * 0.78})`
+                        : '#1E293B';
+
+                      return (
+                        <div
+                          key={`cell_${rowIdx}_${colIdx}`}
+                          style={{
+                            width: cellWidth,
+                            padding: '8px 2px',
+                            textAlign: 'center',
+                            background: cellBg,
+                            borderRadius: 6,
+                            fontFamily: 'monospace',
+                            fontSize: element.cols <= 5 ? 13 : 11,
+                            fontWeight: 'bold',
+                            color: intensity > 0.55 ? '#FFFFFF' : '#E2E8F0',
+                            opacity: revealed ? 1 : 0.12,
+                            border: '1px solid rgba(255, 255, 255, 0.08)'
+                          }}
+                          data-motion-recipe="R08"
+                        >
+                          {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(2)) : value}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           );

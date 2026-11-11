@@ -26,10 +26,12 @@ function learningMode(duration: number): LearningModeV1 {
 }
 
 function validationStatus(claims: EducationalClaimV3[]) {
+  if (claims.length === 0) return 'human_review_required' as const;
   if (claims.some((claim) => claim.verificationStatus === 'rejected')) return 'blocked' as const;
-  if (claims.length && claims.every((claim) => claim.verificationStatus === 'formally_verified')) return 'verified' as const;
-  if (claims.length && claims.every((claim) => ['formally_verified', 'numerically_validated'].includes(claim.verificationStatus))) return 'numerically_validated' as const;
-  if (claims.length && claims.every((claim) => ['formally_verified', 'numerically_validated', 'source_grounded'].includes(claim.verificationStatus))) return 'source_grounded' as const;
+  if (claims.some((claim) => claim.verificationStatus === 'human_review_required' || claim.verificationStatus === 'unverified')) return 'human_review_required' as const;
+  if (claims.every((claim) => claim.verificationStatus === 'formally_verified' && Boolean(claim.formalProofSummary))) return 'verified' as const;
+  if (claims.every((claim) => ['formally_verified', 'numerically_validated'].includes(claim.verificationStatus))) return 'numerically_validated' as const;
+  if (claims.every((claim) => ['formally_verified', 'numerically_validated', 'source_grounded'].includes(claim.verificationStatus))) return 'source_grounded' as const;
   return 'human_review_required' as const;
 }
 
@@ -61,10 +63,10 @@ function mergeDirections(current: Direction | undefined, incoming: Direction): D
 
 function validationForClaims(claims: EducationalClaimV3[]): ScientificValidationRequirementV1[] {
   const validation = new Set<ScientificValidationRequirementV1>();
-  if (claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified')) validation.add('formal_math');
+  if (claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified' && Boolean(claim.formalProofSummary))) validation.add('formal_math');
   if (claims.length > 0 && claims.every((claim) => ['formally_verified', 'numerically_validated'].includes(claim.verificationStatus)) && claims.some((claim) => claim.verificationStatus === 'numerically_validated')) validation.add('deterministic_numeric');
   if (claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'source_grounded')) validation.add('source_grounding');
-  if (claims.some((claim) => claim.verificationStatus === 'human_review_required')) validation.add('human_review');
+  if (claims.some((claim) => claim.verificationStatus === 'human_review_required' || claim.verificationStatus === 'unverified' || (claim.verificationStatus === 'formally_verified' && !claim.formalProofSummary))) validation.add('human_review');
   return [...validation];
 }
 
@@ -72,18 +74,19 @@ function scientificDataForScene(scene: EducationalSceneV3, claims: EducationalCl
   const payload = scene.visualPayload;
   if ('scientificData' in payload && payload.scientificData) return ScientificVisualDataV1Schema.parse(payload.scientificData);
   if (payload.sceneType === 'algebra_identity') {
-    const verified = claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified');
+    const verified = claims.length > 0 && claims.every((claim) => claim.verificationStatus === 'formally_verified' && Boolean(claim.formalProofSummary));
+    const trustedProofRef = verified && claims[0]?.formalProofSummary ? `proof_${claims[0].id}` : undefined;
     return VerifiedFormulaStepsDataV1Schema.parse({
       kind: 'verified_formula_steps',
       title: scene.title,
-      validation: verified ? 'formally_verified' : 'human_review_required',
+      validation: verified && trustedProofRef ? 'formally_verified' : 'human_review_required',
       steps: payload.transformationSteps.map((step, index) => ({
         stepId: `${scene.sceneId}_formula_${index + 1}`,
         latex: step.expression,
         explanation: step.explanationVietnamese,
         highlightTerms: step.highlightTerms,
         claimIds: scene.boundClaimIds,
-        ...(verified ? { proofReferenceId: scene.boundClaimIds[0] } : {})
+        ...(verified && trustedProofRef ? { proofReferenceId: trustedProofRef } : {})
       }))
     });
   }
@@ -133,7 +136,10 @@ function visualDirection(scene: EducationalSceneV3, claims: EducationalClaimV3[]
   if (scientificData) {
     const intent = intentForData(scientificData);
     const availableValidation = new Set(validationForClaims(claims));
-    if (scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix' && scientificData.validation === 'deterministic_numeric') availableValidation.add('deterministic_numeric');
+    const claimsNumericallyValid = claims.length > 0 && claims.every((c) => ['formally_verified', 'numerically_validated'].includes(c.verificationStatus));
+    if ((scientificData.kind === 'optimization_trace_1d' || scientificData.kind === 'attention_matrix') && scientificData.validation === 'deterministic_numeric' && claimsNumericallyValid) {
+      availableValidation.add('deterministic_numeric');
+    }
     if (scientificData.kind === 'directed_diagram' && scientificData.validation === 'human_review_required') availableValidation.add('human_review');
     const resolution = resolveVisualCapabilityV1({ visualIntent: intent, scientificData, sceneType: scene.sceneType, availableValidation: [...availableValidation], durationFrames: Math.max(1, Math.round(scene.durationSeconds * 24)) });
     if (resolution.status === 'selected') return { intent, actions: actionsForIntent(intent), readiness: 'render_ready', adapterId: resolution.capability.rendererAdapterId };

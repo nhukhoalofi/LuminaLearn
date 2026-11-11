@@ -88,7 +88,42 @@ export const OptimizationTraceDataV1Schema = z.object({
   }).strict()).min(2).max(20),
   claimId: SafeIdString,
   validation: z.literal('deterministic_numeric')
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  for (let i = 0; i < data.points.length - 1; i++) {
+    if (data.points[i + 1].step <= data.points[i].step) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', i + 1, 'step'], message: 'Optimization trace steps must strictly increase.' });
+    }
+  }
+
+  const quadMatch = /L\(w\)\s*=\s*([+-]?\d*(?:\.\d+)?)\s*\*?\s*\(w\s*-\s*([+-]?\d*(?:\.\d+)?)\)\^2\s*\+\s*([+-]?\d*(?:\.\d+)?)/.exec(data.expression)
+    || /L\(w\)\s*=\s*([+-]?\d*(?:\.\d+)?)\s*\*?w\^2/.exec(data.expression);
+
+  if (quadMatch) {
+    const a = quadMatch[1] === '' || quadMatch[1] === '+' ? 1 : quadMatch[1] === '-' ? -1 : Number(quadMatch[1]);
+    const h = quadMatch[2] !== undefined ? Number(quadMatch[2]) : 0;
+    const k = quadMatch[3] !== undefined ? Number(quadMatch[3]) : 0;
+    const tol = 1e-4;
+
+    data.points.forEach((pt, index) => {
+      const delta = pt.parameter - h;
+      const expectedValue = a * delta * delta + k;
+      const expectedGrad = 2 * a * delta;
+      if (Math.abs(pt.value - expectedValue) > tol) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'value'], message: `Loss value ${pt.value} does not match expression (expected ~${expectedValue.toFixed(4)}).` });
+      }
+      if (Math.abs(pt.gradient - expectedGrad) > tol) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index, 'gradient'], message: `Gradient ${pt.gradient} does not match derivative (expected ~${expectedGrad.toFixed(4)}).` });
+      }
+      if (index < data.points.length - 1) {
+        const next = data.points[index + 1];
+        const expectedNextParam = pt.parameter - data.learningRate * pt.gradient;
+        if (Math.abs(next.parameter - expectedNextParam) > tol) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['points', index + 1, 'parameter'], message: `Parameter update ${next.parameter} does not follow gradient descent (expected ~${expectedNextParam.toFixed(4)}).` });
+        }
+      }
+    });
+  }
+});
 
 const GeometryPointV1Schema = z.object({
   pointId: SafeIdString,
@@ -129,8 +164,8 @@ export const DirectedDiagramDataV1Schema = z.object({
 
 export const AttentionMatrixDataV1Schema = z.object({
   kind: z.literal('attention_matrix'),
-  tokens: z.array(NoExecutableString).min(2).max(12),
-  weights: z.array(z.array(z.number().finite().min(0).max(1))).min(2).max(12),
+  tokens: z.array(NoExecutableString).min(2).max(8),
+  weights: z.array(z.array(z.number().finite().min(0).max(1))).min(2).max(8),
   validation: z.enum(['deterministic_numeric', 'human_review_required'])
 }).strict().superRefine((data, ctx) => {
   const size = data.tokens.length;

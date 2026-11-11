@@ -9,7 +9,13 @@ import {
   SummaryScene,
   GenericPlotScene,
   AlgebraIdentityScene,
-  VisualDslSceneV3
+  VisualDslSceneV3,
+  FormulaSequenceSceneV3,
+  adaptScalarFunctionGraphV3,
+  adaptGeometry2dV3,
+  adaptDirectedDiagramV3,
+  adaptAttentionMatrixV3,
+  adaptProbabilityTreeV3
 } from '@luminalearn/animation';
 import type { TrustedProofContextV3 } from '@luminalearn/animation';
 
@@ -97,6 +103,29 @@ export const SceneDispatcherV3: React.FC<{ scene: EducationalSceneV3; subtitlesE
   }
   const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
+
+  // Universal Scientific Visual Engine auto-dispatch when typed scientificData is bound
+  if ('scientificData' in payload && payload.scientificData) {
+    const sci = payload.scientificData;
+    if (sci.kind === 'verified_formula_steps') {
+      return <FormulaSequenceSceneV3 data={sci} subtitleText={subtitle} />;
+    }
+    if (sci.kind === 'scalar_function_1d') {
+      return <VisualDslSceneV3 definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+    }
+    if (sci.kind === 'geometry_2d') {
+      return <VisualDslSceneV3 definition={adaptGeometry2dV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+    }
+    if (sci.kind === 'directed_diagram') {
+      return <VisualDslSceneV3 definition={adaptDirectedDiagramV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+    }
+    if (sci.kind === 'attention_matrix') {
+      return <VisualDslSceneV3 definition={adaptAttentionMatrixV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+    }
+    if (sci.kind === 'probability_tree') {
+      return <VisualDslSceneV3 definition={adaptProbabilityTreeV3(sci, scene.sceneId)} trustedProofContext={trustedProofContext} />;
+    }
+  }
 
   switch (payload.sceneType) {
     case 'concept_intro':

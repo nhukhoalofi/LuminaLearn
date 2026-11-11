@@ -1822,77 +1822,41 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
       return baseScenes;
     }
 
-    // How many additional scenes are needed beyond the base capacity?
-    const extraSecondsNeeded = targetDurationSeconds - maxCapacity;
-    const extraCount = Math.ceil(extraSecondsNeeded / MAX_SCENE_DURATION);
+    // Do NOT invent generic multi-scene filler loops (sc_expand_examples, sc_expand_misconceptions, etc.).
+    // Adding ungrounded filler scenes creates verbose, hollow videos with no actual worked examples or math.
+    // If base content capacity is exceeded, add at most one grounded reflection/summary scene if not already present,
+    // explicitly labeled with reviewNotes, without fabricating unverified claims.
+    const hasReflectionScene = baseScenes.some((s) => s.sceneType === 'summary');
+    if (!hasReflectionScene) {
+      const reflectionScene: EducationalStoryboardV3['scenes'][number] = {
+        sceneId: 'sc_grounded_reflection',
+        sceneType: 'summary',
+        title: `Vận dụng & Khắc sâu: ${topicTitle}`,
+        pedagogicalGoal: `Củng cố và tự kiểm tra hiểu biết cốt lõi về ${topicTitle}`,
+        durationSeconds: Math.min(60, targetDurationSeconds - maxCapacity),
+        boundClaimIds: [primaryClaimId],
+        rendererTarget: 'remotion_infographic',
+        narration: {
+          vietnamese: `Để nắm vững ${topicTitle}, hãy thử tự giải thích lại từng bước và liên hệ điều kiện áp dụng trước khi kết thúc bài học.`,
+          subtitleVietnamese: `Tự kiểm tra lại các bước cốt lõi của ${topicTitle}.`
+        },
+        visualPayload: {
+          sceneType: 'summary',
+          title: `Khắc sâu kiến thức: ${topicTitle}`,
+          takeaways: [
+            `Nắm vững điều kiện và phạm vi áp dụng của ${topicTitle}`,
+            'Hiểu rõ ý nghĩa từng biến số và bước lập luận khoa học',
+            'Tránh nhầm lẫn giữa trực quan minh họa và chứng minh hình thức'
+          ],
+          verifiedFacts: [],
+          reviewNotes: ['Nội dung cần giáo viên đối chiếu theo bài tập giáo trình thực tế.'],
+          finalCallout: topicTitle
+        }
+      };
+      return [...baseScenes, reflectionScene];
+    }
 
-    const expansionStages = [
-      {
-        sceneId: 'sc_expand_examples',
-        title: `Ví dụ ứng dụng thực tế: ${topicTitle}`,
-        goal: `Minh họa bài toán thực tế áp dụng kiến thức ${topicTitle}`,
-        narration: `Ta cùng xem xét một số ví dụ thực tế giúp hiểu rõ hơn ${topicTitle} trong thực tiễn.`,
-        subtitle: `Ví dụ ứng dụng thực tế của ${topicTitle}.`
-      },
-      {
-        sceneId: 'sc_expand_misconceptions',
-        title: `Lưu ý quan trọng & Tránh lỗi thường gặp`,
-        goal: `Làm rõ các ngộ nhận phổ biến khi tìm hiểu ${topicTitle}`,
-        narration: `Trong quá trình học ${topicTitle}, nhiều bạn thường mắc một số nhầm lẫn phổ biến cần chú ý.`,
-        subtitle: `Phân tích và tránh các lỗi thường gặp về ${topicTitle}.`
-      },
-      {
-        sceneId: 'sc_expand_deeper',
-        title: `Phân tích chuyên sâu: ${topicTitle}`,
-        goal: `Khảo sát các trường hợp đặc biệt và hành vi nâng cao của ${topicTitle}`,
-        narration: `Phân tích sâu hơn về ${topicTitle} tiết lộ những tính chất và hành vi thú vị ở cấp độ nâng cao.`,
-        subtitle: `Phân tích nâng cao và trường hợp đặc biệt của ${topicTitle}.`
-      },
-      {
-        sceneId: 'sc_expand_comparison',
-        title: `So sánh & Liên hệ kiến thức tổng thể`,
-        goal: `Kết nối ${topicTitle} với các kiến thức và mô hình liên quan`,
-        narration: `Ta liên hệ ${topicTitle} với các chủ đề có liên quan để thấy bức tranh toàn cảnh hơn.`,
-        subtitle: `Kết nối ${topicTitle} với kiến thức rộng hơn.`
-      },
-      {
-        sceneId: 'sc_expand_practice',
-        title: `Luyện tập & Câu hỏi tư duy phản biện`,
-        goal: `Thử thách học viên kiểm chứng hiểu biết về ${topicTitle}`,
-        narration: `Hãy tự kiểm tra hiểu biết của mình qua các câu hỏi thực hành về ${topicTitle}.`,
-        subtitle: `Bài tập và câu hỏi tư duy về ${topicTitle}.`
-      }
-    ];
-
-    const extraScenes: EducationalStoryboardV3['scenes'] = Array.from(
-      { length: extraCount },
-      (_, i) => {
-        const stage = expansionStages[i % expansionStages.length];
-        return {
-          sceneId: `${stage.sceneId}_${i + 1}`,
-          sceneType: 'concept_intro' as const,
-          title: stage.title,
-          pedagogicalGoal: stage.goal,
-          durationSeconds: 30, // Nominal; timeline normalizer will redistribute
-          boundClaimIds: [primaryClaimId],
-          rendererTarget: 'remotion_infographic' as const,
-          narration: {
-            vietnamese: stage.narration,
-            subtitleVietnamese: stage.subtitle
-          },
-          visualPayload: {
-            sceneType: 'concept_intro' as const,
-            centralQuestion: `Khía cạnh này của ${topicTitle} có ý nghĩa gì trong thực tế?`,
-            keyConcept: topicTitle,
-            accentColor: '#6366F1',
-            visualStyleId: 'clean_educational_infographic' as const,
-            reducedMotion: false
-          }
-        };
-      }
-    );
-
-    return [...baseScenes, ...extraScenes];
+    return baseScenes;
   }
 
   private getDefaultClaimsForTopic(capability: TopicCapabilityReportV3): EducationalClaimV3[] {

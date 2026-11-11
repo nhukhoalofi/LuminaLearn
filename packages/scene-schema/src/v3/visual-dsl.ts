@@ -644,5 +644,6 @@ export type VisualSceneDefinitionV3 = z.infer<typeof VisualSceneDefinitionV3Sche
 export const VISUAL_PRIMITIVE_READINESS_V3 = {
   text: 'render_ready', formula: 'render_ready', graph: 'render_ready', axes: 'render_ready', point: 'render_ready',
   arrow: 'render_ready', matrix: 'render_ready', labeled_step: 'render_ready', neural_node: 'render_ready', neural_connection: 'render_ready',
-  vector: 'schema_only', chart: 'schema_only', shape: 'schema_only', callout: 'schema_only', highlighted_region: 'schema_only', timeline_marker: 'schema_only'
+  vector: 'schema_only', chart: 'schema_only', shape: 'schema_only', callout: 'schema_only', highlighted_region: 'schema_only', timeline_marker: 'schema_only',
+  segment: 'preview_ready', polygon: 'preview_ready'
 } as const satisfies Record<VisualElementV3['elementType'], 'schema_only' | 'preview_ready' | 'render_ready' | 'end_to_end_verified'>;
