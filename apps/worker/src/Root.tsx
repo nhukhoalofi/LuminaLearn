@@ -10,7 +10,7 @@ import {
   VisualSceneDefinitionV3Schema,
   VerifiedFormulaStepsDataV1Schema
 } from '@luminalearn/scene-schema';
-import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3 } from '@luminalearn/animation';
+import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene } from '@luminalearn/animation';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
@@ -266,6 +266,16 @@ export const Root: React.FC = () => {
         schema={LuminaSceneV3Schema}
         defaultProps={{ storyboard: devfestGradientLongformStoryboardV3, subtitlesEnabled: true }}
         calculateMetadata={({ props }) => ({ durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24)) })}
+      />
+      {/* Physics Animation Engine: Rainbow Formation Demo (9:16, 1080x1920, 30 FPS, 60s) */}
+      <Composition
+        id="LuminaRainbowPhysicsV3"
+        component={RainbowFullScene}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{ subtitlesEnabled: true }}
       />
     </>
   );

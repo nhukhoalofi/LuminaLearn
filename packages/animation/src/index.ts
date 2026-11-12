@@ -14,4 +14,5 @@ export * from './ConceptTitleReveal';
 export * from './StepFormulaReveal';
 export * from './BeforeAfterComparison';
 export * from './educational';
+export * from './physics';
 

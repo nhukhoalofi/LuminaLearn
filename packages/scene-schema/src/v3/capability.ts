@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { NoExecutableString, SafeIdString } from '../v2/document';
 
-export const EducationalDomainSchema = z.enum(['mathematics', 'artificial_intelligence']);
+export const EducationalDomainSchema = z.enum(['mathematics', 'artificial_intelligence', 'physics']);
 export type EducationalDomain = z.infer<typeof EducationalDomainSchema>;
 
 export const EducationalCapabilitySchema = z.enum([
@@ -199,14 +199,28 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     evidenceRequirements: ['source_citation', 'human_signoff'],
     renderReadiness: 'planning_only',
     limitations: ['Trực quan hóa khoảng cách cosine và cụm ngữ nghĩa trong không gian nhiều chiều.']
+  },
+
+  // --- PHYSICS & OPTICS ---
+  'physics.optics.rainbow': {
+    topicId: 'physics.optics.rainbow',
+    domain: 'physics',
+    subCategory: 'Optics & Wave Physics',
+    displayName: 'Sự hình thành cầu vồng: Khúc xạ, tán sắc và phản xạ trong giọt nước',
+    supportedCapabilities: ['formal_math_verification', 'numerical_validation', 'conceptual_visualization', 'source_grounded_explanation'],
+    requiredValidationTypes: ['formal_math', 'numerical'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['mathematical_proof', 'source_citation'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô phỏng quang hình học định luật Snell (n1 sin i = n2 sin r), tán sắc bước sóng qua giọt nước hình cầu và góc lệch cực tiểu Descartes 40°-42°.']
   }
 };
 
 /**
  * Danh sách các từ khóa ngoài phạm vi (Out-of-scope domains)
- * Phải fail-closed, tuyệt đối không nhận các lĩnh vực vật lý, hóa học, sinh học, địa lý, nấu ăn...
+ * Phải fail-closed cho các lĩnh vực không được hỗ trợ như hóa học, sinh học, nấu ăn...
  */
-const FORBIDDEN_DOMAINS_REGEX = /\b(newton|vật lý|physics|hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản|y học|medical)\b/i;
+const FORBIDDEN_DOMAINS_REGEX = /\b(hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản|y học|medical)\b/i;
 
 export class DomainScopeViolationError extends Error {
   constructor(message: string) {
@@ -268,7 +282,12 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 3. Mathematics Patterns (Chủ đề toán học thuần túy)
+  // 3. Physics & Optics Patterns
+  if (/cầu vồng|cau vong|rainbow|tán sắc|tan sac|khúc xạ|khuc xa|phản xạ toàn phần|raindrop|lăng kính|quang học/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.optics.rainbow'];
+  }
+
+  // 4. Mathematics Patterns (Chủ đề toán học thuần túy)
   // Keep equation aliases bounded to the registered square-sum identity. The
   // Teacher Studio preset asks a formula question and may omit the topic name.
   if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic?\s*identit|algebra\.identities|\(\s*a\s*\+\s*b\s*\)\s*(?:\^\s*2|²)/i.test(normalized)) {

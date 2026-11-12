@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { NoExecutableString, SafeIdString } from '../v2/document';
 import { EducationalLessonPlanV3Schema, KnowledgeValidationReportV3Schema } from './contracts';
+import { EducationalDomainSchema } from './capability';
 
 export const GenerationModeV3Schema = z.enum(['mock', 'live']);
 export const DraftStatusV3Schema = z.enum([
@@ -11,7 +12,7 @@ export const DraftStatusV3Schema = z.enum([
 export const LessonRequestV3Schema = z.object({
   requestId: SafeIdString,
   topic: NoExecutableString,
-  domain: z.enum(['mathematics', 'artificial_intelligence']),
+  domain: EducationalDomainSchema,
   generationMode: GenerationModeV3Schema,
   targetDurationSeconds: z.number().int().min(20).max(600).default(35),
   narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),

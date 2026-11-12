@@ -11,7 +11,7 @@ import {
   VisualStylePresetV3
 } from './visual-dsl';
 
-export type VisualComponentCategoryV3 = 'mathematics' | 'ai_ml' | 'common' | 'foundational';
+export type VisualComponentCategoryV3 = 'mathematics' | 'ai_ml' | 'physics' | 'common' | 'foundational';
 export type VisualRenderBackendV3 = 'remotion' | 'manim' | 'hybrid';
 
 export interface RegisteredVisualComponentV3 {
@@ -202,6 +202,72 @@ export class EducationalVisualRegistryV3 {
       defaultLayout: 'split_horizontal',
       defaultStyle: 'clean_educational_infographic',
       requiresMathVerification: false
+    });
+
+    // --- PHYSICS & OPTICS ENGINE COMPONENTS ---
+    this.register({
+      componentId: 'light_ray_animation',
+      name: 'Mô phỏng tia sáng quang học (Light Ray Animation)',
+      description: 'Hiển thị tia sáng định hướng, mặt sóng và luồng photon di chuyển theo thời gian thực.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: GenericSceneVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
+    });
+
+    this.register({
+      componentId: 'prism_dispersion',
+      name: 'Tán sắc lăng kính Newton (Prism Dispersion)',
+      description: 'Mô phỏng thí nghiệm tán sắc ánh sáng trắng qua lăng kính thành 7 dải màu quang phổ.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: GenericSceneVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
+    });
+
+    this.register({
+      componentId: 'raindrop_refraction',
+      name: 'Khúc xạ giọt nước mưa (Raindrop Refraction)',
+      description: 'Mô phỏng mặt cắt giọt nước mưa hình cầu, pháp tuyến và góc khúc xạ định luật Snell.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: GenericSceneVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: true
+    });
+
+    this.register({
+      componentId: 'internal_reflection',
+      name: 'Phản xạ trong giọt nước (Internal Reflection)',
+      description: 'Mô phỏng tia sáng phản xạ tại thành sau của giọt nước đổi hướng về mặt trước.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: GenericSceneVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
+    });
+
+    this.register({
+      componentId: 'rainbow_formation',
+      name: 'Hình thành cầu vồng khí quyển (Rainbow Formation)',
+      description: 'Mô phỏng góc lệch cực tiểu Descartes 40°-42° và vòng cung cầu vồng 7 sắc trên bầu trời.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: GenericSceneVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: true
     });
   }
 

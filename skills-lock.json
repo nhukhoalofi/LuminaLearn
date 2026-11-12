@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "skills": {
+    "animate": {
+      "source": "cth9191/animate",
+      "sourceType": "github",
+      "skillPath": "plugins/animate/skills/animate/SKILL.md",
+      "computedHash": "dd5546b89d4dfef3fd8b2fabc5dcdc6c032dece8e9c62b0a5db05ed70c9781f2"
+    },
+    "manimce-best-practices": {
+      "source": "adithya-s-k/manim_skill",
+      "sourceType": "github",
+      "skillPath": "skills/manimce-best-practices/SKILL.md",
+      "computedHash": "d8a9168f993c3152944059fed0ec258101f7ed00d24852a9eb73d8541a2b92ed"
+    },
+    "remotion-best-practices": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-best-practices/SKILL.md",
+      "computedHash": "60abebf9a98bb1077b60bba85876a93e0d6e92dd4306aebf73c160fe0302e388"
+    },
+    "remotion-captions": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-captions/SKILL.md",
+      "computedHash": "33a00237da49e2063d65834ac8ce75d8e18106209cc5b8ba72df8fca163e1289"
+    },
+    "remotion-markup": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-markup/SKILL.md",
+      "computedHash": "f5f9fad7543e5fd2ed884eb5021e5dc4ce87d67279fd68538a63c4b8621ea4e9"
+    },
+    "remotion-render": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-render/SKILL.md",
+      "computedHash": "2d8743ca92ffb0bdc716520797c57b67b2106fa7a9e981f80761200c102caa62"
+    }
+  }
+}
