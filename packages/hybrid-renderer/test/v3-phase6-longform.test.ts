@@ -10,14 +10,116 @@ import {
   LongFormRenderCoordinatorV3,
   SegmentCacheV3,
   RenderCheckpointRepositoryV3,
-  SegmentRenderWorkerV3,
+  SyntheticMediaFixtureWorkerV3,
   LongFormMediaAssemblerV3,
   probeMediaWithFFprobe
 } from '../src';
 import {
   type EducationalStoryboardV3,
+  type ApprovedRenderArtifactV3,
+  ApprovedRenderArtifactV3Schema,
   secondsToFrames
 } from '@luminalearn/scene-schema';
+import { computeV3ContentHash } from '../src/pipeline-v3';
+
+function makeMockApprovedArtifact(artifactId: string, storyboard: EducationalStoryboardV3): ApprovedRenderArtifactV3 {
+  const lessonId = storyboard.lessonId ?? `lesson_test_${storyboard.totalDurationSeconds}s`;
+  const validationTimestamp = '2026-11-10T00:00:00.000Z';
+  const report = {
+    reportId: `rep_${artifactId}`,
+    lessonId,
+    domain: 'mathematics' as const,
+    overallStatus: 'verified' as const,
+    claimReports: [
+      {
+        claimId: 'claim_test',
+        claimType: 'formal_mathematics' as const,
+        status: 'formally_verified' as const,
+        verifierNotes: 'Verified for longform tests'
+      }
+    ],
+    requiresHumanPedagogicalSignoff: true,
+    validationTimestamp
+  };
+
+  const rawCore = {
+    schemaVersion: 'approved-render-artifact-v3' as const,
+    artifactId,
+    draftId: `draft_${artifactId}`,
+    ownerId: 'teacher_pilot',
+    approvedVersion: 1,
+    request: {
+      requestId: `req_${artifactId}`,
+      topic: '7 hằng đẳng thức đáng nhớ',
+      domain: 'mathematics' as const,
+      generationMode: 'mock' as const,
+      targetDurationSeconds: storyboard.totalDurationSeconds,
+      narrationMode: 'none' as const,
+      subtitlesEnabled: true,
+      fps: 24 as const,
+      width: 720 as const,
+      height: 1280 as const
+    },
+    lessonPlan: {
+      schemaVersion: 'lesson-v3' as const,
+      generationProvenance: 'deterministic_mock' as const,
+      lessonId,
+      domain: 'mathematics' as const,
+      topicId: 'algebra.identities.seven',
+      title: '7 hằng đẳng thức đáng nhớ',
+      summary: 'Tóm tắt bài học kiểm thử longform',
+      learningObjectives: ['Nắm vững cấu trúc longform video'],
+      prerequisites: [],
+      keyConcepts: ['Phân đoạn longform'],
+      educationalClaims: [
+        {
+          id: 'claim_test',
+          claimType: 'formal_mathematics' as const,
+          statement: '7 hằng đẳng thức đáng nhớ là các đẳng thức cơ bản trong đại số.',
+          formalExpression: '(a+b)^2 = a^2+2*a*b+b^2',
+          verificationStatus: 'formally_verified' as const,
+          formalProofSummary: 'Kiểm định đại số qua SymPy thành công'
+        }
+      ],
+      capabilityReport: {
+        topicId: 'algebra.identities.seven',
+        domain: 'mathematics' as const,
+        displayName: '7 hằng đẳng thức đáng nhớ',
+        subCategory: 'Đại số cơ bản',
+        supportedCapabilities: ['formal_math_verification' as const],
+        requiredValidationTypes: ['formal_math' as const],
+        availableRenderers: ['remotion_infographic' as const],
+        evidenceRequirements: ['mathematical_proof' as const],
+        renderReadiness: 'render_ready' as const
+      },
+      validationReport: report,
+      sourceEvidence: [],
+      storyboard: {
+        storyboardId: storyboard.storyboardId,
+        lessonId,
+        totalDurationSeconds: storyboard.totalDurationSeconds,
+        scenes: storyboard.scenes
+      }
+    },
+    verificationReport: report,
+    teacherApproval: {
+      approvedBy: 'teacher_pilot',
+      approvedAt: validationTimestamp,
+      semanticReviewConfirmed: true as const
+    },
+    createdAt: validationTimestamp
+  };
+
+  const parsedTemp = ApprovedRenderArtifactV3Schema.parse({
+    ...rawCore,
+    contentHash: '0'.repeat(64)
+  });
+  const { contentHash: _ch, ...normalizedCore } = parsedTemp;
+  return {
+    ...normalizedCore,
+    contentHash: computeV3ContentHash(normalizedCore)
+  };
+}
 
 function makeMockStoryboard(totalSeconds: number): EducationalStoryboardV3 {
   const sceneCount = totalSeconds === 60 ? 3 : totalSeconds === 180 ? 5 : totalSeconds === 300 ? 10 : 20;
@@ -32,7 +134,7 @@ function makeMockStoryboard(totalSeconds: number): EducationalStoryboardV3 {
 
     scenes.push({
       sceneId: `sc_test_${i + 1}`,
-      sceneType: i === 0 ? 'concept_intro' : i === sceneCount - 1 ? 'summary' : 'neural_architecture',
+      sceneType: 'concept_intro',
       title: `Phân cảnh kiểm thử ${i + 1}`,
       pedagogicalGoal: `Mục tiêu sư phạm phân cảnh ${i + 1}`,
       durationSeconds: dur,
@@ -44,8 +146,11 @@ function makeMockStoryboard(totalSeconds: number): EducationalStoryboardV3 {
       },
       visualPayload: {
         sceneType: 'concept_intro',
-        centralQuestion: 'Khái niệm là gì?',
-        keyConcept: 'Trực quan hóa'
+        centralQuestion: 'Khái niệm là gì trong bài học kiểm thử?',
+        keyConcept: 'Trực quan hóa',
+        visualStyleId: 'clean_educational_infographic',
+        accentColor: '#38BDF8',
+        reducedMotion: false
       }
     });
   }
@@ -106,7 +211,7 @@ test('PHASE 6: SegmentCacheV3 content-addressable caching, hit/miss, and corrupt
     assert.equal(initialGet, undefined);
 
     // 2. Render dummy valid segment file and set into cache
-    const worker = new SegmentRenderWorkerV3();
+    const worker = new SyntheticMediaFixtureWorkerV3();
     const rendered = await worker.renderSegment(segment, manifest, tempDir);
     const cachedPath = await cache.set(cacheKey, rendered.outputPath);
     assert.ok(cachedPath);
@@ -134,6 +239,7 @@ test('PHASE 6: End-to-End Resumable Segment Rendering & FFmpeg Concatenation (60
     const planner = new LongFormSegmentPlannerV3();
     const sb = makeMockStoryboard(60);
     const manifest = planner.planSegments({ artifactId: 'art_e2e_60s', storyboard: sb });
+    const artifact = makeMockApprovedArtifact(manifest.artifactId, sb);
 
     const cacheDir = join(tempDir, 'cache');
     const checkpointDir = join(tempDir, 'checkpoints');
@@ -141,7 +247,8 @@ test('PHASE 6: End-to-End Resumable Segment Rendering & FFmpeg Concatenation (60
 
     const cache = new SegmentCacheV3({ cacheDir });
     const checkpointRepo = new RenderCheckpointRepositoryV3({ storageDir: checkpointDir });
-    const coordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo });
+    const worker = new SyntheticMediaFixtureWorkerV3();
+    const coordinator = new LongFormRenderCoordinatorV3({ cache, checkpointRepo, worker });
 
     const jobId = 'job_test_resume_60s';
 
@@ -149,6 +256,8 @@ test('PHASE 6: End-to-End Resumable Segment Rendering & FFmpeg Concatenation (60
     await assert.rejects(
       coordinator.render({
         manifest,
+        artifact,
+        authorizeArtifact: () => true,
         jobId,
         outputDir,
         simulateFailureAtSegment: 1
@@ -166,6 +275,8 @@ test('PHASE 6: End-to-End Resumable Segment Rendering & FFmpeg Concatenation (60
     const progressUpdates: number[] = [];
     const result = await coordinator.render({
       manifest,
+      artifact,
+      authorizeArtifact: () => true,
       jobId,
       outputDir,
       onProgress: (j) => progressUpdates.push(j.progress),
@@ -194,14 +305,18 @@ test('PHASE 6: 180-second multi-segment render acceptance', async () => {
     const planner = new LongFormSegmentPlannerV3();
     const sb = makeMockStoryboard(180);
     const manifest = planner.planSegments({ artifactId: 'art_e2e_180s', storyboard: sb });
+    const artifact = makeMockApprovedArtifact(manifest.artifactId, sb);
 
     const coordinator = new LongFormRenderCoordinatorV3({
       cache: new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') }),
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
       manifest,
+      artifact,
+      authorizeArtifact: () => true,
       jobId: 'job_180s',
       outputDir: join(tempDir, 'output')
     });
@@ -223,15 +338,19 @@ test('PHASE 6: 300-second (5 min) long-form multi-segment render acceptance with
     const planner = new LongFormSegmentPlannerV3();
     const sb = makeMockStoryboard(300);
     const manifest = planner.planSegments({ artifactId: 'art_e2e_300s', storyboard: sb });
+    const artifact = makeMockApprovedArtifact(manifest.artifactId, sb);
 
     const cache = new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') });
     const coordinator = new LongFormRenderCoordinatorV3({
       cache,
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
       manifest,
+      artifact,
+      authorizeArtifact: () => true,
       jobId: 'job_300s',
       outputDir: join(tempDir, 'output')
     });
@@ -254,17 +373,21 @@ test('PHASE 6: 600-second (10 min) masterclass segmented render and manifest con
     const planner = new LongFormSegmentPlannerV3();
     const sb = makeMockStoryboard(600);
     const manifest = planner.planSegments({ artifactId: 'art_e2e_600s', storyboard: sb });
+    const artifact = makeMockApprovedArtifact(manifest.artifactId, sb);
 
     assert.equal(manifest.totalFrames, 14400); // 600s * 24fps
     assert.ok(manifest.segments.length >= 10);
 
     const coordinator = new LongFormRenderCoordinatorV3({
       cache: new SegmentCacheV3({ cacheDir: join(tempDir, 'cache') }),
-      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') })
+      checkpointRepo: new RenderCheckpointRepositoryV3({ storageDir: join(tempDir, 'checkpoints') }),
+      worker: new SyntheticMediaFixtureWorkerV3()
     });
 
     const result = await coordinator.render({
       manifest,
+      artifact,
+      authorizeArtifact: () => true,
       jobId: 'job_600s',
       outputDir: join(tempDir, 'output')
     });

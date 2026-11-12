@@ -1,0 +1,105 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  adaptAttentionMatrixV3,
+  adaptDirectedDiagramV3,
+  adaptFormulaSequenceV3,
+  adaptGeometry2dV3,
+  adaptProbabilityTreeV3,
+  adaptScalarFunctionGraphV3
+} from '../src/educational/scientific-visual-adapters-v3';
+
+describe('Quality Sprint B scientific visual adapters', () => {
+  it('builds a reusable graph whose marker lies on the same source function', () => {
+    const scene = adaptScalarFunctionGraphV3({ kind: 'scalar_function_1d', functionType: 'polynomial', expression: '2*x^2+1', xRange: [-2, 2], yRange: [0, 10], pointX: 2, tangentAtX: 2, secantFromX: 1, secantToX: 2, claimId: 'claim_parabola', validation: 'formally_verified' });
+    const point = scene.elements.find((element) => element.elementType === 'point');
+    const graph = scene.elements.find((element) => element.elementType === 'graph');
+    assert.deepEqual(point && 'coordinates' in point ? point.coordinates : undefined, [2, 9]);
+    assert.equal(graph && 'tangentAtX' in graph ? graph.tangentAtX : undefined, 2);
+    assert.equal(graph && 'showSecantLine' in graph ? graph.showSecantLine : undefined, true);
+    assert.equal(scene.style, 'ai_data_story');
+  });
+
+  it('uses progressive graph phases instead of restarting the curve in every scene', () => {
+    const input = { kind: 'scalar_function_1d' as const, functionType: 'polynomial' as const, expression: 'x^2', xRange: [-1, 3] as [number, number], yRange: [-1, 9] as [number, number], pointX: 1, tangentAtX: 1, secantFromX: 1, secantToX: 2, claimId: 'claim_derivative', validation: 'formally_verified' as const };
+    const introduction = adaptScalarFunctionGraphV3(input, 'intro', { phase: 'introduce_curve' });
+    const secant = adaptScalarFunctionGraphV3(input, 'secant', { phase: 'secant_step', formulaTex: 'm_{PQ}=3' });
+    const tangent = adaptScalarFunctionGraphV3(input, 'tangent', { phase: 'tangent_hold' });
+    const motion = adaptScalarFunctionGraphV3({ ...input, secantProgression: [2, 1.5, 1.05] }, 'motion', { phase: 'secant_motion' });
+    const animationOf = (scene: typeof introduction) => scene.elements.find((element) => element.elementType === 'graph')?.animation;
+    assert.equal(animationOf(introduction), 'draw_line');
+    assert.equal(animationOf(secant), 'step_reveal');
+    assert.equal(animationOf(tangent), 'fade_in');
+    assert.equal(animationOf(motion), 'spring_scale');
+    const formula = secant.elements.find((element) => element.elementType === 'formula');
+    assert.equal(formula?.elementType === 'formula' ? formula.latex : undefined, 'm_{PQ}=3');
+    assert.equal(formula && 'claimId' in formula ? formula.claimId : undefined, undefined);
+  });
+
+  it('builds directed diagrams from typed nodes and edges rather than a fixed network', () => {
+    const scene = adaptDirectedDiagramV3({ kind: 'directed_diagram', nodes: [
+      { nodeId: 'input_one', label: 'Input', layer: 0 }, { nodeId: 'hidden_one', label: 'Hidden', layer: 1 }, { nodeId: 'output_one', label: 'Output', layer: 2 }
+    ], edges: [
+      { edgeId: 'edge_input_hidden', fromNodeId: 'input_one', toNodeId: 'hidden_one', weight: 0.4 }, { edgeId: 'edge_hidden_output', fromNodeId: 'hidden_one', toNodeId: 'output_one', weight: 0.8 }
+    ], validation: 'source_grounded' });
+    assert.equal(scene.elements.filter((element) => element.elementType === 'neural_node').length, 3);
+    assert.equal(scene.elements.filter((element) => element.elementType === 'neural_connection').length, 2);
+    assert.equal(scene.style, 'systems_whiteboard');
+  });
+
+  it('preserves attention matrix values exactly and rejects non-normalized rows', () => {
+    const scene = adaptAttentionMatrixV3({ kind: 'attention_matrix', tokens: ['A', 'B'], weights: [[0.7, 0.3], [0.25, 0.75]], validation: 'deterministic_numeric' });
+    const matrix = scene.elements.find((element) => element.elementType === 'matrix');
+    assert.deepEqual(matrix && 'values' in matrix ? matrix.values : undefined, [[0.7, 0.3], [0.25, 0.75]]);
+    assert.throws(() => adaptAttentionMatrixV3({ kind: 'attention_matrix', tokens: ['A', 'B'], weights: [[0.7, 0.5], [0.25, 0.75]], validation: 'deterministic_numeric' }), /sum to one/);
+  });
+
+  it('requires proof references for every formally verified formula step', () => {
+    assert.throws(() => adaptFormulaSequenceV3({ kind: 'verified_formula_steps', title: 'Identity', validation: 'formally_verified', steps: [
+      { stepId: 'formula_step_1', latex: '(a+b)^2', explanation: 'Start', highlightTerms: [], claimIds: ['claim_identity'] },
+      { stepId: 'formula_step_2', latex: 'a^2+2ab+b^2', explanation: 'Expand', highlightTerms: ['2ab'], claimIds: ['claim_identity'] }
+    ] }), /proofReferenceId/);
+  });
+
+  it('builds 2D geometry primitives with points, segments, and polygons', () => {
+    const scene = adaptGeometry2dV3({
+      kind: 'geometry_2d',
+      points: [
+        { pointId: 'point_A', x: 0, y: 0 },
+        { pointId: 'point_B', x: 4, y: 0 },
+        { pointId: 'point_C', x: 0, y: 3 }
+      ],
+      segments: [
+        { fromPointId: 'point_A', toPointId: 'point_B' },
+        { fromPointId: 'point_B', toPointId: 'point_C' },
+        { fromPointId: 'point_C', toPointId: 'point_A' }
+      ],
+      polygons: [
+        { pointIds: ['point_A', 'point_B', 'point_C'], areaClaimId: 'claim_triangle_area' }
+      ],
+      claimIds: ['claim_triangle_area'],
+      validation: 'formally_verified'
+    });
+    assert.equal(scene.elements.filter((el) => el.elementType === 'point').length, 3);
+    assert.equal(scene.elements.filter((el) => el.elementType === 'segment').length, 3);
+    assert.equal(scene.elements.filter((el) => el.elementType === 'polygon').length, 1);
+    const firstPoint = scene.elements.find((el) => el.elementType === 'point');
+    assert.equal(firstPoint && 'label' in firstPoint ? firstPoint.label : undefined, 'A(0,0)');
+  });
+
+  it('builds probability tree hierarchical nodes and branch edges', () => {
+    const scene = adaptProbabilityTreeV3({
+      kind: 'probability_tree',
+      rootLabel: 'Bệnh',
+      branches: [
+        { branchId: 'pos', label: 'Dương tính', probability: 0.99 },
+        { branchId: 'neg', label: 'Âm tính', probability: 0.01 }
+      ],
+      validation: 'deterministic_numeric'
+    });
+    assert.ok(scene.elements.some((el) => el.elementType === 'neural_node' && el.elementId === 'probability_tree_scene_root'));
+    assert.ok(scene.elements.some((el) => el.elementType === 'neural_node' && el.elementId === 'pos'));
+    assert.ok(scene.elements.some((el) => el.elementType === 'neural_connection' && el.elementId === 'edge_pos'));
+  });
+});
+

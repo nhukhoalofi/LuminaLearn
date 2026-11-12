@@ -6,21 +6,24 @@ export interface AttentionHeatmapSceneProps {
   title: string;
   payload: AttentionHeatmapVisualPayload;
   subtitleText?: string;
+  durationInFrames?: number;
 }
 
 export const AttentionHeatmapScene: React.FC<AttentionHeatmapSceneProps> = ({
   title,
   payload,
-  subtitleText
+  subtitleText,
+  durationInFrames: propDuration
 }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const sceneProgress = spring({ frame, fps, config: { damping: 15, stiffness: 90 } });
 
   const exitOpacity = interpolate(
     frame,
-    [Math.max(0, durationInFrames - 12), durationInFrames],
+    [Math.max(0, effectiveDuration - 12), effectiveDuration],
     [1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );

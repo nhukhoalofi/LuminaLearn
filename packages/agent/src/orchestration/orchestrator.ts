@@ -322,6 +322,8 @@ export class LessonOrchestrator {
         ? 'gemini_quota_exceeded'
         : message.startsWith('gemini_budget_exceeded')
         ? 'gemini_budget_exceeded'
+        : message.startsWith('gemini_transient_failed')
+        ? 'gemini_transient_failed'
         : message.startsWith('gemini_authentication_failed') || message.startsWith('gemini_permission_denied')
         ? 'gemini_authentication_failed'
         : message.startsWith('unsupported_source_claim')

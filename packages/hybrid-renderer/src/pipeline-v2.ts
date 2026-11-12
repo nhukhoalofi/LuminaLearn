@@ -6,7 +6,8 @@ import { config as loadEnvironment } from 'dotenv';
 import {
   LessonOrchestrator,
   DocumentStore,
-  verifyArtifactIntegrity
+  verifyArtifactIntegrity,
+  TopicRouter
 } from '@luminalearn/agent';
 import {
   ApprovedRenderArtifactV2Schema,
@@ -147,6 +148,10 @@ export async function runHybridPipelineV2(
     providedAudioPath = artifact.renderConfig.providedAudioPath;
   } else {
     request = LessonRequestV2Schema.parse(input);
+    const routeDecision = new TopicRouter().route(request);
+    if (!routeDecision.isSupported && routeDecision.v3Only) {
+      throw new Error(routeDecision.unsupportedReason ?? 'v2_unsupported_topic: Use LuminaLearn V3 Multi-Topic Studio');
+    }
     renderMode = request.renderMode;
     narrationMode = request.narrationMode;
     aspectRatio = request.aspectRatio;

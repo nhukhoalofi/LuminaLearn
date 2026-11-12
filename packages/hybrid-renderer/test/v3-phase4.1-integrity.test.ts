@@ -107,4 +107,25 @@ test('Checkpoint G & Checkpoint D/E — V2 Dispatch & V3 Audio Security', async 
       /v3_audio_not_found/
     );
   });
+
+  await t.test('6. deriveTrustedProofContextV3 produces authoritative proof context matching approved version', async () => {
+    const { deriveTrustedProofContextV3 } = await import('../src/pipeline-v3.js');
+    const manager = new LessonDraftManagerV3();
+    let draft = await manager.create({
+      requestId: 'req_trust_context_test',
+      topic: 'Mạng Neural Perceptron',
+      domain: 'artificial_intelligence',
+      generationMode: 'mock',
+      targetDurationSeconds: 30,
+      narrationMode: 'none',
+      subtitlesEnabled: true
+    }, 'teacher_sec');
+    draft = await manager.confirmSemanticReview(draft.draftId, 'teacher_sec', draft.version);
+    draft = await manager.approve(draft.draftId, 'teacher_sec', draft.version);
+    const artifact = draft.approvedArtifact!;
+
+    const proofContext = deriveTrustedProofContextV3(artifact);
+    assert.equal(proofContext.artifactIntegrityVerified, true);
+    assert.equal(proofContext.approvedDraftVersion, artifact.approvedVersion);
+  });
 });

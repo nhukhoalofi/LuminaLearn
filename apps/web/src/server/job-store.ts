@@ -6,6 +6,8 @@ import {
   runHybridPipeline,
   runHybridPipelineV2,
   runRenderPipelineV3,
+  LongFormRenderCoordinatorV3,
+  generateSrtFromStoryboardV3,
   type HybridRenderRequest,
   type JobState,
   LocalJobRepository
@@ -14,12 +16,13 @@ import {
   ApprovedRenderArtifactV2Schema,
   ApprovedRenderArtifactV3Schema,
   LessonRequestV2Schema,
+  isLongFormDuration,
   type ApprovedRenderArtifactV2,
   type ApprovedRenderArtifactV3,
   type LessonRequestV2,
   type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
-import { verifyArtifactIntegrity, verifyArtifactIntegrityV3 } from '@luminalearn/agent';
+import { verifyArtifactIntegrity, verifyArtifactIntegrityV3, LongFormSegmentPlannerV3 } from '@luminalearn/agent';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { documentStore } from './v2-services';
@@ -42,6 +45,8 @@ export interface JobRecord {
   subtitlesEnabled: boolean;
   failureType?: 'ai' | 'tts' | 'validation' | 'render' | 'interrupted';
   artifactId?: string;
+  artifactContentHash?: string;
+  draftId?: string;
 }
 
 const progressByState: Record<JobState, number> = {
@@ -84,10 +89,16 @@ function publicJob(job: JobRecord): Omit<JobRecord, 'outputPath'> {
 function transition(jobId: string, next: JobState, details: Partial<JobRecord> = {}): void {
   const current = store.jobs.get(jobId);
   if (!current) throw new Error('Job not found');
-  assertJobTransition(current.status, next);
+  if (current.status !== next) {
+    assertJobTransition(current.status, next);
+  }
   const updated = {
-    ...current, ...details, status: next, progress: progressByState[next],
-    message: details.message ?? messageByState[next], updatedAt: new Date().toISOString()
+    ...current,
+    ...details,
+    status: next,
+    progress: details.progress ?? progressByState[next],
+    message: details.message ?? messageByState[next],
+    updatedAt: new Date().toISOString()
   };
   store.jobs.set(jobId, updated);
   repository.save(updated);
@@ -107,14 +118,92 @@ async function runEntry(entry: QueuedJob): Promise<void> {
 
     if (entry.v3Artifact) {
       if (!entry.authorizeV3Artifact) throw new Error('v3_authorization_callback_missing');
-      transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
-      transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
-      result = await runRenderPipelineV3(entry.v3Artifact, {
-        jobId: entry.jobId,
-        authorizeArtifact: entry.authorizeV3Artifact,
-        consentRecord: entry.consentRecord,
-        onStage: (stage) => transition(entry.jobId, stage === 'merging_media' ? 'rendering_remotion' : stage)
-      });
+
+      const isLongForm = isLongFormDuration(entry.v3Artifact.request.targetDurationSeconds);
+      const isAuthorizedLongFormTts =
+        entry.v3Artifact.request.narrationMode === 'gemini_tts' && Boolean(entry.consentRecord);
+
+      if (isLongForm && entry.v3Artifact.request.narrationMode !== 'none' && !isAuthorizedLongFormTts) {
+        throw new SecurityError(
+          400,
+          'unsupported_longform_narration_mode',
+          `Long-form rendering (>= 60s) requires narrationMode='none' or signed Gemini TTS consent. Mode '${entry.v3Artifact.request.narrationMode}' is not supported.`
+        );
+      }
+
+      if (isLongForm && entry.v3Artifact.request.narrationMode === 'none') {
+        // CHECKPOINT 0.A: Correct state transitions: queued -> planning -> validating -> rendering_remotion -> completed
+        transition(entry.jobId, 'planning', { message: 'Đang lập kế hoạch phân đoạn bài giảng dài' });
+        const planner = new LongFormSegmentPlannerV3();
+        const manifest = planner.planSegments({
+          artifactId: entry.v3Artifact.artifactId,
+          storyboard: entry.v3Artifact.lessonPlan.storyboard!,
+          targetSegmentDurationSeconds: 30,
+          fps: entry.v3Artifact.request.fps,
+          width: entry.v3Artifact.request.width,
+          height: entry.v3Artifact.request.height
+        });
+
+        transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
+        if (!verifyArtifactIntegrityV3(entry.v3Artifact)) {
+          throw new Error('artifact_tampered: V3 content hash mismatch');
+        }
+        if (!(await entry.authorizeV3Artifact(entry.v3Artifact))) {
+          throw new Error('artifact_revoked: V3 artifact is no longer authorized for rendering');
+        }
+
+        // CHECKPOINT 0.B: Generate SubRip (.srt) subtitles automatically from approved storyboard
+        let subtitlesSrtContent: string | undefined;
+        if (entry.v3Artifact.request.subtitlesEnabled) {
+          subtitlesSrtContent = generateSrtFromStoryboardV3(
+            entry.v3Artifact.lessonPlan.storyboard!,
+            entry.v3Artifact.request.fps
+          );
+        }
+
+        transition(entry.jobId, 'rendering_remotion', { message: 'Đang render phân đoạn Remotion' });
+        const coordinator = new LongFormRenderCoordinatorV3();
+        const res = await coordinator.render({
+          manifest,
+          artifact: entry.v3Artifact,
+          authorizeArtifact: entry.authorizeV3Artifact,
+          jobId: entry.jobId,
+          subtitlesSrtContent,
+          onProgress: (renderJob) => {
+            const current = store.jobs.get(entry.jobId);
+            if (current && current.status !== 'completed' && current.status !== 'failed') {
+              const progress = Math.min(
+                95,
+                Math.round((renderJob.completedSegments / Math.max(1, renderJob.totalSegments)) * 80) + 15
+              );
+              const updatedJob: JobRecord = {
+                ...current,
+                progress,
+                message: `Đang render phân đoạn ${renderJob.completedSegments}/${renderJob.totalSegments}`,
+                updatedAt: new Date().toISOString()
+              };
+              store.jobs.set(entry.jobId, updatedJob);
+              repository.save(updatedJob);
+            }
+          }
+        });
+        result = { outputPath: res.finalMp4Path };
+      } else {
+        transition(entry.jobId, 'planning', { message: 'Đang nạp immutable V3 artifact' });
+        transition(entry.jobId, 'validating', { message: 'Đang xác minh hash, quyền và Visual DSL V3' });
+        result = await runRenderPipelineV3(entry.v3Artifact, {
+          jobId: entry.jobId,
+          authorizeArtifact: entry.authorizeV3Artifact,
+          consentRecord: entry.consentRecord,
+          onStage: (stage) =>
+            stage === 'merging_media'
+              ? transition(entry.jobId, 'rendering_remotion', {
+                  progress: 90,
+                  message: 'Đang ghép âm thanh và đồng bộ video'
+                })
+              : transition(entry.jobId, stage)
+        });
+      }
     } else if (entry.v2Artifact) {
       if (entry.authorizeArtifact && !(await entry.authorizeArtifact(entry.v2Artifact))) {
         throw new Error('artifact_revoked: Approved artifact is no longer authorized for rendering');
@@ -185,6 +274,7 @@ async function runEntry(entry: QueuedJob): Promise<void> {
 
 // Checkpoint F & G: Atomic enqueue mutex per artifact for safe concurrency, idempotency, and leak-free cleanup
 const artifactEnqueueLocks = new Map<string, Promise<unknown>>();
+const artifactStore = new Map<string, ApprovedRenderArtifactV3>();
 
 export function getArtifactEnqueueLockCount(): number {
   return artifactEnqueueLocks.size;
@@ -221,10 +311,28 @@ export async function createV3JobFromArtifact(
   consentRecord?: ExternalApiConsentRecordV3
 ): Promise<Omit<JobRecord, 'outputPath'>> {
   const artifact = ApprovedRenderArtifactV3Schema.parse(input);
+
+  // CHECKPOINT 0.C: Explicitly reject unsupported long-form narration modes prior to enqueue unless signed Gemini TTS consent is present
+  const isAuthorizedLongFormTts =
+    artifact.request.narrationMode === 'gemini_tts' && Boolean(consentRecord);
+  if (
+    isLongFormDuration(artifact.request.targetDurationSeconds) &&
+    artifact.request.narrationMode !== 'none' &&
+    !isAuthorizedLongFormTts
+  ) {
+    throw new SecurityError(
+      400,
+      'unsupported_longform_narration_mode',
+      `Long-form rendering (>= 60s) requires narrationMode='none' or signed Gemini TTS consent. Voiceover mode '${artifact.request.narrationMode}' is not supported.`
+    );
+  }
+
   if (!verifyArtifactIntegrityV3(artifact)) throw new Error('artifact_tampered: V3 content hash mismatch');
   if (artifact.ownerId !== ownerId || !(await authorizeArtifact(artifact))) {
     throw new SecurityError(403, 'artifact_unauthorized', 'V3 artifact is not authorized for scheduling');
   }
+
+  artifactStore.set(artifact.artifactId, artifact);
 
   return withArtifactEnqueueLock(artifact.artifactId, async () => {
     // 1. Check existing job within atomic lock
@@ -250,6 +358,8 @@ export async function createV3JobFromArtifact(
       visualStyleId: 'clean_educational_infographic',
       subtitlesEnabled: artifact.request.subtitlesEnabled,
       artifactId: artifact.artifactId,
+      artifactContentHash: artifact.contentHash,
+      draftId: artifact.draftId,
       createdAt: now,
       updatedAt: now
     };
@@ -263,6 +373,81 @@ export async function createV3JobFromArtifact(
     });
     pump();
     return publicJob(job);
+  });
+}
+
+/**
+ * CHECKPOINT 0.E: Resumes an existing failed or interrupted V3 job from its persistent checkpoint.
+ * Preserves the exact jobId so LongFormRenderCoordinator loads prior completed segments without restarting.
+ */
+export async function resumeV3Job(
+  jobId: string,
+  ownerId: string,
+  authorizeArtifact: (artifact: ApprovedRenderArtifactV3) => boolean | Promise<boolean>,
+  artifactOverride: ApprovedRenderArtifactV3,
+  expected: { artifactId: string; contentHash: string },
+  consentRecord?: ExternalApiConsentRecordV3
+): Promise<Omit<JobRecord, 'outputPath'>> {
+  const job = store.jobs.get(jobId);
+  if (!job) throw new SecurityError(404, 'job_not_found', `Job '${jobId}' not found`);
+  if (job.ownerId && job.ownerId !== ownerId) {
+    throw new SecurityError(403, 'job_unauthorized', 'Cannot resume job owned by another teacher');
+  }
+  if (job.status !== 'failed' && job.status !== 'interrupted') {
+    throw new SecurityError(
+      409,
+      'job_not_resumable',
+      `Job in status '${job.status}' cannot be resumed (must be failed or interrupted)`
+    );
+  }
+
+  const artifactId = job.artifactId;
+  if (!artifactId) {
+    throw new Error('job_missing_artifact_id: Cannot resume job without associated artifactId');
+  }
+
+  if (expected.artifactId !== artifactId || expected.contentHash !== job.artifactContentHash) {
+    throw new SecurityError(409, 'resume_artifact_mismatch', 'Resume identifiers do not match the original job');
+  }
+  const artifact = artifactOverride;
+  if (artifact.artifactId !== artifactId || artifact.contentHash !== expected.contentHash || artifact.draftId !== job.draftId) {
+    throw new SecurityError(409, 'resume_artifact_mismatch', 'Persisted approved artifact does not match the original job');
+  }
+
+  if (!verifyArtifactIntegrityV3(artifact)) {
+    throw new Error('artifact_tampered: V3 content hash mismatch');
+  }
+  if (!(await authorizeArtifact(artifact))) {
+    throw new SecurityError(403, 'artifact_unauthorized', 'Artifact is no longer authorized for rendering');
+  }
+
+  return withArtifactEnqueueLock(artifactId, async () => {
+    const latest = store.jobs.get(jobId);
+    if (!latest || (latest.status !== 'failed' && latest.status !== 'interrupted')) {
+      throw new SecurityError(409, 'job_not_resumable', 'Job was already resumed or is no longer resumable');
+    }
+    assertQueueCapacity();
+    const resumedJob: JobRecord = {
+      ...latest,
+      status: 'queued',
+      progress: job.progress || 0,
+      message: 'Đang xếp hàng tiếp tục kết xuất từ Checkpoint',
+      error: undefined,
+      failureType: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    store.jobs.set(jobId, resumedJob);
+    repository.save(resumedJob);
+
+    store.queue.push({
+      jobId,
+      v3Artifact: artifact,
+      authorizeV3Artifact: authorizeArtifact,
+      consentRecord
+    });
+    pump();
+    return publicJob(resumedJob);
   });
 }
 
@@ -411,5 +596,12 @@ export function getJobOutputPath(jobId: string, callerOwnerId?: string): string 
     assertOwnerMatch(job.ownerId, callerOwnerId, `job '${jobId}'`);
   }
   return job.status === 'completed' ? job.outputPath : undefined;
+}
+
+export function listJobsForOwner(ownerId: string): Array<Omit<JobRecord, 'outputPath'>> {
+  return Array.from(store.jobs.values())
+    .filter((job) => job.ownerId === ownerId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(publicJob);
 }
 

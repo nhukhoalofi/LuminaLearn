@@ -1,26 +1,31 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { LossLandscapeVisualPayload } from '@luminalearn/scene-schema';
+import { deriveLossLandscapeFrameV3 } from './loss-landscape-motion-v3';
+import { formatEducationalMathDisplay } from './educational-math-display';
 
 export interface LossLandscapeSceneProps {
   title: string;
   payload: LossLandscapeVisualPayload;
   subtitleText?: string;
+  durationInFrames?: number;
 }
 
 export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
   title,
   payload,
-  subtitleText
+  subtitleText,
+  durationInFrames: propDuration
 }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const sceneProgress = spring({ frame, fps, config: { damping: 15, stiffness: 90 } });
 
   const exitOpacity = interpolate(
     frame,
-    [Math.max(0, durationInFrames - 12), durationInFrames],
+    [Math.max(0, effectiveDuration - 12), effectiveDuration],
     [1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
@@ -64,22 +69,27 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
   }
   const curvePath = `M ${curvePoints.join(' L ')}`;
 
-  // Animation of steps: cycle through steps over time
-  const stepCount = Math.max(1, steps.length);
-  const stepDuration = Math.max(20, Math.floor((durationInFrames - 30) / stepCount));
-  const activeStepIdx = Math.min(stepCount - 1, Math.floor(Math.max(0, frame - 15) / stepDuration));
-  const currentStep = steps[activeStepIdx] ?? steps[0];
+  // Derive every animated value from one validated quadratic function, frame by frame.
+  const motion = deriveLossLandscapeFrameV3(payload, frame, effectiveDuration);
+  const currentX = toSvgX(motion.w);
+  const currentY = toSvgY(motion.loss);
+  const targetStepIndex = Math.min(motion.segmentIndex + 1, steps.length - 1);
+  const iterationLabel = motion.transitionProgress >= 0.999
+    ? `Đã đạt bước ${targetStepIndex + 1}/${steps.length}`
+    : `Đang chuyển ${motion.segmentIndex + 1} → ${targetStepIndex + 1}`;
+  const trailPoints = [
+    ...steps.slice(0, motion.segmentIndex + 1).map((step) => `${toSvgX(step.w).toFixed(1)},${toSvgY(step.loss).toFixed(1)}`),
+    `${currentX.toFixed(1)},${currentY.toFixed(1)}`
+  ];
+  const trailPath = `M ${trailPoints.join(' L ')}`;
 
-  const currentX = toSvgX(currentStep.w);
-  const currentY = toSvgY(currentStep.loss);
-
-  // Tangent line calculation: slope m = 2 * curvature * (w - w*)
-  const slope = 2 * curvature * (currentStep.w - wStar);
-  // Tangent segment delta in w: [-0.6, 0.6]
-  const tanW1 = currentStep.w - 0.5;
-  const tanL1 = currentStep.loss - slope * 0.5;
-  const tanW2 = currentStep.w + 0.5;
-  const tanL2 = currentStep.loss + slope * 0.5;
+  // Tangent follows the moving marker; gradient is the analytic derivative.
+  const slope = motion.gradient;
+  const tangentHalfWidth = Math.max(0.15, (wMax - wMin) * 0.075);
+  const tanW1 = motion.w - tangentHalfWidth;
+  const tanL1 = motion.loss - slope * tangentHalfWidth;
+  const tanW2 = motion.w + tangentHalfWidth;
+  const tanL2 = motion.loss + slope * tangentHalfWidth;
 
   const tanX1 = toSvgX(tanW1);
   const tanY1 = toSvgY(tanL1);
@@ -117,7 +127,7 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
           >
             BỀ MẶT HÀM MẤT MÁT (LOSS LANDSCAPE)
           </span>
-          <span style={{ color: '#94A3B8', fontSize: 16 }}>Bước lặp {currentStep.stepNumber}/{steps.length}</span>
+          <span style={{ color: '#94A3B8', fontSize: 16 }}>{iterationLabel}</span>
         </div>
         <h2 style={{ fontSize: 36, fontWeight: 800, margin: '8px 0', color: '#F1F5F9' }}>{title}</h2>
       </div>
@@ -159,6 +169,12 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
           {/* Loss Curve */}
           <path d={curvePath} fill="none" stroke="url(#curveGrad)" strokeWidth={4} />
 
+          {/* A broad guide and verified trace make small parameter updates visible on a projector. */}
+          <line x1={currentX} y1={padY + 92} x2={currentX} y2={svgH - padY} stroke="#F59E0B" strokeWidth={18} opacity={0.07} />
+          <line x1={currentX} y1={padY + 92} x2={currentX} y2={svgH - padY} stroke="#F59E0B" strokeWidth={1.5} strokeDasharray="5 7" opacity={0.55} />
+          <path d={trailPath} fill="none" stroke="#F59E0B" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" opacity={0.16} />
+          <path d={trailPath} fill="none" stroke="#F59E0B" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="7 5" />
+
           {/* Global Minimum Marker (w*, L*) */}
           <circle cx={toSvgX(wStar)} cy={toSvgY(lStar)} r={8} fill="#10B981" />
           <text x={toSvgX(wStar)} y={toSvgY(lStar) + 28} fill="#10B981" fontSize={15} fontWeight="700" textAnchor="middle">
@@ -166,26 +182,40 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
           </text>
 
           {/* Historical Step Dots */}
-          {steps.slice(0, activeStepIdx + 1).map((s, idx) => (
+          {steps.slice(0, motion.completedStepIndex + 1).map((s, idx) => (
             <circle
               key={`step_${idx}`}
               cx={toSvgX(s.w)}
               cy={toSvgY(s.loss)}
-              r={idx === activeStepIdx ? 12 : 6}
-              fill={idx === activeStepIdx ? '#F59E0B' : '#64748B'}
-              filter={idx === activeStepIdx ? 'url(#glowBall)' : undefined}
+              r={6}
+              fill="#64748B"
+              
             />
           ))}
+
+          {/* Current animated parameter lies on the actual function at every frame. */}
+          <circle cx={currentX} cy={currentY} r={12} fill="#F59E0B" filter="url(#glowBall)" />
 
           {/* Tangent line at current position */}
           {payload.showGradientTangent && (
             <g>
               <line x1={tanX1} y1={tanY1} x2={tanX2} y2={tanY2} stroke="#EF4444" strokeWidth={3} strokeDasharray="6 4" />
-              <text x={currentX + 16} y={currentY - 12} fill="#FCD34D" fontSize={16} fontWeight="800">
-                ∇L = {currentStep.gradient.toFixed(2)}
-              </text>
             </g>
           )}
+
+          {/* Keep rapidly changing values in one fixed card so labels never collide on the curve. */}
+          <g data-dynamic-label="optimization-state">
+            <rect x={svgW - padX - 205} y={padY + 10} width={195} height={92} rx={10} fill="#0F172EEB" stroke="#F59E0B88" />
+            <text x={svgW - padX - 188} y={padY + 38} fill="#FCD34D" fontSize={16} fontWeight={800}>
+              w = {motion.w.toFixed(3)}
+            </text>
+            <text x={svgW - padX - 188} y={padY + 63} fill="#E2E8F0" fontSize={15} fontWeight={700}>
+              L(w) = {motion.loss.toFixed(3)}
+            </text>
+            <text x={svgW - padX - 188} y={padY + 87} fill="#FCA5A5" fontSize={15} fontWeight={700}>
+              ∇L(w) = {motion.gradient.toFixed(3)}
+            </text>
+          </g>
 
           {/* Step Formula Annotation Box */}
           <rect x={padX + 10} y={padY + 10} width={260} height={70} rx={10} fill="#1E293BCC" stroke="#334155" />
@@ -193,7 +223,7 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
             Tốc độ học η = {payload.learningRate}
           </text>
           <text x={padX + 22} y={padY + 62} fill="#38BDF8" fontSize={16} fontWeight="800">
-            w_mới = w - η · ∇L(w)
+            w mới = w − η · ∇L(w)
           </text>
         </svg>
       </div>
@@ -201,7 +231,7 @@ export const LossLandscapeScene: React.FC<LossLandscapeSceneProps> = ({
       {/* Subtitle */}
       <div style={{ textAlign: 'center', minHeight: 48 }}>
         <p style={{ margin: 0, fontSize: 20, color: '#CBD5E1', fontStyle: 'italic' }}>
-          {subtitleText || `Gradient dương chỉ dốc tăng, bước lặp di chuyển ngược hướng gradient để giảm loss.`}
+          {formatEducationalMathDisplay(subtitleText || `Gradient dương chỉ dốc tăng, bước lặp di chuyển ngược hướng gradient để giảm loss.`)}
         </p>
       </div>
     </AbsoluteFill>

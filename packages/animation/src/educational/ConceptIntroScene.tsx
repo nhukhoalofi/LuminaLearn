@@ -6,15 +6,18 @@ export interface ConceptIntroSceneProps {
   title: string;
   payload: ConceptIntroVisualPayload;
   subtitleText?: string;
+  durationInFrames?: number;
 }
 
 export const ConceptIntroScene: React.FC<ConceptIntroSceneProps> = ({
   title,
   payload,
-  subtitleText
+  subtitleText,
+  durationInFrames: propDuration
 }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const isReduced = payload.reducedMotion;
   const accentColor = payload.accentColor || '#22D3EE';
@@ -35,7 +38,7 @@ export const ConceptIntroScene: React.FC<ConceptIntroSceneProps> = ({
   // Fade out at scene end
   const exitOpacity = interpolate(
     frame,
-    [Math.max(0, durationInFrames - 12), durationInFrames],
+    [Math.max(0, effectiveDuration - 12), effectiveDuration],
     [1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );

@@ -7,10 +7,31 @@ import {
   EducationalLessonPlanV3Schema,
   EducationalStoryboardV3Schema,
   EducationalVisualPayloadSchema,
-  REGISTERED_TOPICS_V3
+  REGISTERED_TOPICS_V3,
+  visualRegistryV3
 } from '../src/v3/index';
 
 describe('V3 Educational Contracts & Capability Registry', () => {
+  it('registers every generic sceneType that the V3 renderer dispatches', () => {
+    for (const sceneType of ['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table']) {
+      assert.ok(visualRegistryV3.get(sceneType), `${sceneType} must be registered by its exact sceneType`);
+      assert.equal(visualRegistryV3.isRenderSupported(sceneType, 'remotion'), true);
+    }
+
+    const formulaPayload = {
+      sceneType: 'formula_derivation',
+      headline: 'Quy tắc đạo hàm',
+      formulaTex: "f'(x) = 2x",
+      notes: 'Biến đổi công thức từng bước'
+    };
+    assert.equal(visualRegistryV3.validatePayload('formula_derivation', formulaPayload).success, true);
+    assert.equal(
+      visualRegistryV3.validatePayload('formula_derivation', { ...formulaPayload, sceneType: 'graph_plot' }).success,
+      false,
+      'a registered component must reject a payload for another generic sceneType'
+    );
+  });
+
   it('registers the benchmark topics plus Phase 4 algebra with honest renderReadiness', () => {
     const keys = Object.keys(REGISTERED_TOPICS_V3);
     assert.equal(keys.length, 11);
@@ -34,6 +55,13 @@ describe('V3 Educational Contracts & Capability Registry', () => {
     const deriv = classifyEducationalTopic('Tìm hiểu đạo hàm từ cát tuyến');
     assert.equal(deriv.domain, 'mathematics');
     assert.equal(deriv.topicId, 'calculus.derivative.intuition');
+
+    const algebraPreset = classifyEducationalTopic('Vì sao (a+b)² = a² + 2ab + b²?');
+    assert.equal(algebraPreset.domain, 'mathematics');
+    assert.equal(algebraPreset.topicId, 'algebra.identities.seven');
+
+    const algebraAscii = classifyEducationalTopic('Chứng minh (a + b)^2 = a^2 + 2ab + b^2');
+    assert.equal(algebraAscii.topicId, 'algebra.identities.seven');
 
     const riemann = classifyEducationalTopic('Tổng Riemann và diện tích');
     assert.equal(riemann.domain, 'mathematics');

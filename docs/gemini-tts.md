@@ -11,7 +11,8 @@ Vì vậy `mock + gemini_tts` vẫn thực hiện yêu cầu mạng và có th�
 
 ```dotenv
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
 GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts
 GEMINI_TTS_VOICE=Kore
 GEMINI_TTS_LANGUAGE=vi

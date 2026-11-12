@@ -5,6 +5,7 @@ import {
   assertExternalApiConfirmed, assertRequestAuthorized, readBoundedJson,
   resolveOwnerId, SecurityError
 } from '@/server/security';
+import { formatApiError } from '@/server/error-formatter';
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -32,7 +33,6 @@ export async function POST(request: Request): Promise<Response> {
         requestId: parsed.requestId
       });
     }
-
     const draft = await draftManagerV3.create(
       parsed,
       ownerId,
@@ -42,8 +42,22 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json(draft, { status: 201 });
   } catch (error) {
     if (error instanceof SecurityError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
-    const code = typeof (error as { code?: unknown })?.code === 'string' ? String((error as { code: string }).code) : 'v3_draft_creation_failed';
-    return NextResponse.json({ error: code, provenance: 'generation_failed', message: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    const formatted = formatApiError(error, 'v3_draft_creation_failed', 'generation_failed');
+    const transient = /^gemini_transient_failed\b/.test(formatted.error) || /\b503\b|temporarily unavailable|high demand/i.test(formatted.message);
+    return NextResponse.json(formatted, transient ? { status: 503, headers: { 'Retry-After': '5' } } : { status: 400 });
+  }
+}
+export async function GET(request: Request): Promise<Response> {
+  try {
+    assertRequestAuthorized(request);
+    const ownerId = resolveOwnerId(request);
+    const drafts = await draftManagerV3.listForOwner(ownerId);
+    return NextResponse.json({ drafts });
+  } catch (error) {
+    if (error instanceof SecurityError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ error: 'v3_draft_list_failed' }, { status: 500 });
   }
 }
 

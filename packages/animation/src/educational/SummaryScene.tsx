@@ -1,26 +1,30 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { SummaryVisualPayload } from '@luminalearn/scene-schema';
+import { formatEducationalMathDisplay } from './educational-math-display';
 
 export interface SummarySceneProps {
   title: string;
   payload: SummaryVisualPayload;
   subtitleText?: string;
+  durationInFrames?: number;
 }
 
 export const SummaryScene: React.FC<SummarySceneProps> = ({
   title,
   payload,
-  subtitleText
+  subtitleText,
+  durationInFrames: propDuration
 }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps, durationInFrames: videoDuration } = useVideoConfig();
+  const effectiveDuration = propDuration ?? videoDuration;
 
   const sceneProgress = spring({ frame, fps, config: { damping: 15, stiffness: 90 } });
 
   const exitOpacity = interpolate(
     frame,
-    [Math.max(0, durationInFrames - 12), durationInFrames],
+    [Math.max(0, effectiveDuration - 12), effectiveDuration],
     [1, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
@@ -103,14 +107,14 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
                 {idx + 1}
               </div>
               <div style={{ fontSize: 20, fontWeight: 600, color: '#E2E8F0', lineHeight: 1.35 }}>
-                {takeaway}
+                {formatEducationalMathDisplay(takeaway)}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Verified Facts & Review Notes (Honest Status Display) */}
+      {/* Summary facts are pedagogical content, not formula-level proof bindings. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {payload.verifiedFacts.length > 0 && (
           <div
@@ -124,25 +128,8 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
               gap: 10
             }}
           >
-            <span style={{ color: '#10B981', fontWeight: 800 }}>✓ SymPy Verified:</span>
-            <span style={{ color: '#A7F3D0', fontSize: 16 }}>{payload.verifiedFacts.join(' • ')}</span>
-          </div>
-        )}
-
-        {payload.reviewNotes.length > 0 && (
-          <div
-            style={{
-              backgroundColor: '#F59E0B15',
-              border: '1px solid #F59E0B44',
-              borderRadius: 10,
-              padding: '10px 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10
-            }}
-          >
-            <span style={{ color: '#F59E0B', fontWeight: 800 }}>⚠ Rà soát sư phạm:</span>
-            <span style={{ color: '#FDE68A', fontSize: 16 }}>{payload.reviewNotes.join(' • ')}</span>
+            <span style={{ color: '#10B981', fontWeight: 800 }}>Kết quả trọng tâm:</span>
+            <span style={{ color: '#A7F3D0', fontSize: 16 }}>{payload.verifiedFacts.map(formatEducationalMathDisplay).join(' • ')}</span>
           </div>
         )}
       </div>
@@ -161,14 +148,14 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
             fontWeight: 700
           }}
         >
-          {payload.finalCallout}
+          {formatEducationalMathDisplay(payload.finalCallout)}
         </div>
       )}
 
       {/* Subtitle */}
       {subtitleText && (
         <div style={{ textAlign: 'center', fontSize: 18, color: '#94A3B8', fontStyle: 'italic' }}>
-          {subtitleText}
+          {formatEducationalMathDisplay(subtitleText)}
         </div>
       )}
     </AbsoluteFill>

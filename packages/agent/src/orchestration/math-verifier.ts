@@ -39,16 +39,6 @@ export interface MathVerifier {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
-function getPythonExecutable(): string {
-  if (process.env.PYTHON_EXECUTABLE) {
-    return resolve(process.env.PYTHON_EXECUTABLE);
-  }
-  if (process.platform === 'win32') {
-    return resolve(packageRoot, 'services/math-engine/.venv/Scripts/python.exe');
-  }
-  return resolve(packageRoot, 'services/math-engine/.venv/bin/python');
-}
-
 function runCommand(
   command: string,
   args: string[],
@@ -69,6 +59,9 @@ function runCommand(
     );
   });
 }
+
+import { resolveMathEnginePython, clearPythonResolverCache } from './python-resolver';
+export { resolveMathEnginePython, clearPythonResolverCache };
 
 function assertUniqueFormalClaimKeys(claims: VerifiedClaim[]): void {
   const ids = new Set<string>();
@@ -405,7 +398,19 @@ abstract class BaseSymPyVerifier implements MathVerifier {
       };
     }
     const timeoutMs = options?.timeoutMs ?? 15_000;
-    const python = getPythonExecutable();
+    let python: string;
+    try {
+      python = await resolveMathEnginePython({ timeoutMs: Math.min(timeoutMs, 10_000) });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        status: 'failed',
+        checks: Object.fromEntries(claims.map((claim) => [claim.validatorKey, {
+          passed: false, status: 'rejected' as const, reason: `SymPy verification engine failed: ${reason}`
+        }])),
+        rawReport: { error: reason }
+      };
+    }
 
     const tempDir = await mkdtemp(join(tmpdir(), 'lumina-verify-'));
     const scenePath = join(tempDir, 'scene.json');

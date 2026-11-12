@@ -29,11 +29,13 @@ test('V3 API rejects stale review, invalid visual payload, and planning-only ren
   });
   expect(invalidVisual.status()).toBe(400);
 
-  const gradientResponse = await request.post('/api/v3/lessons/draft', { data: requestBody('Gradient Descent và hàm mất mát') });
-  const gradient = await gradientResponse.json() as { draftId: string; version: number };
-  const reviewedResponse = await request.post(`/api/v3/lessons/${gradient.draftId}/review`, { data: { expectedVersion: gradient.version, semanticReviewConfirmed: true } });
+  const backpropResponse = await request.post('/api/v3/lessons/draft', { data: requestBody('Thuật toán lan truyền ngược Backpropagation và quy tắc chuỗi Chain Rule') });
+  expect(backpropResponse.status()).toBe(201);
+  const backprop = await backpropResponse.json() as { draftId: string; version: number };
+  const reviewedResponse = await request.post(`/api/v3/lessons/${backprop.draftId}/review`, { data: { expectedVersion: backprop.version, semanticReviewConfirmed: true } });
+  expect(reviewedResponse.status()).toBe(200);
   const reviewed = await reviewedResponse.json() as { version: number };
-  const approval = await request.post(`/api/v3/lessons/${gradient.draftId}/approve`, { data: { expectedVersion: reviewed.version } });
+  const approval = await request.post(`/api/v3/lessons/${backprop.draftId}/approve`, { data: { expectedVersion: reviewed.version } });
   expect(approval.status()).toBe(400);
   expect((await approval.json()).message).toContain('topic_not_render_ready');
 });

@@ -269,7 +269,9 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
   }
 
   // 3. Mathematics Patterns (Chủ đề toán học thuần túy)
-  if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic identit/i.test(normalized)) {
+  // Keep equation aliases bounded to the registered square-sum identity. The
+  // Teacher Studio preset asks a formula question and may omit the topic name.
+  if (/7\s*hằng đẳng thức|bảy\s*hằng đẳng thức|hằng đẳng thức đáng nhớ|algebraic?\s*identit|algebra\.identities|\(\s*a\s*\+\s*b\s*\)\s*(?:\^\s*2|²)/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['algebra.identities.seven'];
   }
   if (/cát tuyến|tiếp tuyến|đạo hàm|derivative/i.test(normalized)) {

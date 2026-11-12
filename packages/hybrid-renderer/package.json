@@ -10,7 +10,10 @@
     "test": "node --test --import tsx test/*.test.ts",
     "render": "tsx src/cli.ts",
     "smoke:gemini-tts": "tsx src/gemini-tts-smoke.ts",
-    "preflight:gemini-tts": "tsx src/gemini-tts-preflight.ts"
+    "preflight:gemini-tts": "tsx src/gemini-tts-preflight.ts",
+    "acceptance": "tsx src/render-v3-phase11-acceptance.ts --mode=offline",
+    "acceptance:offline": "tsx src/render-v3-phase11-acceptance.ts --mode=offline",
+    "acceptance:real-tts": "tsx src/render-v3-phase11-acceptance.ts --mode=real-tts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "7.1.1",

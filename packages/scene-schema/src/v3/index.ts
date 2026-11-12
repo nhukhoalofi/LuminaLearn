@@ -5,4 +5,7 @@ export * from './artifact';
 export * from './consent';
 export * from './supervisor';
 export * from './long-form';
+export * from './registry';
+export * from './pedagogy';
+export * from './visual-engine';
 

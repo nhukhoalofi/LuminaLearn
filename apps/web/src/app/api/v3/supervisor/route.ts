@@ -12,6 +12,7 @@ import {
   resolveOwnerId,
   SecurityError
 } from '@/server/security';
+import { formatApiError } from '@/server/error-formatter';
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -57,17 +58,8 @@ export async function POST(request: Request): Promise<Response> {
     if (error instanceof SecurityError) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
     }
-    const code = typeof (error as { code?: unknown })?.code === 'string'
-      ? String((error as { code: string }).code)
-      : 'v3_supervisor_coordination_failed';
-    return NextResponse.json(
-      {
-        error: code,
-        provenance: 'supervisor_failed',
-        message: error instanceof Error ? error.message : String(error)
-      },
-      { status: 400 }
-    );
+    const formatted = formatApiError(error, 'v3_supervisor_coordination_failed', 'supervisor_failed');
+    return NextResponse.json(formatted, { status: 400 });
   }
 }
 

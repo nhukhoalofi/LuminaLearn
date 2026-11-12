@@ -7,8 +7,10 @@ import {
   type KnowledgeValidationReportV3,
   type MathVisualizationSpecV2,
   type VerifiedClaim,
-  type AlgebraIdentityVisualPayload
+  type AlgebraIdentityVisualPayload,
+  OptimizationTraceDataV1Schema
 } from '@luminalearn/scene-schema';
+import { createHash } from 'node:crypto';
 import { MathVerificationService } from './math-verifier';
 import { verifyAlgebraIdentityV3, verifyTransformationChainV3 } from './algebra-verifier-v3';
 
@@ -122,11 +124,11 @@ export function inspectStatementSemanticConsistency(
     return { status: 'formal_match' };
   }
 
-  // Nếu coreStatement có dạng "LHS = RHS" mà vế RHS khớp với biểu thức cần chứng minh
+  // Nếu coreStatement có dạng "... = RHS" mà vế RHS khớp với biểu thức cần chứng minh
   const eqParts = coreStatement.split(/(?:==|=|bằng|là)/);
-  if (eqParts.length === 2) {
-    const rhs = eqParts[1].trim();
-    if (normalizeMath(rhs) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
+  if (eqParts.length >= 2) {
+    const lastPart = eqParts[eqParts.length - 1].trim();
+    if (normalizeMath(lastPart) === normalizeMath(cleanExpr) || normalizeMath(coreStatement) === normalizeMath(cleanExpr)) {
       return { status: 'formal_match' };
     }
   }
@@ -238,6 +240,103 @@ export interface ValidateClaimsV3Input {
   sourceEvidence?: GroundingEvidence[];
   mathSpec?: MathVisualizationSpecV2;
   assumptions?: string[];
+  optimizationTrace?: unknown;
+}
+
+export function validateGradientDescentClaim(
+  claim: EducationalClaimV3,
+  trace?: unknown
+): {
+  status: 'numerically_validated' | 'rejected' | 'human_review_required';
+  numericalValidationSummary?: string;
+  traceFingerprint?: string;
+  traceCanonical?: string;
+  contradictionReason?: string;
+  notes?: string;
+} {
+  const expr = claim.formalExpression ?? '';
+  const stmt = claim.statement ?? '';
+
+  if (!expr.trim()) {
+    return {
+      status: 'human_review_required',
+      notes: 'missing_gradient_update_expression: Numeric validation requires an explicit bounded gradient-descent update expression.'
+    };
+  }
+
+  const normalizedRule = expr
+    .toLowerCase()
+    .replace(/η/g, 'eta')
+    .replace(/\\eta/g, 'eta')
+    .replace(/\\cdot|\\times/g, '*')
+    .replace(/\\nabla\s*l/g, 'grad_l')
+    .replace(/w_\{t\+1\}/g, 'w_next')
+    .replace(/w_t/g, 'w')
+    .replace(/[{}\s]/g, '');
+
+  if (normalizedRule !== 'w_next=w-eta*grad_l(w)') {
+    return {
+      status: /w_next=w\+eta\*grad_l\(w\)/.test(normalizedRule) ? 'rejected' : 'human_review_required',
+      contradictionReason: /w_next=w\+eta\*grad_l\(w\)/.test(normalizedRule)
+        ? 'gradient_ascent_contradiction: Gradient descent update must subtract the learning-rate-scaled gradient.'
+        : undefined,
+      notes: `unsupported_gradient_update_expression: '${expr}' does not match the bounded rule w_next = w - eta * grad_L(w).`
+    };
+  }
+
+  // 1. Kiểm tra mâu thuẫn trực tiếp về chiều gradient (ascent vs descent)
+  if (/\+\s*(?:eta|\\eta)\s*(?:\*|\\cdot)?\s*(?:grad|\\nabla)/i.test(expr) || /cộng\s+(?:với\s+)?(?:tốc độ học|learning rate|eta)/i.test(stmt)) {
+    return {
+      status: 'rejected',
+      contradictionReason: 'gradient_ascent_contradiction: Gradient descent update must move in the opposite direction of the gradient (- eta * grad_L), but addition was detected.',
+      notes: 'Phát hiện mâu thuẫn: công thức tăng gradient (ascent) thay vì hạ gradient (descent).'
+    };
+  }
+
+  // 2. Kiểm định tính toán chuỗi tham số mất mát theo OptimizationTraceDataV1Schema
+  if (!trace) {
+    return {
+      status: 'human_review_required',
+      notes: 'missing_optimization_trace: No storyboard-derived optimization trace is bound to this claim.'
+    };
+  }
+
+  const parsedTrace = OptimizationTraceDataV1Schema.safeParse(trace);
+  if (!parsedTrace.success) {
+    const errorMsg = parsedTrace.error.issues.map((i) => i.message).join('; ');
+    return {
+      status: 'rejected',
+      contradictionReason: `invalid_optimization_trace: ${errorMsg}`,
+      notes: `Chuỗi giá trị tham số và hàm mất mát vi phạm tính toán số học: ${errorMsg}`
+    };
+  }
+
+  if (parsedTrace.data.claimId !== claim.id) {
+    return {
+      status: 'rejected',
+      contradictionReason: `optimization_trace_claim_mismatch: Trace '${parsedTrace.data.claimId}' cannot validate claim '${claim.id}'.`,
+      notes: 'The deterministic trace is bound to a different claim and cannot be reused as verification evidence.'
+    };
+  }
+
+  // 3. Kiểm định nhất quán văn bản
+  const semantic = inspectStatementSemanticConsistency(stmt, expr);
+  if (semantic.status === 'contradiction_detected') {
+    return {
+      status: 'rejected',
+      contradictionReason: semantic.reason,
+      notes: `Statement contradiction: ${semantic.reason}`
+    };
+  }
+
+  const traceCanonical = JSON.stringify(parsedTrace.data);
+  return {
+    status: 'numerically_validated',
+    numericalValidationSummary: `Numerically validated first-order gradient descent parameter update on the bound convex quadratic trace (${parsedTrace.data.expression})`,
+    traceFingerprint: createHash('sha256').update(traceCanonical, 'utf8').digest('hex'),
+    traceCanonical,
+    notes: `Kiểm định tính toán số học chính xác trên hàm mất mát lồi với tốc độ học eta=${parsedTrace.data.learningRate}`
+  };
 }
 
 export interface ValidationV3Result {
@@ -283,6 +382,13 @@ export class KnowledgeValidationServiceV3 {
     const isDerivativeTopic = topicId === 'calculus.derivative.intuition';
     const isRiemannTopic = topicId === 'calculus.riemann_integral.intuition' || topicId === 'calculus.integral.riemann_sum';
     const isAlgebraIdentityTopic = topicId === 'algebra.identities.seven';
+    const isGradientDescentTopic = topicId === 'ai.gradient_descent.optimization';
+
+    const isGradientDescentClaim = (c: EducationalClaimV3) =>
+      c.validatorKey === 'gradient_descent_formula' ||
+      (isGradientDescentTopic && (c.validatorKey === 'gradient_descent_formula' || Boolean(c.formalExpression?.includes('grad_L') || c.formalExpression?.includes('nabla'))));
+
+    const sympyMathClaims = formalMathClaims.filter((c) => !isGradientDescentClaim(c));
 
     let mappedMathClaims = new Map<string, VerifiedClaim>();
     let sympyResultsByClaimId = new Map<string, { passed: boolean; reason?: string }>();
@@ -322,16 +428,16 @@ export class KnowledgeValidationServiceV3 {
       }
     }
 
-    if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0 && !mathSpec) {
-      for (const c of formalMathClaims) {
+    if ((isDerivativeTopic || isRiemannTopic) && sympyMathClaims.length > 0 && !mathSpec) {
+      for (const c of sympyMathClaims) {
         sympyResultsByClaimId.set(c.id, {
           passed: false,
           reason: 'missing_math_spec: Formal verification requires the exact requested MathSpec'
         });
       }
-    } else if ((isDerivativeTopic || isRiemannTopic) && formalMathClaims.length > 0) {
+    } else if ((isDerivativeTopic || isRiemannTopic) && sympyMathClaims.length > 0) {
       try {
-        const v2ClaimsToVerify: VerifiedClaim[] = formalMathClaims.map((c) => {
+        const v2ClaimsToVerify: VerifiedClaim[] = sympyMathClaims.map((c) => {
           let v2Key = c.validatorKey ?? (isDerivativeTopic ? 'polynomial_derivative' : 'definite_integral');
           if (v2Key === 'riemann_integral') {
             v2Key = 'definite_integral';
@@ -359,13 +465,13 @@ export class KnowledgeValidationServiceV3 {
         }
       } catch (err) {
         // Fail-closed nếu execution SymPy lỗi
-        for (const c of formalMathClaims) {
+        for (const c of sympyMathClaims) {
           sympyResultsByClaimId.set(c.id, { passed: false, reason: err instanceof Error ? err.message : String(err) });
         }
       }
-    } else if (formalMathClaims.length > 0 && !isAlgebraIdentityTopic) {
+    } else if (sympyMathClaims.length > 0 && !isAlgebraIdentityTopic) {
       try {
-        const claimsToVerify: VerifiedClaim[] = formalMathClaims.map((c) => ({
+        const claimsToVerify: VerifiedClaim[] = sympyMathClaims.map((c) => ({
           id: c.id,
           statement: c.statement,
           validatorKey: c.validatorKey ?? c.id,
@@ -385,7 +491,7 @@ export class KnowledgeValidationServiceV3 {
           });
         }
       } catch (err) {
-        for (const c of formalMathClaims) {
+        for (const c of sympyMathClaims) {
           sympyResultsByClaimId.set(c.id, { passed: false, reason: err instanceof Error ? err.message : String(err) });
         }
       }
@@ -395,8 +501,56 @@ export class KnowledgeValidationServiceV3 {
     for (const claim of claims) {
       const cloned: EducationalClaimV3 = { ...claim };
 
+      if (isGradientDescentClaim(claim)) {
+        const gdResult = validateGradientDescentClaim(claim, input.optimizationTrace);
+        if (gdResult.status === 'rejected') {
+          cloned.verificationStatus = 'rejected';
+          cloned.formalExpressionVerified = false;
+          cloned.formalProofSummary = undefined;
+          cloned.statementContradictionReason = gdResult.contradictionReason;
+          cloned.humanReviewComment = gdResult.notes;
+          claimReports.push({
+            claimId: cloned.id,
+            claimType: cloned.claimType,
+            status: 'rejected',
+            verifierNotes: cloned.humanReviewComment,
+            verifierImplementation: 'OptimizationTraceDataV1Schema/DeterministicNumeric'
+          });
+        } else if (gdResult.status === 'numerically_validated') {
+          cloned.verificationStatus = 'numerically_validated';
+          cloned.formalExpressionVerified = false;
+          cloned.proofRecordId = undefined;
+          cloned.formalProofSummary = undefined;
+          cloned.humanReviewComment = undefined;
+          claimReports.push({
+            claimId: cloned.id,
+            claimType: cloned.claimType,
+            status: 'numerically_validated',
+            verifierNotes: `${gdResult.numericalValidationSummary}; trace_sha256=${gdResult.traceFingerprint}`,
+            verifierImplementation: 'OptimizationTraceDataV1Schema/DeterministicNumeric',
+            verificationBinding: {
+              claimId: claim.id,
+              exactExpression: claim.formalExpression ?? claim.statement,
+              mathSpecCanonical: gdResult.traceCanonical!,
+              assumptions: ['convex_quadratic_loss', 'learning_rate_in_bounds']
+            }
+          });
+        } else {
+          cloned.verificationStatus = 'human_review_required';
+          cloned.formalExpressionVerified = false;
+          cloned.formalProofSummary = undefined;
+          cloned.humanReviewComment = gdResult.notes ?? 'Yêu cầu giáo viên rà soát tham số và tốc độ học.';
+          claimReports.push({
+            claimId: cloned.id,
+            claimType: cloned.claimType,
+            status: 'human_review_required',
+            verifierNotes: cloned.humanReviewComment,
+            verifierImplementation: 'OptimizationTraceDataV1Schema/DeterministicNumeric'
+          });
+        }
+      }
       // 1. Mệnh đề TOÁN HỌC HÌNH THỨC (formal_mathematics)
-      if (claim.claimType === 'formal_mathematics') {
+      else if (claim.claimType === 'formal_mathematics') {
         const sympyCheck = sympyResultsByClaimId.get(claim.id);
         const mapped = mappedMathClaims.get(claim.id);
 
@@ -509,8 +663,9 @@ export class KnowledgeValidationServiceV3 {
     const overallStatus = hasRejected ? 'failed' : hasNeedsReview ? 'needs_review' : 'verified';
     const requiresHumanPedagogicalSignoff = hasNeedsReview || domain === 'artificial_intelligence';
 
+    const safePrefix = (lessonId || 'lesson_default').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
     const report: KnowledgeValidationReportV3 = {
-      reportId: `val_${lessonId.slice(0, 40)}_${Date.now()}`,
+      reportId: `val_${safePrefix}_${Date.now()}`,
       lessonId,
       domain,
       overallStatus,
@@ -551,6 +706,54 @@ export async function validateLessonMathematicalIntegrityV3(
   const { lessonPlan, sourceEvidence = [], mathVerifier } = input;
   const validator = new KnowledgeValidationServiceV3({ mathVerifier });
 
+  // The deterministic Derivative storyboard is itself the current mathematical
+  // specification. Reconstruct only the one bounded contract we can prove
+  // exactly; unsupported functions continue to fail closed without a MathSpec.
+  let effectiveMathSpec = (lessonPlan as unknown as { mathSpec?: MathVisualizationSpecV2 }).mathSpec;
+  if (!effectiveMathSpec && lessonPlan.topicId === 'calculus.derivative.intuition' && lessonPlan.storyboard) {
+    const derivativeScene = lessonPlan.storyboard.scenes.find((scene) => {
+      const payload = scene.visualPayload;
+      return 'scientificData' in payload &&
+        payload.scientificData?.kind === 'scalar_function_1d' &&
+        payload.scientificData.functionType === 'polynomial' &&
+        payload.scientificData.expression.replace(/\s+/g, '') === 'x^2' &&
+        scene.boundClaimIds.includes(payload.scientificData.claimId);
+    });
+    const payload = derivativeScene?.visualPayload;
+    const scientificData = payload && 'scientificData' in payload && payload.scientificData?.kind === 'scalar_function_1d'
+      ? payload.scientificData
+      : undefined;
+    if (scientificData) {
+      effectiveMathSpec = {
+        topicId: lessonPlan.topicId,
+        visualization: 'secant_to_tangent',
+        function: { type: 'polynomial', coefficients: [0, 0, 1], expression: scientificData.expression },
+        parameters: { pointX: scientificData.pointX ?? scientificData.tangentAtX ?? 1 },
+        boundClaimIds: lessonPlan.educationalClaims
+          .filter((claim) => claim.claimType === 'formal_mathematics')
+          .map((claim) => claim.id)
+      };
+    }
+  }
+
+  // Trích xuất optimization trace từ phân cảnh loss_landscape nếu có
+  let optimizationTrace: unknown = undefined;
+  if (lessonPlan.storyboard) {
+    const lossScene = lessonPlan.storyboard.scenes.find((s) => s.sceneType === 'loss_landscape');
+    const boundClaimId = lossScene?.boundClaimIds[0];
+    if (lossScene?.visualPayload.sceneType === 'loss_landscape' && boundClaimId) {
+      const p = lossScene.visualPayload;
+      optimizationTrace = {
+        kind: 'optimization_trace_1d',
+        expression: `L(w)=${p.curvature}(w-${p.minimumPoint.w})^2+${p.minimumPoint.loss}`,
+        learningRate: p.learningRate,
+        points: p.steps.map((st) => ({ step: st.stepNumber, parameter: st.w, value: st.loss, gradient: st.gradient })),
+        claimId: boundClaimId,
+        validation: 'deterministic_numeric'
+      };
+    }
+  }
+
   // 1. Kiểm định toàn bộ claims
   const validationResult = await validator.validateClaims({
     lessonId: lessonPlan.lessonId,
@@ -558,8 +761,9 @@ export async function validateLessonMathematicalIntegrityV3(
     domain: lessonPlan.domain,
     claims: lessonPlan.educationalClaims,
     sourceEvidence,
-    mathSpec: (lessonPlan as unknown as { mathSpec?: any }).mathSpec,
-    assumptions: lessonPlan.validationReport?.claimReports.flatMap((r) => r.verificationBinding?.assumptions ?? [])
+    mathSpec: effectiveMathSpec,
+    assumptions: lessonPlan.validationReport?.claimReports.flatMap((r) => r.verificationBinding?.assumptions ?? []),
+    optimizationTrace
   });
 
   const { validatedClaims, report } = validationResult;
@@ -612,11 +816,15 @@ export async function validateLessonMathematicalIntegrityV3(
               validationReport: { ...report, overallStatus: 'failed' }
             };
           }
-          if (claim.claimType === 'formal_mathematics' && !claim.formalExpressionVerified) {
+          if (
+            claim.claimType === 'formal_mathematics' &&
+            !claim.formalExpressionVerified &&
+            claim.verificationStatus !== 'numerically_validated'
+          ) {
             return {
               valid: false,
               code: 'unverified_claim_binding',
-              reason: `Phân cảnh '${scene.sceneId}' liên kết với mệnh đề toán học '${claimId}' chưa được chứng minh hình thức`,
+              reason: `Phân cảnh '${scene.sceneId}' liên kết với mệnh đề toán học '${claimId}' chưa được chứng minh hình thức hoặc kiểm định số học`,
               validatedClaims,
               validationReport: { ...report, overallStatus: 'failed' }
             };

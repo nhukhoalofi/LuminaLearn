@@ -1,17 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   ApprovedRenderArtifactV3Schema,
   EducationalLessonPlanV3Schema,
   LessonRequestV3Schema,
+  VisualSceneDefinitionV3Schema,
   type ApprovedRenderArtifactCoreV3,
   type ApprovedRenderArtifactV3,
   type DraftStatusV3Schema,
   type EducationalLessonPlanV3,
+  type EducationalClaimV3,
   type EducationalVisualPayload,
   type LessonRequestV3,
   type ExternalApiConsentRecordV3
+  ,type VisualSceneDefinitionV3
 } from '@luminalearn/scene-schema';
 import type { z } from 'zod';
 import { canonicalJsonStringify } from './draft-manager';
@@ -36,10 +39,13 @@ export interface LessonDraftV3 {
 export interface UpdateLessonDraftV3 {
   title?: string;
   learningObjectives?: string[];
+  claims?: EducationalClaimV3[];
   claimStatements?: Record<string, string>;
   narrationTexts?: Record<string, string>;
   subtitleTexts?: Record<string, string>;
+  sceneTitles?: Record<string, string>;
   visualPayloads?: Record<string, unknown>;
+  visualDefinitions?: Record<string, unknown>;
 }
 
 export class DraftVersionConflictV3Error extends Error {
@@ -51,6 +57,92 @@ export class DraftVersionConflictV3Error extends Error {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function normalizeBoundExpression(value: string): string {
+  return value
+    .replace(/\\cdot/g, '*')
+    .replace(/\\times/g, '*')
+    .replace(/\{([^{}]+)\}/g, '$1')
+    .replace(/\s+/g, '')
+    .replace(/²/g, '^2')
+    .replace(/³/g, '^3')
+    .replace(/\*\*/g, '^')
+    .replace(/(\d)\*([a-zA-Z])/g, '$1$2')
+    .replace(/([a-zA-Z])\*([a-zA-Z])/g, '$1$2');
+}
+
+function issueTrustedVisualBindings(
+  definition: VisualSceneDefinitionV3,
+  claimsMap: Map<string, EducationalLessonPlanV3['educationalClaims'][number]>,
+  approvedDraftVersion: number,
+  verificationTimestamp: string
+): VisualSceneDefinitionV3 {
+  const isFormalProofScene = definition.sceneType === 'algebra_identity' || definition.sceneType === 'formula_derivation';
+  const clientBindings = new Map(definition.mathBindings.map((binding) => [`${binding.elementId}:${binding.claimId}`, binding]));
+  const trustedMathBindings = definition.elements.flatMap((element) => {
+    if (element.elementType !== 'formula' && element.elementType !== 'graph') {
+      return [];
+    }
+
+    const policy = (element as any).contentPolicy ?? 'formal_verified';
+    if (policy !== 'formal_verified' && policy !== 'illustrative_unverified' && policy !== 'conceptual') {
+      throw new Error(`unsupported_math_content_policy: ${policy}`);
+    }
+
+    // In formal proof scenes, mathematical formulas and graphs must be formally verified
+    if (isFormalProofScene && (element.elementType === 'formula' || element.elementType === 'graph') && policy !== 'formal_verified') {
+      throw new Error(`formal_proof_unverified_content_forbidden: Formal proof scene '${definition.sceneId}' cannot contain unverified ${element.elementType} '${element.elementId}'`);
+    }
+
+    if (policy === 'formal_verified') {
+      if (!element.claimId) {
+        if (isFormalProofScene) {
+          throw new Error(`formal_proof_missing_claim_id: Formal proof scene '${definition.sceneId}' element '${element.elementId}' is classified formal_verified but lacks claimId`);
+        }
+        return [];
+      }
+      const claim = claimsMap.get(element.claimId);
+      if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
+      if (
+        claim.claimType !== 'formal_mathematics' ||
+        claim.verificationStatus !== 'formally_verified' ||
+        claim.formalExpressionVerified !== true ||
+        !claim.formalExpression
+      ) {
+        throw new Error(`visual_proof_claim_not_formally_verified: ${element.claimId}`);
+      }
+      const proposed = clientBindings.get(`${element.elementId}:${element.claimId}`);
+      if (!proposed) throw new Error(`visual_proof_binding_missing: ${element.elementId}`);
+      const verified = normalizeBoundExpression(claim.formalExpression);
+      if (normalizeBoundExpression(proposed.formalExpression) !== verified) {
+        throw new Error(`visual_proof_binding_expression_mismatch: ${element.elementId}`);
+      }
+      const renderedExpression = element.elementType === 'formula' ? element.latex : element.expression;
+      if (!renderedExpression || normalizeBoundExpression(renderedExpression) !== verified) {
+        throw new Error(`visual_proof_rendered_expression_mismatch: ${element.elementId}`);
+      }
+      return [{
+        authority: 'server_sympy_v3' as const,
+        claimId: claim.id,
+        elementId: element.elementId,
+        verifiedExpression: claim.formalExpression,
+        normalizedExpressionFingerprint: createHash('sha256').update(verified, 'utf8').digest('hex'),
+        verificationResult: 'formally_verified' as const,
+        verificationTimestamp,
+        approvedDraftVersion,
+        sourceSceneId: definition.sceneId
+      }];
+    }
+
+    // illustrative_unverified or conceptual
+    if (element.claimId) {
+      const claim = claimsMap.get(element.claimId);
+      if (!claim) throw new Error(`visual_proof_claim_not_found: ${element.claimId}`);
+    }
+    return [];
+  });
+  return VisualSceneDefinitionV3Schema.parse({ ...definition, trustedMathBindings });
 }
 
 export function computeArtifactContentHashV3(core: ApprovedRenderArtifactCoreV3): string {
@@ -201,17 +293,29 @@ export class LessonDraftManagerV3 {
       const plan = clone(current.lessonPlan);
       if (patch.title !== undefined) plan.title = patch.title;
       if (patch.learningObjectives !== undefined) plan.learningObjectives = patch.learningObjectives;
-      plan.educationalClaims = plan.educationalClaims.map((claim) => patch.claimStatements?.[claim.id] === undefined ? claim : {
-        ...claim, statement: patch.claimStatements[claim.id], verificationStatus: 'unverified', formalProofSummary: undefined
-      });
+      if (patch.claims !== undefined) {
+        plan.educationalClaims = patch.claims.map((claim) => ({
+          ...claim,
+          verificationStatus: 'unverified',
+          formalProofSummary: undefined
+        }));
+      } else {
+        plan.educationalClaims = plan.educationalClaims.map((claim) => patch.claimStatements?.[claim.id] === undefined ? claim : {
+          ...claim, statement: patch.claimStatements[claim.id], verificationStatus: 'unverified', formalProofSummary: undefined
+        });
+      }
       if (plan.storyboard) {
         plan.storyboard.scenes = plan.storyboard.scenes.map((scene) => ({
           ...scene,
+          title: patch.sceneTitles?.[scene.sceneId] ?? scene.title,
           narration: {
             vietnamese: patch.narrationTexts?.[scene.sceneId] ?? scene.narration.vietnamese,
             subtitleVietnamese: patch.subtitleTexts?.[scene.sceneId] ?? scene.narration.subtitleVietnamese
           },
           visualPayload: (patch.visualPayloads?.[scene.sceneId] ?? scene.visualPayload) as EducationalVisualPayload
+          ,visualDefinition: patch.visualDefinitions?.[scene.sceneId] === undefined
+            ? scene.visualDefinition
+            : VisualSceneDefinitionV3Schema.parse(patch.visualDefinitions[scene.sceneId])
         }));
       }
       const integrity = await validateLessonMathematicalIntegrityV3({
@@ -278,11 +382,39 @@ export class LessonDraftManagerV3 {
       if (integrity.validatedClaims.some((claim) => claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified')) {
         throw new Error('unresolved_claim_status');
       }
+
+      // CHECKPOINT C: Verify math bindings and scene boundClaimIds against validated claims
+      const claimsMap = new Map(integrity.validatedClaims.map((c) => [c.id, c]));
+      const isMathDomain = current.lessonPlan.capabilityReport.domain === 'mathematics';
+      for (const scene of current.lessonPlan.storyboard.scenes) {
+        for (const claimId of scene.boundClaimIds) {
+          const claim = claimsMap.get(claimId);
+          if (!claim) {
+            throw new Error(`unresolved_claim_binding: Scene references non-existent claimId '${claimId}'`);
+          }
+          if (claim.verificationStatus === 'rejected' || claim.verificationStatus === 'unverified') {
+            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' has invalid status '${claim.verificationStatus}'`);
+          }
+          if (isMathDomain && claim.claimType === 'formal_mathematics' && claim.formalExpressionVerified !== true) {
+            throw new Error(`unverified_claim_binding: Scene bound claim '${claimId}' has no trusted formal SymPy verification`);
+          }
+        }
+      }
+
       const version = current.version + 1;
       const latestPlan: EducationalLessonPlanV3 = {
         ...clone(current.lessonPlan),
         educationalClaims: integrity.validatedClaims,
-        validationReport: integrity.validationReport
+        validationReport: integrity.validationReport,
+        storyboard: {
+          ...clone(current.lessonPlan.storyboard),
+          scenes: current.lessonPlan.storyboard.scenes.map((scene) => ({
+            ...clone(scene),
+            visualDefinition: scene.visualDefinition
+              ? issueTrustedVisualBindings(scene.visualDefinition, claimsMap, version, integrity.validationReport.validationTimestamp)
+              : undefined
+          }))
+        }
       };
       const core: ApprovedRenderArtifactCoreV3 = {
         schemaVersion: 'approved-render-artifact-v3',
@@ -309,6 +441,29 @@ export class LessonDraftManagerV3 {
     const draft = await this.load(artifact.draftId);
     return Boolean(draft?.status === 'approved' && draft.ownerId === artifact.ownerId &&
       draft.version === artifact.approvedVersion && draft.approvedArtifact?.contentHash === artifact.contentHash);
+  }
+
+  public async listForOwner(ownerId: string): Promise<LessonDraftV3[]> {
+    const list: LessonDraftV3[] = [];
+    if (this.options.storageDir) {
+      try {
+        const files = await readdir(this.options.storageDir);
+        for (const file of files) {
+          if (!file.endsWith('.json') || file.includes('.tmp')) continue;
+          const draftId = file.replace(/\.json$/, '');
+          const loaded = await this.load(draftId);
+          if (loaded && loaded.ownerId === ownerId) {
+            list.push(loaded);
+          }
+        }
+      } catch { /* storage directory may not exist yet */ }
+    }
+    for (const cached of this.drafts.values()) {
+      if (cached.ownerId === ownerId && !list.some((d) => d.draftId === cached.draftId)) {
+        list.push(clone(cached));
+      }
+    }
+    return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 }
 

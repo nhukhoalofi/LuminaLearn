@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+  GoogleGenAiAudioClient,
   GeminiTtsProvider,
   buildSpokenNarrationText,
   probeAudio,
@@ -56,6 +57,77 @@ class FakeGeminiAudioClient implements GeminiAudioClient {
 }
 
 describe('Gemini TTS provider (offline fake client)', () => {
+  it('uses the official Interactions REST contract for Gemini 3.8 without re-reading an SDK response body', async () => {
+    const wav = wavFixture(0.25);
+    let capturedUrl = '';
+    let capturedInit: RequestInit | undefined;
+    let modelLookupUrl = '';
+    const client = new GoogleGenAiAudioClient('test-rest-key', {
+      fetchImpl: (async (input, init) => {
+        if (init?.method === 'GET') {
+          modelLookupUrl = String(input);
+          return new Response(JSON.stringify({ name: 'models/gemini-3.8-flash-lite-tts' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          });
+        }
+        capturedUrl = String(input);
+        capturedInit = init;
+        return new Response(JSON.stringify({
+          model_version: 'gemini-3.8-flash-lite-tts',
+          steps: [{
+            type: 'model_output',
+            content: [{
+              type: 'audio',
+              data: wav.toString('base64'),
+              mime_type: 'audio/wav',
+              sample_rate: 24000,
+              channels: 1
+            }]
+          }]
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }) as typeof fetch,
+      interactionsEndpoint: 'https://example.test/v1beta/interactions',
+      modelsEndpoint: 'https://example.test/v1beta/models'
+    });
+
+    await client.assertModelAvailable('gemini-3.8-flash-lite-tts', new AbortController().signal);
+    const result = await client.generateSpeech({
+      model: 'gemini-3.8-flash-lite-tts',
+      text: 'x bình phương',
+      voice: 'Kore',
+      languageCode: 'vi-VN',
+      styleInstruction: 'Rõ ràng, tốc độ vừa phải.',
+      signal: new AbortController().signal
+    });
+
+    assert.equal(modelLookupUrl, 'https://example.test/v1beta/models/gemini-3.8-flash-lite-tts');
+    assert.equal(capturedUrl, 'https://example.test/v1beta/interactions');
+    assert.equal(new Headers(capturedInit?.headers).get('x-goog-api-key'), 'test-rest-key');
+    const requestBody = JSON.parse(String(capturedInit?.body));
+    assert.equal(requestBody.input[0].content[0].text, 'x bình phương');
+    assert.equal(requestBody.generation_config.speech_config[0].voice, 'Kore');
+    assert.deepEqual(Buffer.from(result.data as string, 'base64'), wav);
+    assert.equal(result.mimeType, 'audio/wav');
+  });
+
+  it('turns Interactions HTTP failures into classified errors without leaking the API key', async () => {
+    const secret = 'test-rest-key-must-not-leak';
+    const client = new GoogleGenAiAudioClient(secret, {
+      fetchImpl: (async () => new Response(JSON.stringify({
+        error: { code: 403, status: 'PERMISSION_DENIED', message: 'TTS access denied' }
+      }), { status: 403, headers: { 'content-type': 'application/json' } })) as typeof fetch
+    });
+
+    await assert.rejects(
+      () => client.generateSpeech({
+        model: 'gemini-3.8-flash-lite-tts', text: 'Nội dung', voice: 'Kore', languageCode: 'vi-VN',
+        signal: new AbortController().signal
+      }),
+      (error: Error) => /403 PERMISSION_DENIED/.test(error.message) && !error.message.includes(secret)
+    );
+  });
+
   it('selects the configured model/voice, decodes WAV, normalizes MP3, and reports real duration', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'lumina-gemini-tts-'));
     try {
@@ -77,6 +149,15 @@ describe('Gemini TTS provider (offline fake client)', () => {
       assert.equal(client.requests[0].voice, 'Kore');
       assert.equal(client.requests[0].languageCode, 'vi-VN');
       assert.equal(client.requests[0].text, 'x bình phương');
+
+      // Even if a caller passes a Google Cloud TTS locale voice ID (e.g. vi-VN-Neural2-A), GeminiTtsProvider preserves its Gemini speaker voice ('Kore')
+      await provider.synthesize('hai x', output, {
+        voice: 'vi-VN-Neural2-A',
+        languageCode: 'vi-VN',
+        speakingRate: 1.0,
+        pitch: 0
+      });
+      assert.equal(client.requests[1].voice, 'Kore');
       const metadata = await probeAudio(output, 5);
       assert.equal(metadata.codec, 'mp3');
       assert.ok(Math.abs(metadata.durationSeconds - 1) < 0.1);

@@ -60,31 +60,73 @@ export class CurriculumPlanningAgent {
     // Derive chapters from the planned duration and topic structure
     const totalDuration = rawPlan.storyboard?.totalDurationSeconds ?? request.targetDurationSeconds;
     const isMath = capability.domain === 'mathematics';
-    const chapters: EducationalChapterPlanV3[] = [
-      {
-        chapterIndex: 0,
-        chapterTitle: `Giới thiệu & Đặt vấn đề: ${capability.displayName}`,
-        targetDurationSeconds: Math.round(totalDuration * 0.25),
-        pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu của học viên',
-        keyFormulasOrConcepts: isMath ? [capability.displayName] : ['Trực giác mô hình', capability.displayName]
-      },
-      {
-        chapterIndex: 1,
-        chapterTitle: `Bản chất cốt lõi: ${capability.displayName}`,
-        targetDurationSeconds: Math.round(totalDuration * 0.5),
-        pedagogicalIntent: 'Phân tích cơ chế tính toán, công thức hình thức hoặc cấu trúc thuật toán',
-        keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 4)
-      },
-      {
-        chapterIndex: 2,
-        chapterTitle: `Tổng kết & Ứng dụng thực tiễn`,
-        targetDurationSeconds: Math.round(totalDuration * 0.25),
-        pedagogicalIntent: 'Củng cố kiến thức và liên kết với bức tranh tổng thể',
-        keyFormulasOrConcepts: ['Ứng dụng', 'Tổng kết sư phạm']
-      }
-    ];
+    let chapters: EducationalChapterPlanV3[];
 
-    return { lessonPlan: rawPlan, chapters };
+    if (totalDuration >= 300) {
+      const dur1 = Math.round(totalDuration * 0.1);
+      const dur2 = Math.round(totalDuration * 0.15);
+      const remainder = totalDuration - (dur1 * 2 + dur2 * 5);
+      chapters = [
+        { chapterIndex: 0, chapterTitle: 'Mục tiêu & Đặt vấn đề', targetDurationSeconds: dur1, pedagogicalIntent: 'Kích hoạt tri thức nền tảng', keyFormulasOrConcepts: [capability.displayName] },
+        { chapterIndex: 1, chapterTitle: 'Mô hình & Định nghĩa cốt lõi', targetDurationSeconds: dur2, pedagogicalIntent: 'Trình bày mô hình hình thức', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 2) },
+        { chapterIndex: 2, chapterTitle: 'Phân tích trực giác hình học', targetDurationSeconds: dur2, pedagogicalIntent: 'Trực quan hóa cơ chế hoạt động', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(1, 3) },
+        { chapterIndex: 3, chapterTitle: 'Động lực học & Tham số', targetDurationSeconds: dur2, pedagogicalIntent: 'Phân tích tham số và biến đổi', keyFormulasOrConcepts: ['Tham số', 'Quy tắc cập nhật'] },
+        { chapterIndex: 4, chapterTitle: 'Ví dụ tính toán từng bước', targetDurationSeconds: dur2, pedagogicalIntent: 'Ví dụ số cụ thể kiểm chứng', keyFormulasOrConcepts: ['Ví dụ số', 'Tính toán'] },
+        { chapterIndex: 5, chapterTitle: 'Trực quan hóa tối ưu hóa', targetDurationSeconds: dur2, pedagogicalIntent: 'Mô phỏng hành vi động', keyFormulasOrConcepts: ['Mô phỏng', 'Đường đi nghiệm'] },
+        { chapterIndex: 6, chapterTitle: 'Phân tích sai lầm thường gặp', targetDurationSeconds: dur1, pedagogicalIntent: 'Cảnh báo ngộ nhận và điểm yếu', keyFormulasOrConcepts: ['Sai lầm', 'Ngộ nhận'] },
+        { chapterIndex: 7, chapterTitle: 'Tổng kết & Ghi nhớ bản chất', targetDurationSeconds: remainder, pedagogicalIntent: 'Củng cố và tổng kết toàn diện', keyFormulasOrConcepts: ['Tổng kết', 'Ghi nhớ'] }
+      ];
+    } else if (totalDuration >= 180) {
+      chapters = [
+        { chapterIndex: 0, chapterTitle: 'Giới thiệu & Đặt vấn đề', targetDurationSeconds: 25, pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu', keyFormulasOrConcepts: [capability.displayName] },
+        { chapterIndex: 1, chapterTitle: 'Bản chất cơ chế tính toán', targetDurationSeconds: 35, pedagogicalIntent: 'Phân tích cơ chế và công thức hình thức', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 2) },
+        { chapterIndex: 2, chapterTitle: 'Trực quan hóa quy luật', targetDurationSeconds: 40, pedagogicalIntent: 'Trực quan hóa hoạt động và chuyển động tham số', keyFormulasOrConcepts: rawPlan.keyConcepts.slice(1, 3) },
+        { chapterIndex: 3, chapterTitle: 'Ví dụ chi tiết từng bước', targetDurationSeconds: 45, pedagogicalIntent: 'Tính toán từng bước có kiểm định toán học', keyFormulasOrConcepts: ['Ví dụ số', 'Biến đổi'] },
+        { chapterIndex: 4, chapterTitle: 'Tổng kết sư phạm & Ứng dụng', targetDurationSeconds: totalDuration - (25 + 35 + 40 + 45), pedagogicalIntent: 'Củng cố bài học và lưu ý sư phạm', keyFormulasOrConcepts: ['Tổng kết', 'Ứng dụng'] }
+      ];
+    } else {
+      const part1 = Math.round(totalDuration * 0.25);
+      const part2 = Math.round(totalDuration * 0.5);
+      const part3 = totalDuration - (part1 + part2);
+      chapters = [
+        {
+          chapterIndex: 0,
+          chapterTitle: `Giới thiệu & Đặt vấn đề: ${capability.displayName}`,
+          targetDurationSeconds: part1,
+          pedagogicalIntent: 'Kích hoạt tri thức nền tảng và trực giác ban đầu của học viên',
+          keyFormulasOrConcepts: isMath ? [capability.displayName] : ['Trực giác mô hình', capability.displayName]
+        },
+        {
+          chapterIndex: 1,
+          chapterTitle: `Bản chất cốt lõi: ${capability.displayName}`,
+          targetDurationSeconds: part2,
+          pedagogicalIntent: 'Phân tích cơ chế tính toán, công thức hình thức hoặc cấu trúc thuật toán',
+          keyFormulasOrConcepts: rawPlan.keyConcepts.slice(0, 4)
+        },
+        {
+          chapterIndex: 2,
+          chapterTitle: `Tổng kết & Ứng dụng thực tiễn`,
+          targetDurationSeconds: part3,
+          pedagogicalIntent: 'Củng cố kiến thức và liên kết với bức tranh tổng thể',
+          keyFormulasOrConcepts: ['Ứng dụng', 'Tổng kết sư phạm']
+        }
+      ];
+    }
+
+    const derivedChapters: EducationalChapterPlanV3[] = (rawPlan.storyboard?.chapters && rawPlan.storyboard.chapters.length > 0)
+      ? rawPlan.storyboard.chapters.map((ch: any, idx: number) => ({
+          chapterIndex: typeof ch.chapterIndex === 'number' ? ch.chapterIndex : idx,
+          chapterTitle: typeof ch.chapterTitle === 'string' ? ch.chapterTitle : `Phần ${idx + 1}`,
+          targetDurationSeconds: typeof ch.targetDurationSeconds === 'number' ? ch.targetDurationSeconds : typeof ch.durationSeconds === 'number' ? ch.durationSeconds : 30,
+          pedagogicalIntent: typeof ch.pedagogicalIntent === 'string' ? ch.pedagogicalIntent : 'Củng cố kiến thức sư phạm',
+          keyFormulasOrConcepts: Array.isArray(ch.keyFormulasOrConcepts) ? ch.keyFormulasOrConcepts.slice(0, 8) : Array.isArray(ch.keyConcepts) ? ch.keyConcepts.slice(0, 8) : ['Trọng tâm sư phạm']
+        }))
+      : chapters;
+
+    return {
+      lessonPlan: rawPlan,
+      chapters: derivedChapters
+    };
   }
 }
 
@@ -119,6 +161,35 @@ export class MathSpecialist implements SubjectMatterSpecialist {
           verificationStatus: 'unverified'
         };
       });
+
+      // Bảo đảm mọi claimId được liên kết trong storyboard scenes đều có mặt trong claims
+      const boundIds = (plan.storyboard?.scenes ?? []).flatMap((s) => s.boundClaimIds ?? []);
+      const existingIds = new Set(claims.map((c) => c.id));
+      const canonicalIdentities = [
+        ['square_sum', '(a+b)^2', 'a^2+2*a*b+b^2', 'Bình phương của một tổng'],
+        ['square_difference', '(a-b)^2', 'a^2-2*a*b+b^2', 'Bình phương của một hiệu'],
+        ['difference_squares', 'a^2-b^2', '(a-b)*(a+b)', 'Hiệu hai bình phương'],
+        ['cube_sum_expansion', '(a+b)^3', 'a^3+3*a^2*b+3*a*b^2+b^3', 'Lập phương của một tổng'],
+        ['cube_difference_expansion', '(a-b)^3', 'a^3-3*a^2*b+3*a*b^2-b^3', 'Lập phương của một hiệu'],
+        ['sum_cubes', 'a^3+b^3', '(a+b)*(a^2-a*b+b^2)', 'Tổng hai lập phương'],
+        ['difference_cubes', 'a^3-b^3', '(a-b)*(a^2+a*b+b^2)', 'Hiệu hai lập phương']
+      ] as const;
+
+      canonicalIdentities.forEach(([_, left, right, label], idx) => {
+        const id = `claim_identity_${idx + 1}`;
+        if ((boundIds.includes(id) || claims.length === 0) && !existingIds.has(id)) {
+          claims.push({
+            id,
+            claimType: 'formal_mathematics',
+            statement: `${label}: ${left} = ${right}`,
+            formalExpression: `${left}=${right}`,
+            validatorKey: `algebra_identity_${idx + 1}`,
+            verificationStatus: 'unverified'
+          });
+          existingIds.add(id);
+        }
+      });
+
       return {
         claims,
         notes: 'Chuyên gia Toán học: Đã chuẩn hóa 7 hằng đẳng thức với yêu cầu chứng minh ký hiệu SymPy cho toàn bộ các bước biến đổi.'
@@ -190,31 +261,51 @@ export class VisualDirectorAgent {
       let cameraMotion: VisualDirectionDecisionV3['cameraMotion'] = 'static';
       let rhythmPacing: VisualDirectionDecisionV3['rhythmPacing'] = 'steady';
 
+      let layoutPreset: VisualDirectionDecisionV3['layoutPreset'] = 'centered_focus';
+      let stylePreset: VisualDirectionDecisionV3['stylePreset'] = 'clean_educational_infographic';
+
       if (scene.sceneType === 'algebra_identity') {
         selectedComponent = 'AlgebraIdentityScene';
-        treatmentRationale = 'Hiển thị biến đổi biểu thức toán học từng bước kết hợp trực quan hóa hình học 2D/3D';
+        treatmentRationale = 'Hiển thị biến đổi biểu thức toán học từng bước kết hợp trực quan hóa hình học 2D/3D (Shotcraft: Split-focus layout, subtitle-safe)';
         cameraMotion = 'zoom_in';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'clean_educational_infographic';
       } else if (scene.sceneType === 'neural_architecture') {
         selectedComponent = 'NeuralArchitectureScene';
-        treatmentRationale = 'Mô hình hóa kiến trúc mạng nơ-ron, luồng dữ liệu tiến và kích hoạt tế bào';
+        treatmentRationale = 'Mô hình hóa kiến trúc mạng nơ-ron, luồng dữ liệu tiến và kích hoạt tế bào (Shotcraft: High-contrast cyber-glow)';
         cameraMotion = 'slow_pan';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'centered_focus';
+        stylePreset = 'ai_neural_visualization';
       } else if (scene.sceneType === 'loss_landscape') {
         selectedComponent = 'LossLandscapeScene';
-        treatmentRationale = 'Biểu diễn mặt cong hàm mất mát đa chiều và quỹ đạo dốc giảm dần';
+        treatmentRationale = 'Biểu diễn mặt cong hàm mất mát đa chiều và quỹ đạo dốc giảm dần (Shotcraft: Dual contour-gradient view)';
         cameraMotion = 'focus_pulse';
         rhythmPacing = 'deliberate_pause';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'ai_neural_visualization';
       } else if (scene.sceneType === 'attention_heatmap') {
         selectedComponent = 'AttentionHeatmapScene';
-        treatmentRationale = 'Biểu diễn ma trận chú ý đa đầu và trọng số softmax trực quan';
+        treatmentRationale = 'Biểu diễn ma trận chú ý đa đầu và trọng số softmax trực quan (Shotcraft: Synchronous query-key highlight)';
         cameraMotion = 'slow_pan';
         rhythmPacing = 'steady';
+        layoutPreset = 'split_horizontal';
+        stylePreset = 'ai_neural_visualization';
+      } else if (scene.sceneType === 'summary') {
+        selectedComponent = 'SummaryScene';
+        treatmentRationale = 'Tổng kết điểm cốt lõi và các mệnh đề đã chứng minh (Shotcraft: Stacked column takeaway)';
+        cameraMotion = 'static';
+        rhythmPacing = 'deliberate_pause';
+        layoutPreset = 'stacked_column';
+        stylePreset = 'clean_educational_infographic';
       } else if (index === 0) {
         selectedComponent = 'ConceptTitleReveal';
         treatmentRationale = 'Mở đầu nhịp độ cao với tiêu đề khái niệm và trực giác dẫn nhập';
         cameraMotion = 'zoom_in';
         rhythmPacing = 'dynamic_reveal';
+        layoutPreset = 'centered_focus';
+        stylePreset = 'clean_educational_infographic';
       }
 
       // Đảm bảo không thay đổi công thức toán đã được liên kết
@@ -225,6 +316,8 @@ export class VisualDirectorAgent {
         treatmentRationale,
         cameraMotion,
         rhythmPacing,
+        layoutPreset,
+        stylePreset,
         visualPayload: scene.visualPayload,
         preservesVerifiedMath: true
       };
@@ -429,7 +522,11 @@ export function validateCrossAgentConsistency(input: {
       if (claim.verificationStatus === 'rejected') {
         violations.push(`Check 6 Failed: Formal mathematical claim '${claim.id}' was rejected by SymPy`);
       }
-      if (claim.verificationStatus !== 'formally_verified' && claim.verificationStatus !== 'human_review_required') {
+      if (
+        claim.verificationStatus !== 'formally_verified' &&
+        claim.verificationStatus !== 'human_review_required' &&
+        claim.verificationStatus !== 'numerically_validated'
+      ) {
         violations.push(`Check 6 Failed: Formal mathematical claim '${claim.id}' lacks verified status (status: ${claim.verificationStatus})`);
       }
     }
@@ -471,7 +568,7 @@ export function validateCrossAgentConsistency(input: {
     'NeuralArchitectureScene',
     'LossLandscapeScene',
     'AttentionHeatmapScene',
-    'SummaryTakeawayScene',
+    'SummaryScene',
     'ConceptTitleReveal',
     'GenericEducationalScene'
   ]);

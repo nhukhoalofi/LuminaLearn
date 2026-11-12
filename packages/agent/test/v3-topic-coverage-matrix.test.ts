@@ -186,5 +186,67 @@ describe('Checkpoint F — Topic Coverage Test Matrix (10 Benchmark Topics)', ()
       assert.ok(sc.narration.subtitleVietnamese.length > 5);
     }
   });
+
+  // ==========================================
+  // LONG-FORM PRESET DURATION TESTS (300s, 600s)
+  // Ensure NO scene ever exceeds max(120) durationSeconds limit
+  // ==========================================
+
+  it('Long-form 300s (5 min) generic / fallback topic: partitions into scenes with duration <= 120s', async () => {
+    const plan = await planner.planLesson({
+      lessonId: 'lesson_longform_300',
+      topic: 'Trí tuệ nhân tạo tổng quát và tác động xã hội',
+      targetDurationSeconds: 300
+    });
+
+    assert.ok(plan.storyboard);
+    assert.ok(plan.storyboard.scenes.length >= 3, `Expected at least 3 scenes, got ${plan.storyboard.scenes.length}`);
+    let sum = 0;
+    for (const scene of plan.storyboard.scenes) {
+      assert.ok(scene.durationSeconds > 0);
+      assert.ok(scene.durationSeconds <= 120, `Scene ${scene.sceneId} duration ${scene.durationSeconds}s exceeds 120s limit`);
+      sum += scene.durationSeconds;
+    }
+    assert.equal(sum, 300);
+    assert.equal(plan.storyboard.totalDurationSeconds, 300);
+  });
+
+  it('Long-form 600s (10 min) generic / fallback topic: partitions into scenes with duration <= 120s', async () => {
+    const plan = await planner.planLesson({
+      lessonId: 'lesson_longform_600',
+      topic: 'Neural Networks và mô hình học sâu',
+      targetDurationSeconds: 600
+    });
+
+    assert.ok(plan.storyboard);
+    assert.ok(plan.storyboard.scenes.length >= 5, `Expected at least 5 scenes, got ${plan.storyboard.scenes.length}`);
+    let sum = 0;
+    for (const scene of plan.storyboard.scenes) {
+      assert.ok(scene.durationSeconds > 0);
+      assert.ok(scene.durationSeconds <= 120, `Scene ${scene.sceneId} duration ${scene.durationSeconds}s exceeds 120s limit`);
+      sum += scene.durationSeconds;
+    }
+    assert.equal(sum, 600);
+    assert.equal(plan.storyboard.totalDurationSeconds, 600);
+  });
+
+  it('Long-form 600s (10 min) Transformer Attention: all scene durations <= 120s', async () => {
+    const plan = await planner.planLesson({
+      lessonId: 'lesson_attention_600',
+      topic: 'Cơ chế Self-Attention và kiến trúc Transformer',
+      targetDurationSeconds: 600
+    });
+
+    assert.ok(plan.storyboard);
+    assert.ok(plan.storyboard.scenes.length >= 5);
+    let sum = 0;
+    for (const scene of plan.storyboard.scenes) {
+      assert.ok(scene.durationSeconds > 0);
+      assert.ok(scene.durationSeconds <= 120, `Scene ${scene.sceneId} duration ${scene.durationSeconds}s exceeds 120s limit`);
+      sum += scene.durationSeconds;
+    }
+    assert.equal(sum, 600);
+    assert.equal(plan.storyboard.totalDurationSeconds, 600);
+  });
 });
 

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, writeFile, rename, stat, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rename, stat, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -10,6 +10,34 @@ import {
 } from '@luminalearn/scene-schema';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+
+export async function computeFileSha256(filePath: string): Promise<string> {
+  const buf = await readFile(filePath);
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+export async function detectIfEntirelyBlank(filePath: string, durationSeconds: number): Promise<boolean> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      'ffmpeg',
+      ['-i', filePath, '-vf', 'blackdetect=d=2:pix_th=0.05', '-f', 'null', '-'],
+      { windowsHide: true, timeout: 30_000 },
+      (err, _stdout, stderr) => {
+        if (err) {
+          return rejectPromise(
+            new Error(`qa_blackdetect_failed: FFmpeg inspection failed: ${stderr || err.message}`)
+          );
+        }
+        const blackMatches = Array.from(stderr.matchAll(/black_start:([0-9.]+)\s+black_end:([0-9.]+)\s+black_duration:([0-9.]+)/g));
+        let totalBlackSec = 0;
+        for (const match of blackMatches) {
+          totalBlackSec += Number.parseFloat(match[3] || '0');
+        }
+        resolvePromise(durationSeconds > 5 && totalBlackSec >= durationSeconds * 0.95);
+      }
+    );
+  });
+}
 
 export interface ProbeMediaResult {
   durationSeconds: number;
@@ -204,16 +232,55 @@ export class LongFormMediaAssemblerV3 {
       await writeFile(resolve(outputDir, 'subtitles.srt'), subtitlesSrtContent, 'utf8');
     }
 
-    // 7. Inspect final MP4 with FFprobe
+    // 7. Inspect final MP4 with FFprobe and run comprehensive QA
     const finalProbe = await probeMediaWithFFprobe(finalOutputPath);
     const finalStat = await stat(finalOutputPath);
 
-    // Validate duration tolerance (within 1.0s)
+    // Validate duration tolerance (within 1.5s)
     if (Math.abs(finalProbe.durationSeconds - manifest.targetDurationSeconds) > 1.5) {
       throw new Error(
         `assembler_duration_mismatch: Final duration (${finalProbe.durationSeconds}s) deviates from manifest target (${manifest.targetDurationSeconds}s)`
       );
     }
+
+    if (finalProbe.width !== manifest.width || finalProbe.height !== manifest.height) {
+      throw new Error(
+        `assembler_dimension_mismatch: Final video dimensions ${finalProbe.width}x${finalProbe.height} deviate from expected ${manifest.width}x${manifest.height}`
+      );
+    }
+
+    if (finalProbe.videoCodec !== 'h264') {
+      throw new Error(`assembler_codec_mismatch: Expected h264 video codec, got ${finalProbe.videoCodec}`);
+    }
+
+    if (finalStat.size <= 10_000) {
+      throw new Error(`assembler_file_too_small: Output MP4 size (${finalStat.size} bytes) indicates missing or empty video streams`);
+    }
+
+    let isEntirelyBlank = false;
+    try {
+      isEntirelyBlank = await detectIfEntirelyBlank(finalOutputPath, finalProbe.durationSeconds);
+    } catch (qaErr) {
+      throw new Error(
+        `assembler_qa_inspection_failed: Black frame inspection could not be completed: ${qaErr instanceof Error ? qaErr.message : String(qaErr)}`
+      );
+    }
+
+    if (isEntirelyBlank) {
+      throw new Error('assembler_blank_video_detected: Rendered output was detected as completely black/empty frames');
+    }
+
+    const frameCountDiff = Math.abs(finalProbe.totalFrames - manifest.totalFrames);
+    const qaPassed = Boolean(
+      finalStat.size > 10_000 &&
+      Math.abs(finalProbe.durationSeconds - manifest.targetDurationSeconds) <= 1.5 &&
+      finalProbe.width === manifest.width &&
+      finalProbe.height === manifest.height &&
+      finalProbe.videoCodec === 'h264' &&
+      finalProbe.fps === manifest.fps &&
+      frameCountDiff <= manifest.fps &&
+      !isEntirelyBlank
+    );
 
     const mediaReport: LongFormMediaReportV3 = {
       filePath: finalOutputPath,
@@ -227,7 +294,7 @@ export class LongFormMediaAssemblerV3 {
       audioCodec: finalProbe.audioCodec,
       hasAudio: finalProbe.hasAudio,
       subtitlesEmbeddedOrSrt: Boolean(subtitlesSrtContent),
-      qaPassed: true,
+      qaPassed,
       inspectedAt: new Date().toISOString()
     };
 

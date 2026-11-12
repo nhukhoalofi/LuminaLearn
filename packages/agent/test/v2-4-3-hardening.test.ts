@@ -184,6 +184,7 @@ describe('Phase 1 — Gemini Request Budget & Retry Safety', () => {
 
   it('retries transient 503 errors with bounded backoff and succeeds within budget', async () => {
     let calls = 0;
+    const requestedModels: string[] = [];
     const budget = new GeminiRequestBudget({ maxRequestsPerJob: 4, maxCurriculumRequests: 2 });
     const validPlan = buildValidLivePlanJson();
 
@@ -193,8 +194,11 @@ describe('Phase 1 — Gemini Request Budget & Retry Safety', () => {
       retryBaseDelayMs: 5,
       requestBudget: budget,
       randomFn: () => 0.5,
-      transport: async () => {
+      model: 'gemini-3.8-flash',
+      fallbackModel: 'gemini-3.5-flash-lite',
+      transport: async (_prompt, _request, model) => {
         calls += 1;
+        requestedModels.push(model);
         if (calls === 1) {
           const err = new Error('Service temporarily unavailable') as Error & {
             status?: number;
@@ -219,9 +223,70 @@ describe('Phase 1 — Gemini Request Budget & Retry Safety', () => {
 
     assert.equal(calls, 2);
     assert.equal(res.attempts, 2);
+    assert.deepEqual(requestedModels, ['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
+    assert.equal(res.model, 'gemini-3.5-flash-lite');
     assert.equal(budget.getSummary().counts.totalAllRequests, 2);
     assert.equal(budget.getSummary().attempts[0].status, 'failed');
     assert.equal(budget.getSummary().attempts[1].status, 'succeeded');
+  });
+
+  it('migrates a retired configured content model before issuing any request', async () => {
+    const requestedModels: string[] = [];
+    const provider = new LiveGeminiAIProvider({
+      apiKey: 'fake-key',
+      model: 'gemini-2.0-flash',
+      maxRetries: 0,
+      transport: async (_prompt, _request, model) => {
+        requestedModels.push(model);
+        return { text: JSON.stringify(buildValidLivePlanJson()) };
+      }
+    });
+
+    const result = await provider.generateStructured({
+      purpose: 'curriculum_planning',
+      userPrompt: 'Plan lesson',
+      validator: (data) => LessonPlanV2Schema.parse(data)
+    });
+
+    assert.deepEqual(requestedModels, ['gemini-3.8-flash']);
+    assert.equal(result.model, 'gemini-3.8-flash');
+  });
+
+  it('rotates through configured stable models after consecutive 503 responses', async () => {
+    const requestedModels: string[] = [];
+    let calls = 0;
+    const provider = new LiveGeminiAIProvider({
+      apiKey: 'fake-key',
+      model: 'gemini-3.5-flash-lite',
+      fallbackModels: ['gemini-3.6-flash', 'gemini-3.7-flash'],
+      maxRetries: 2,
+      retryBaseDelayMs: 1,
+      randomFn: () => 0,
+      transport: async (_prompt, _request, model) => {
+        requestedModels.push(model);
+        calls += 1;
+        if (calls < 3) {
+          const error = new Error('Service temporarily unavailable') as Error & { status?: number };
+          error.status = 503;
+          throw error;
+        }
+        return { text: JSON.stringify(buildValidLivePlanJson()) };
+      }
+    });
+
+    const result = await provider.generateStructured({
+      purpose: 'curriculum_planning',
+      userPrompt: 'Plan lesson',
+      validator: (data) => LessonPlanV2Schema.parse(data)
+    });
+
+    assert.deepEqual(requestedModels, [
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.7-flash'
+    ]);
+    assert.equal(result.model, 'gemini-3.7-flash');
+    assert.equal(result.attempts, 3);
   });
 
   it('prevents invalid JSON/schema from exceeding GEMINI_MAX_REQUESTS_PER_JOB', async () => {
