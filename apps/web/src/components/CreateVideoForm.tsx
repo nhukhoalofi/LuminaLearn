@@ -910,7 +910,7 @@ export function CreateVideoForm({
             />
             <span>
               <strong>Gemini TTS (Opt-in)</strong>
-              <small>{geminiTtsEnabled ? 'Giọng Kore tiếng Việt (tối đa 5 request/job)' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
+              <small>{geminiTtsEnabled ? 'Giọng Kore tiếng Việt (tối đa 10 request/job)' : 'Chưa cấu hình GEMINI_API_KEY'}</small>
             </span>
           </label>
           <label className={`mode-option ${voiceoverMode === 'google_cloud_tts' ? 'selected' : ''} ${!googleTtsEnabled ? 'disabled' : ''}`}>
@@ -962,7 +962,7 @@ export function CreateVideoForm({
           <strong style={{ color: '#fbbf24' }}>⚠️ Xác nhận sử dụng API ngoài & Ngân sách Quota (Free Tier Safety):</strong>
           <ul style={{ margin: '6px 0 8px 18px', color: 'var(--text-secondary)' }}>
             <li>Gemini Live Planning/Narration: <strong>{renderMode === 'live' ? 'BẬT (tối đa 4 request/job)' : 'TẮT (0 request)'}</strong></li>
-            <li>Tổng hợp giọng đọc TTS: <strong>{voiceoverMode === 'gemini_tts' ? 'Gemini TTS (tối đa 5 request/job)' : voiceoverMode === 'google_cloud_tts' ? 'Google Cloud TTS' : 'TẮT'}</strong></li>
+            <li>Tổng hợp giọng đọc TTS: <strong>{voiceoverMode === 'gemini_tts' ? 'Gemini TTS (tối đa 10 request/job)' : voiceoverMode === 'google_cloud_tts' ? 'Google Cloud TTS' : 'TẮT'}</strong></li>
             <li>Phong cách hình ảnh: <code>{visualStyleId}</code> | Phụ đề: <strong>{subtitlesEnabled ? 'BẬT' : 'TẮT'}</strong></li>
           </ul>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>

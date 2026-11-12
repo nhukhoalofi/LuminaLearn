@@ -2,6 +2,7 @@ import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { GenericSceneVisualPayload } from '@luminalearn/scene-schema';
 import { MathExpression } from './MathExpression';
+import { formatEducationalMathDisplay } from './educational-math-display';
 
 export interface GenericPlotSceneProps {
   title: string;
@@ -108,7 +109,7 @@ export const GenericPlotScene: React.FC<GenericPlotSceneProps> = ({
 
         {payload.notes && (
           <div style={{ fontSize: 18, color: '#94A3B8', textAlign: 'center', lineHeight: 1.4 }}>
-            {payload.notes}
+            {formatEducationalMathDisplay(payload.notes)}
           </div>
         )}
       </div>

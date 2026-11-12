@@ -12,6 +12,7 @@ import {
   AnimatedVisualDslSceneV3,
   VisualDslSceneV3,
   FormulaSequenceSceneV3,
+  supportedSubtitleMathLatex,
   adaptScalarFunctionGraphV3,
   adaptGeometry2dV3,
   adaptDirectedDiagramV3,
@@ -50,6 +51,10 @@ export const BurnedInSubtitleOverlayV3: React.FC<{
 
   const activeCue = cues.find((c) => frame >= c.startFrame && frame < c.endFrame);
   if (!activeCue || !activeCue.text.trim()) return null;
+  const subtitleMath = supportedSubtitleMathLatex(activeCue.text);
+  // Legacy approved artifacts may contain a formula-only subtitle. The same
+  // expression is now typeset in the scene, so suppress the duplicate raw cue.
+  if (subtitleMath) return null;
 
   return (
     <div
@@ -103,7 +108,8 @@ export const SceneDispatcherV3: React.FC<{
   subtitlesEnabled: boolean;
   trustedProofContext?: TrustedProofContextV3;
   sceneDurationFrames?: number;
-}> = ({ scene, subtitlesEnabled, trustedProofContext, sceneDurationFrames }) => {
+  scalarGraphPhase?: 'introduce_curve' | 'secant_step' | 'tangent_hold';
+}> = ({ scene, subtitlesEnabled, trustedProofContext, sceneDurationFrames, scalarGraphPhase }) => {
   if (scene.visualDefinition) {
     return (
       <AnimatedVisualDslSceneV3
@@ -130,9 +136,15 @@ export const SceneDispatcherV3: React.FC<{
       );
     }
     if (sci.kind === 'scalar_function_1d') {
+      if (scalarGraphPhase === 'tangent_hold' && payload.sceneType === 'formula_derivation') {
+        return <GenericPlotScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
+      }
       return (
         <AnimatedVisualDslSceneV3
-          definition={adaptScalarFunctionGraphV3(sci, scene.sceneId)}
+          definition={adaptScalarFunctionGraphV3(sci, scene.sceneId, {
+            phase: scalarGraphPhase,
+            formulaTex: payload.sceneType === 'formula_derivation' ? payload.formulaTex : undefined
+          })}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
         />
@@ -245,6 +257,18 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
         const endSeconds = startSeconds + scene.durationSeconds;
         const fromFrame = Math.round(startSeconds * fps);
         const sceneDurationFrames = Math.max(1, Math.round(endSeconds * fps) - fromFrame);
+        const scalarGraphScenes = storyboard.scenes.filter((candidate) =>
+          'scientificData' in candidate.visualPayload &&
+          candidate.visualPayload.scientificData?.kind === 'scalar_function_1d'
+        );
+        const scalarGraphIndex = scalarGraphScenes.findIndex((candidate) => candidate.sceneId === scene.sceneId);
+        const scalarGraphPhase = scalarGraphIndex < 0
+          ? undefined
+          : scalarGraphIndex === 0
+            ? 'introduce_curve' as const
+            : 'scientificData' in scene.visualPayload && scene.visualPayload.scientificData?.kind === 'scalar_function_1d' && scene.visualPayload.scientificData.secantFromX !== undefined
+              ? 'secant_step' as const
+              : 'tangent_hold' as const;
 
         return (
           <Sequence
@@ -259,6 +283,7 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
               subtitlesEnabled={hasAuthoritativeCues ? false : subtitlesEnabled}
               trustedProofContext={trustedProofContext}
               sceneDurationFrames={sceneDurationFrames}
+              scalarGraphPhase={scalarGraphPhase}
             />
           </Sequence>
         );

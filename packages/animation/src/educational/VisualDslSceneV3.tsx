@@ -76,8 +76,9 @@ const normalizeProofExpression = (value: string): string => value
   .toLowerCase();
 
 export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; trustedProofContext?: TrustedProofContextV3; frame?: number; durationInFrames?: number }> = ({ definition, trustedProofContext, frame = 0, durationInFrames = definition.timeline?.durationFrames ?? 240 }) => {
-  const graphTrace = deriveMotionRecipeFrameV3({ recipeId: 'R03', frame, endFrame: durationInFrames });
-  const tangentReveal = deriveMotionRecipeFrameV3({ recipeId: 'R05', frame, startFrame: Math.min(12, Math.floor(durationInFrames * 0.15)), endFrame: durationInFrames });
+  const graphTrace = deriveMotionRecipeFrameV3({ recipeId: 'R03', frame, endFrame: Math.min(durationInFrames, 72) });
+  const tangentStartFrame = Math.min(12, Math.floor(durationInFrames * 0.15));
+  const tangentReveal = deriveMotionRecipeFrameV3({ recipeId: 'R05', frame, startFrame: tangentStartFrame, endFrame: Math.min(durationInFrames, tangentStartFrame + 72) });
   const parameterMotion = deriveMotionRecipeFrameV3({ recipeId: 'R04', frame, startFrame: Math.floor(durationInFrames * 0.2), endFrame: Math.floor(durationInFrames * 0.82) });
   const informationFlow = deriveMotionRecipeFrameV3({ recipeId: 'R07', frame, endFrame: durationInFrames, itemCount: Math.max(1, definition.elements.filter((element) => element.elementType === 'neural_connection').length) });
   const supported = new Set<VisualElementV3['elementType']>([
@@ -99,6 +100,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   const graphElement = definition.elements.find(
     (el): el is VisualGraphElement => el.elementType === 'graph'
   );
+  const shouldAnimateGraphTrace = graphElement?.animation === 'draw_line';
+  const shouldHoldSecantStep = graphElement?.animation === 'step_reveal';
   const axesElement = definition.elements.find((element) => element.elementType === 'axes');
 
   const isGeometryScene = definition.elements.some((el) => el.elementType === 'polygon' || el.elementType === 'segment');
@@ -178,7 +181,9 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
         tangentLine = computeTangentLine(parsedFn, graphElement.tangentAtX, transform);
       }
       if (graphElement.showSecantLine && typeof graphElement.secantFromX === 'number' && typeof graphElement.secantToX === 'number') {
-        const movingX = graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
+        const movingX = shouldHoldSecantStep
+          ? graphElement.secantToX
+          : graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
         if (Math.abs(movingX - graphElement.secantFromX) >= 1e-8) {
           secantLine = computeSecantLine(parsedFn, graphElement.secantFromX, movingX, transform);
           const mathY = parsedFn.evaluate(movingX);
@@ -239,7 +244,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
             />
           </clipPath>
           <clipPath id="graph-trace-clip">
-            <rect x={DEFAULT_GRAPH_BOX.xMin - 2} y={DEFAULT_GRAPH_BOX.yMin - 2} width={(DEFAULT_GRAPH_BOX.width + 4) * graphTrace.progress} height={DEFAULT_GRAPH_BOX.height + 4} />
+            <rect x={DEFAULT_GRAPH_BOX.xMin - 2} y={DEFAULT_GRAPH_BOX.yMin - 2} width={(DEFAULT_GRAPH_BOX.width + 4) * (shouldAnimateGraphTrace ? graphTrace.progress : 1)} height={DEFAULT_GRAPH_BOX.height + 4} />
           </clipPath>
 
           {/* Arrow markers for axes, vectors, and connections */}
@@ -365,7 +370,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         {/* 2. Real Mathematical Graph Curve (Clipped to Viewport) */}
         {graphElement && graphPath && (
-          <g clipPath="url(#graph-trace-clip)" data-motion-recipe="R03" data-progress={graphTrace.progress.toFixed(4)}>
+          <g clipPath="url(#graph-trace-clip)" data-motion-recipe="R03" data-progress={(shouldAnimateGraphTrace ? graphTrace.progress : 1).toFixed(4)}>
             <path
               key={`graph-${graphElement.elementId}`}
               d={graphPath}
@@ -380,7 +385,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         {/* 3. Secant approaches the verified tangent; intermediate positions are illustrative, not iterations. */}
         {secantLine && (
-          <g clipPath="url(#graph-viewport-clip)" opacity={1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
+          <g clipPath="url(#graph-viewport-clip)" opacity={shouldHoldSecantStep ? 1 : 1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
             <line x1={secantLine.screenX1} y1={secantLine.screenY1} x2={secantLine.screenX2} y2={secantLine.screenY2} stroke="#A78BFA" strokeWidth="3" strokeDasharray="8 5" />
             {secantMovingPoint && <circle cx={secantMovingPoint.x} cy={secantMovingPoint.y} r="7" fill="#A78BFA" stroke="#FFFFFF" strokeWidth="2.5" />}
             {secantMovingPoint && (
@@ -422,7 +427,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         {/* 4. Real Tangent Line & Derivative indicator with dynamic numeric label */}
         {tangentLine && (
-          <g clipPath="url(#graph-viewport-clip)" opacity={graphElement?.showSecantLine ? parameterMotion.progress : tangentReveal.opacity} data-motion-recipe="R05">
+          <g clipPath="url(#graph-viewport-clip)" opacity={shouldHoldSecantStep || graphElement?.animation === 'fade_in' ? 1 : graphElement?.showSecantLine ? parameterMotion.progress : tangentReveal.opacity} data-motion-recipe="R05">
             <line
               x1={tangentLine.screenX1}
               y1={tangentLine.screenY1}
@@ -444,8 +449,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
             {/* Dynamic numeric label for tangent slope and contact point */}
             <g data-dynamic-label="tangent-slope">
               <rect
-                x={Math.min(540, tangentLine.screenX0 + 10)}
-                y={Math.max(DEFAULT_GRAPH_BOX.yMin + 10, tangentLine.screenY0 - 32)}
+                x={Math.min(540, tangentLine.screenX0 + 18)}
+                y={Math.min(DEFAULT_GRAPH_BOX.yMin + DEFAULT_GRAPH_BOX.height - 34, tangentLine.screenY0 + 24)}
                 width="140"
                 height="26"
                 rx="6"
@@ -454,8 +459,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                 strokeWidth="1.2"
               />
               <text
-                x={Math.min(540, tangentLine.screenX0 + 10) + 8}
-                y={Math.max(DEFAULT_GRAPH_BOX.yMin + 10, tangentLine.screenY0 - 32) + 17}
+                x={Math.min(540, tangentLine.screenX0 + 18) + 8}
+                y={Math.min(DEFAULT_GRAPH_BOX.yMin + DEFAULT_GRAPH_BOX.height - 34, tangentLine.screenY0 + 24) + 17}
                 fill="#FDE68A"
                 fontSize="12"
                 fontWeight="bold"
@@ -482,12 +487,13 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                 <circle cx={sx} cy={sy} r="8" fill={element.color} stroke="#FFFFFF" strokeWidth="2.5" />
                 {element.label && (
                   <text
-                    x={sx + 12}
-                    y={sy - 12}
+                    x={sx - 14}
+                    y={sy - 16}
                     fill="#F8FAFC"
                     fontSize="15"
                     fontWeight="600"
                     fontFamily="monospace"
+                    textAnchor="end"
                   >
                     {element.label}
                   </text>
@@ -696,6 +702,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         if (element.elementType === 'formula') {
           const html = renderKatexHtml(element.latex, true);
+          const formulaReveal = deriveMotionRecipeFrameV3({ recipeId: 'R01', frame, endFrame: Math.min(durationInFrames, 48) });
           const trustedBinding = trustedProofContext && element.claimId
             ? definition.trustedMathBindings.find((binding) =>
                 binding.elementId === element.elementId &&
@@ -713,8 +720,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
               key={element.elementId}
               style={{
                 ...baseStyle,
-                opacity: deriveMotionRecipeFrameV3({ recipeId: 'R01', frame, endFrame: durationInFrames }).opacity,
-                transform: `translate(-50%, -50%) translateY(${deriveMotionRecipeFrameV3({ recipeId: 'R01', frame, endFrame: durationInFrames }).translateY}px)`,
+                opacity: formulaReveal.opacity,
+                transform: `translate(-50%, -50%) translateY(${formulaReveal.translateY}px)`,
                 background: 'rgba(15, 23, 42, 0.88)',
                 border: '1px solid rgba(56, 189, 248, 0.3)',
                 padding: '16px 28px',

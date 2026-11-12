@@ -25,6 +25,19 @@ export interface SubtitleCueV3 {
   endFrame: number;
 }
 
+/** Presentation-only cleanup for a legacy formula-only subtitle. */
+export function normalizeViewerSubtitleTextV3(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  const isLegacyDerivativeLimit =
+    compact.startsWith("f'(x) = lim_{h") &&
+    compact.includes('(x+h)² - x²') &&
+    compact.includes('(2x + h)') &&
+    compact.endsWith('= 2x');
+  return isLegacyDerivativeLimit
+    ? 'Lấy giới hạn khi h tiến về 0, thương sai phân cho f phẩy của x bằng 2x.'
+    : compact;
+}
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function canonical(value: unknown): string {
@@ -199,15 +212,23 @@ export async function runRenderPipelineV3(
       }
     }
 
-    const configuredTtsBudget = Number.parseInt(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB ?? '5', 10);
-    const dynamicTtsBudget = Math.max(
-      Number.isInteger(configuredTtsBudget) && configuredTtsBudget > 0 ? configuredTtsBudget : 5,
-      approvedStoryboard.scenes.length * 2
-    );
+    const configuredTtsBudget = Number.parseInt(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB ?? '10', 10);
+    const enforcedTtsBudget = Number.isInteger(configuredTtsBudget) && configuredTtsBudget > 0
+      ? configuredTtsBudget
+      : 10;
+    const narratedSceneCount = approvedStoryboard.scenes.filter((scene) =>
+      Boolean(scene.narration?.vietnamese?.trim())
+    ).length;
+    if (isGemini && narratedSceneCount > enforcedTtsBudget) {
+      throw new Error(
+        `tts_request_budget_insufficient: Storyboard requires ${narratedSceneCount} Gemini TTS requests, ` +
+        `but this job is authorized for at most ${enforcedTtsBudget}. Choose a shorter lesson or another narration mode.`
+      );
+    }
     const provider: TtsProvider = suppliedProvider ?? (
       isGemini
         ? new GeminiTtsProvider({
-            requestBudget: new GeminiRequestBudget({ maxTtsRequestsPerJob: dynamicTtsBudget })
+            requestBudget: new GeminiRequestBudget({ maxTtsRequestsPerJob: enforcedTtsBudget })
           })
         : new GoogleCloudTtsProvider()
     );
@@ -223,6 +244,9 @@ export async function runRenderPipelineV3(
         voice: 'voice' in provider && typeof provider.voice === 'string' ? provider.voice : undefined,
         language: 'languageCode' in provider && typeof provider.languageCode === 'string' ? provider.languageCode : undefined,
         fps: artifact.request.fps,
+        preRollSeconds: 0.25,
+        postRollSeconds: 0.35,
+        maxPostSpeechHoldSeconds: 0.25,
         ownerId: artifact.ownerId,
         outputDir
       }
@@ -262,7 +286,7 @@ export async function runRenderPipelineV3(
       .filter((timing) => timing.speechEndFrame > timing.speechStartFrame)
       .map((timing, idx) => {
         const scene = approvedStoryboard.scenes.find((s) => s.sceneId === timing.sceneId);
-        const text = (scene?.narration?.subtitleVietnamese || scene?.narration?.vietnamese || timing.normalizedText || '').trim();
+        const text = normalizeViewerSubtitleTextV3(scene?.narration?.subtitleVietnamese || scene?.narration?.vietnamese || timing.normalizedText || '');
         return {
           cueId: `cue_${idx + 1}`,
           sceneId: timing.sceneId,
@@ -282,7 +306,7 @@ export async function runRenderPipelineV3(
       const startFrame = currentFrame;
       const endFrame = startFrame + durationFrames;
       currentFrame = endFrame;
-      const text = (scene.narration?.subtitleVietnamese || scene.narration?.vietnamese || '').trim();
+      const text = normalizeViewerSubtitleTextV3(scene.narration?.subtitleVietnamese || scene.narration?.vietnamese || '');
       return {
         cueId: `cue_${idx + 1}`,
         sceneId: scene.sceneId,

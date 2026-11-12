@@ -11,4 +11,5 @@ export * from './scientific-visual-adapters-v3';
 export * from './AlgebraIdentityScene';
 export * from './VisualDslSceneV3';
 export * from './graph-math';
+export * from './educational-math-display';
 

@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { VisualDslSceneV3 } from '../src/educational/VisualDslSceneV3';
 import { FormulaStepCard } from '../src/educational/FormulaSequenceSceneV3';
+import { adaptScalarFunctionGraphV3 } from '../src/educational/scientific-visual-adapters-v3';
 import type { VisualSceneDefinitionV3 } from '@luminalearn/scene-schema';
 
 describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () => {
@@ -140,6 +141,19 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
     assert.equal(mismatch.includes('SymPy Verified: claim_x2'), false);
     assert.equal(missingContext.includes('SymPy Verified: claim_x2'), false);
     assert.equal(numericOnlyHtml.includes('SymPy Verified: claim_x2'), false);
+  });
+
+  test('2d. Holds completed curve and separates point and tangent labels in continuation scenes', () => {
+    const definition = adaptScalarFunctionGraphV3({
+      kind: 'scalar_function_1d', functionType: 'polynomial', expression: 'x^2',
+      xRange: [-1, 3], yRange: [-1, 9], pointX: 1, tangentAtX: 1,
+      secantFromX: 1, secantToX: 1.3, claimId: 'claim_derivative', validation: 'formally_verified'
+    }, 'continuation', { phase: 'secant_step' });
+    const html = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition, frame: 0, durationInFrames: 720 }));
+    assert.ok(html.includes('data-progress="1.0000"'));
+    assert.ok(html.includes('Q(1.30, 1.69)'));
+    assert.ok(html.includes('f&#x27;(1) = 2.00'));
+    assert.ok(html.includes('text-anchor="end"'));
   });
 
   test('2c. Formula step reference alone remains neutral even with artifact integrity', () => {

@@ -965,13 +965,13 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             rendererTarget: 'manim_hybrid' as const,
             narration: {
               vietnamese: 'Nếu thay điểm x bằng 1 bằng một điểm x bất kỳ, tỷ số gia f của x cộng h trừ f của x tất cả chia cho h sẽ bằng x cộng h tất cả bình trừ x bình chia h. Khai triển tử số được hai x h cộng h bình, chia cho h ta còn hai x cộng h. Khi h tiến dần về 0, giới hạn đúng bằng hai x. Do đó, đạo hàm tổng quát của x bình phương chính là hai x.',
-              subtitleVietnamese: 'f\'(x) = lim_{h⟶0} [(x+h)² - x²] / h = lim_{h⟶0} (2x + h) = 2x'
+              subtitleVietnamese: 'Lấy giới hạn của thương sai phân khi h tiến về 0, ta thu được đạo hàm f phẩy của x bằng 2x.'
             },
             visualPayload: {
               sceneType: 'formula_derivation' as const,
               headline: 'Công thức Đạo hàm Tổng quát',
               formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{(x+h)^2 - x^2}{h} = \\lim_{h \\to 0} (2x + h) = 2x",
-              notes: 'Quy tắc lũy thừa: (x^n)\' = n * x^(n-1)',
+              notes: 'Quy tắc lũy thừa: đạo hàm của x mũ n là n nhân x mũ (n − 1).',
               scientificData: {
                 kind: 'scalar_function_1d' as const,
                 functionType: 'polynomial' as const,
@@ -1006,9 +1006,9 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
                 'Công thức tổng quát: (x²)\' = 2x, tại x = 1 ta có f\'(1) = 2',
                 'Ứng dụng AI: Đạo hàm hướng dẫn chiều cập nhật tham số trong Gradient Descent'
               ],
-              verifiedFacts: ['diff(x^2, x) = 2x'],
+              verifiedFacts: ["f'(x) = 2x"],
               reviewNotes: [],
-              finalCallout: "f'(x) = 2x \\quad \\text{và} \\quad m = 2 \\quad \\text{tại} \\quad x = 1"
+              finalCallout: "f'(x) = 2x; m = 2 tại x = 1"
             }
           }
         ];

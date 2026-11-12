@@ -179,17 +179,17 @@ test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
     const result4 = await synchronizer.synchronizeStoryboard(inflatedScene, {
       ttsProvider: nonSilentFixtureProvider,
       audioCache: cache,
-      outputDir: outDir4,
-      preRollSeconds: 0.5,
-      postRollSeconds: 0.5
+      outputDir: outDir4
     });
 
     const s = result4.sceneTimings[0];
-    assert.ok(s.adjustedDurationSeconds >= 9.0, `Must include speech + pre/post roll, got ${s.adjustedDurationSeconds}`);
+    assert.ok(s.adjustedDurationSeconds >= 8.6, `Must include speech + bounded pre/post roll, got ${s.adjustedDurationSeconds}`);
     assert.ok(
-      s.adjustedDurationSeconds <= 11.0,
+      s.adjustedDurationSeconds <= 9.0,
       `Must NOT pad 50s of dead silence after 8s speech; got ${s.adjustedDurationSeconds}s`
     );
+    const postSpeechGap = (s.endFrame - s.speechEndFrame) / result4.fps;
+    assert.ok(postSpeechGap <= 0.65, `Post-speech gap must be <= 0.65s, got ${postSpeechGap}s`);
   });
 });
 

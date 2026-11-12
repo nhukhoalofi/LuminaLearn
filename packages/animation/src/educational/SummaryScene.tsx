@@ -1,6 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { SummaryVisualPayload } from '@luminalearn/scene-schema';
+import { formatEducationalMathDisplay } from './educational-math-display';
 
 export interface SummarySceneProps {
   title: string;
@@ -128,7 +129,7 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
             }}
           >
             <span style={{ color: '#10B981', fontWeight: 800 }}>Kết quả trọng tâm:</span>
-            <span style={{ color: '#A7F3D0', fontSize: 16 }}>{payload.verifiedFacts.join(' • ')}</span>
+            <span style={{ color: '#A7F3D0', fontSize: 16 }}>{payload.verifiedFacts.map(formatEducationalMathDisplay).join(' • ')}</span>
           </div>
         )}
       </div>
@@ -147,7 +148,7 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
             fontWeight: 700
           }}
         >
-          {payload.finalCallout}
+          {formatEducationalMathDisplay(payload.finalCallout)}
         </div>
       )}
 

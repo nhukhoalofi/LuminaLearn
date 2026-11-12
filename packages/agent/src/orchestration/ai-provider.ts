@@ -52,6 +52,8 @@ export type GeminiRawTransport = (
 export interface LiveGeminiAIProviderOptions {
   apiKey?: string;
   model?: string;
+  fallbackModel?: string;
+  fallbackModels?: string[];
   timeoutMs?: number;
   maxRetries?: number;
   retryBaseDelayMs?: number;
@@ -60,11 +62,20 @@ export interface LiveGeminiAIProviderOptions {
   randomFn?: () => number;
 }
 
+export const CURRENT_GEMINI_CONTENT_MODEL = 'gemini-3.8-flash';
+
+export function normalizeGeminiContentModel(model: string): string {
+  return /^(gemini-1\.5-flash|gemini-2\.0-flash|gemini-2\.5-flash)$/.test(model)
+    ? CURRENT_GEMINI_CONTENT_MODEL
+    : model;
+}
+
 export class LiveGeminiAIProvider implements AIProvider {
   public readonly isMock = false;
   private readonly apiKey: string;
   private readonly client?: GoogleGenAI;
   private readonly model: string;
+  private readonly modelCandidates: string[];
   private readonly maxRetries: number;
   private readonly retryBaseDelayMs: number;
   private readonly defaultBudget?: GeminiRequestBudget;
@@ -77,9 +88,19 @@ export class LiveGeminiAIProvider implements AIProvider {
       throw new Error('gemini_api_key_missing: GEMINI_API_KEY is required for LiveGeminiAIProvider. Live paid calls cannot be performed without valid credentials.');
     }
     this.apiKey = apiKey ?? '';
-    const rawModel = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
-    // Google GenAI API deprecated gemini-2.5-flash; fallback safely to gemini-3.5-flash-lite
-    this.model = rawModel === 'gemini-2.5-flash' ? 'gemini-3.5-flash-lite' : rawModel;
+    const rawModel = options.model ?? process.env.GEMINI_MODEL ?? CURRENT_GEMINI_CONTENT_MODEL;
+    this.model = normalizeGeminiContentModel(rawModel);
+    const fallbackModelsFromEnv = process.env.GEMINI_FALLBACK_MODELS
+      ?.split(',')
+      .map((model) => model.trim())
+      .filter(Boolean);
+    const configuredFallbacks = options.fallbackModels ?? (
+      fallbackModelsFromEnv?.length
+        ? fallbackModelsFromEnv
+        : [options.fallbackModel ?? process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash']
+    );
+    this.modelCandidates = [this.model, ...configuredFallbacks.map(normalizeGeminiContentModel)]
+      .filter((model, index, models) => models.indexOf(model) === index);
     this.maxRetries = options.maxRetries ?? 2;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 500;
     this.defaultBudget = options.requestBudget;
@@ -100,21 +121,12 @@ export class LiveGeminiAIProvider implements AIProvider {
       ? `${request.systemPrompt}\n\nUSER REQUEST:\n${request.userPrompt}`
       : request.userPrompt;
 
-    const fallbackModelCandidates = [
-      this.model,
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
-      'gemini-2.5-flash'
-    ].filter((m, idx, arr) => arr.indexOf(m) === idx);
-
     let attempts = 0;
     let lastError: Error | undefined;
-    let activeModel = this.model;
+    let activeModelIndex = 0;
+    let activeModel = this.modelCandidates[activeModelIndex];
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
-      if (attempt > 0 && lastError && /503|high demand|unavailable/i.test(lastError.message)) {
-        activeModel = fallbackModelCandidates[attempt % fallbackModelCandidates.length] ?? this.model;
-      }
       const attemptId = budget.consume(category, activeModel);
       attempts += 1;
 
@@ -133,7 +145,7 @@ export class LiveGeminiAIProvider implements AIProvider {
             model: activeModel,
             contents: fullPrompt,
             config: {
-              temperature: 0.2,
+              ...(activeModel === CURRENT_GEMINI_CONTENT_MODEL ? {} : { temperature: 0.2 }),
               responseMimeType: 'application/json',
               ...(request.jsonSchema ? { responseSchema: request.jsonSchema as never, responseJsonSchema: request.jsonSchema } : {})
             }
@@ -201,6 +213,10 @@ export class LiveGeminiAIProvider implements AIProvider {
         }
 
         const is503 = classified.status === 503 || /503|high demand|unavailable/i.test(classified.message);
+        if (is503 && activeModelIndex < this.modelCandidates.length - 1) {
+          activeModelIndex += 1;
+          activeModel = this.modelCandidates[activeModelIndex];
+        }
         const effectiveBaseDelay = is503 ? Math.max(1200, this.retryBaseDelayMs) : this.retryBaseDelayMs;
         const delayMs = computeBackoffWithJitterMs(
           attempt + 1,

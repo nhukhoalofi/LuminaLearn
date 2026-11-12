@@ -28,7 +28,7 @@ export async function runGeminiTtsPreflight() {
   const provider = process.env.TTS_PROVIDER ?? 'gemini';
   const ffmpegExecutable = process.env.FFMPEG_EXECUTABLE ?? 'ffmpeg';
   const ffprobeExecutable = process.env.FFPROBE_EXECUTABLE ?? 'ffprobe';
-  const ttsBudget = positiveInteger(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB, 5);
+  const ttsBudget = positiveInteger(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB, 10);
   const [ffmpegAvailable, ffprobeAvailable] = await Promise.all([
     executableAvailable(ffmpegExecutable),
     executableAvailable(ffprobeExecutable)

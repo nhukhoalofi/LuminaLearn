@@ -185,8 +185,8 @@ export class SceneAudioSynchronizer {
     }
 
     const fps = options.fps ?? 24;
-    const preRollSeconds = options.preRollSeconds ?? 0.5;
-    const postRollSeconds = options.postRollSeconds ?? 0.5;
+    const preRollSeconds = options.preRollSeconds ?? 0.25;
+    const postRollSeconds = options.postRollSeconds ?? 0.35;
     const providerDefaultVoice =
       'voice' in options.ttsProvider && typeof options.ttsProvider.voice === 'string' && options.ttsProvider.voice.trim().length > 0
         ? options.ttsProvider.voice
@@ -296,7 +296,7 @@ export class SceneAudioSynchronizer {
       const minRequiredFrames = Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds) * fps);
       const maxPostSpeechHold =
         options.maxPostSpeechHoldSeconds ??
-        (options.ttsProvider.isSilentFixture ? Number.POSITIVE_INFINITY : 1.5);
+        (options.ttsProvider.isSilentFixture ? Number.POSITIVE_INFINITY : 0.25);
       const maxSpeechBoundFrames = Number.isFinite(maxPostSpeechHold)
         ? Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds + maxPostSpeechHold) * fps)
         : targetDurationFrames;

@@ -20,6 +20,20 @@ describe('Quality Sprint B scientific visual adapters', () => {
     assert.equal(scene.style, 'ai_data_story');
   });
 
+  it('uses progressive graph phases instead of restarting the curve in every scene', () => {
+    const input = { kind: 'scalar_function_1d' as const, functionType: 'polynomial' as const, expression: 'x^2', xRange: [-1, 3] as [number, number], yRange: [-1, 9] as [number, number], pointX: 1, tangentAtX: 1, secantFromX: 1, secantToX: 2, claimId: 'claim_derivative', validation: 'formally_verified' as const };
+    const introduction = adaptScalarFunctionGraphV3(input, 'intro', { phase: 'introduce_curve' });
+    const secant = adaptScalarFunctionGraphV3(input, 'secant', { phase: 'secant_step', formulaTex: 'm_{PQ}=3' });
+    const tangent = adaptScalarFunctionGraphV3(input, 'tangent', { phase: 'tangent_hold' });
+    const animationOf = (scene: typeof introduction) => scene.elements.find((element) => element.elementType === 'graph')?.animation;
+    assert.equal(animationOf(introduction), 'draw_line');
+    assert.equal(animationOf(secant), 'step_reveal');
+    assert.equal(animationOf(tangent), 'fade_in');
+    const formula = secant.elements.find((element) => element.elementType === 'formula');
+    assert.equal(formula?.elementType === 'formula' ? formula.latex : undefined, 'm_{PQ}=3');
+    assert.equal(formula && 'claimId' in formula ? formula.claimId : undefined, undefined);
+  });
+
   it('builds directed diagrams from typed nodes and edges rather than a fixed network', () => {
     const scene = adaptDirectedDiagramV3({ kind: 'directed_diagram', nodes: [
       { nodeId: 'input_one', label: 'Input', layer: 0 }, { nodeId: 'hidden_one', label: 'Hidden', layer: 1 }, { nodeId: 'output_one', label: 'Output', layer: 2 }

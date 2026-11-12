@@ -61,7 +61,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
-  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('300s');
+  const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('60s');
   const [narrationMode, setNarrationMode] = useState<'none' | 'gemini_tts'>('none');
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
@@ -478,6 +478,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('mathematics');
               setTopic('Vì sao (a+b)² = a² + 2ab + b²?');
+              setDurationPreset('60s');
             }}
           >
             📐 1. Hằng đẳng thức (a+b)²
@@ -489,6 +490,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('mathematics');
               setTopic('Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến');
+              setDurationPreset('60s');
             }}
           >
             📈 2. Đạo hàm: Cát tuyến → Tiếp tuyến
@@ -500,6 +502,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             onClick={() => {
               setDomain('artificial_intelligence');
               setTopic('Gradient Descent — AI tìm điểm tối ưu như thế nào?');
+              setDurationPreset('60s');
             }}
           >
             📉 3. Gradient Descent: Tối ưu hóa AI
@@ -548,7 +551,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           Đồng bộ âm thanh Gemini TTS theo từng phân cảnh: thời lượng mỗi cảnh tự động co giãn khớp với lời giảng thực tế (không chèn khoảng lặng dài).
         </p>
       )}
-      {externalApiRequired && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini Live/Gemini TTS và sử dụng quota cho yêu cầu này.</label>}
+      {externalApiRequired && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini Live/Gemini TTS và sử dụng quota cho yêu cầu này (TTS tối đa 10 request/job).</label>}
       <button className="btn-generate" disabled={busy || (externalApiRequired && !confirmExternalApi)} onClick={() => void generate()}>Tạo bài học V3</button>
       {error && (
         <div style={{ marginTop: '8px' }}>

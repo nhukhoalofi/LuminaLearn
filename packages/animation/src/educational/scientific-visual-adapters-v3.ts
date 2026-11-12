@@ -18,19 +18,49 @@ type AttentionData = Extract<ScientificVisualDataV1, { kind: 'attention_matrix' 
 type GeometryData = Extract<ScientificVisualDataV1, { kind: 'geometry_2d' }>;
 type ProbabilityTreeData = Extract<ScientificVisualDataV1, { kind: 'probability_tree' }>;
 
+export type ScalarGraphPresentationPhaseV3 = 'introduce_curve' | 'secant_step' | 'tangent_hold';
+
+export interface ScalarGraphPresentationOptionsV3 {
+  phase?: ScalarGraphPresentationPhaseV3;
+  formulaTex?: string;
+}
+
 export function adaptFormulaSequenceV3(input: FormulaData): FormulaData {
   return VerifiedFormulaStepsDataV1Schema.parse(input);
 }
 
-export function adaptScalarFunctionGraphV3(input: ScalarData, sceneId = 'scientific_graph_scene'): VisualSceneDefinitionV3 {
+export function adaptScalarFunctionGraphV3(
+  input: ScalarData,
+  sceneId = 'scientific_graph_scene',
+  options: ScalarGraphPresentationOptionsV3 = {}
+): VisualSceneDefinitionV3 {
   const data = ScalarFunctionDataV1Schema.parse(input);
   const fn = parseGraphFunction(data.functionType, data.expression);
+  const phase = options.phase ?? (data.secantFromX !== undefined ? 'secant_step' : 'introduce_curve');
+  const graphAnimation = phase === 'introduce_curve'
+    ? 'draw_line'
+    : phase === 'secant_step'
+      ? 'step_reveal'
+      : 'fade_in';
   const elements: VisualSceneDefinitionV3['elements'] = [
     { elementType: 'text', elementId: `${sceneId}_title`, content: 'Đồ thị hàm số và tiếp tuyến', typography: 'heading_1', color: '#F8FAFC', position: { x: 360, y: 105 }, animation: 'fade_in' },
     { elementType: 'axes', elementId: `${sceneId}_axes`, xLabel: 'x', yLabel: 'f(x)', showGrid: true, gridColor: '#334155' },
-    { elementType: 'graph', elementId: `${sceneId}_graph`, functionType: data.functionType, expression: data.expression, claimId: data.claimId, contentPolicy: 'formal_verified', xRange: data.xRange, yRange: data.yRange, showTangentLine: data.tangentAtX !== undefined, tangentAtX: data.tangentAtX, showSecantLine: data.secantFromX !== undefined, secantFromX: data.secantFromX, secantToX: data.secantToX, animation: 'draw_line' }
+    { elementType: 'graph', elementId: `${sceneId}_graph`, functionType: data.functionType, expression: data.expression, claimId: data.claimId, contentPolicy: 'formal_verified', xRange: data.xRange, yRange: data.yRange, showTangentLine: data.tangentAtX !== undefined, tangentAtX: data.tangentAtX, showSecantLine: data.secantFromX !== undefined, secantFromX: data.secantFromX, secantToX: data.secantToX, animation: graphAnimation }
   ];
   if (data.pointX !== undefined) elements.push({ elementType: 'point', elementId: `${sceneId}_point`, coordinates: [data.pointX, fn.evaluate(data.pointX)], label: `(${data.pointX}, ${Number(fn.evaluate(data.pointX).toFixed(3))})`, color: '#F59E0B', pulse: true, animation: 'highlight_pulse' });
+  if (options.formulaTex?.trim()) {
+    elements.push({
+      elementType: 'formula',
+      elementId: `${sceneId}_formula`,
+      latex: options.formulaTex.trim(),
+      revealSpeed: 'medium',
+      highlightTerms: [],
+      fontSize: 25,
+      color: '#F8FAFC',
+      position: { x: 360, y: 905 },
+      animation: 'step_reveal'
+    });
+  }
   return VisualSceneDefinitionV3Schema.parse({ schemaVersion: 'visual-dsl-v3.1', sceneId, sceneType: 'graph_plot', layout: 'full_canvas', style: 'ai_data_story', animation: 'draw_line', elements, timeline: { startFrame: 0, durationFrames: 240, fps: 24, markers: [{ frame: 12, label: 'Vẽ đường cong', eventType: 'reveal' }, { frame: 96, label: 'Hiện tiếp tuyến', eventType: 'highlight' }] }, mathBindings: [{ bindingId: `${sceneId}_binding`, claimId: data.claimId, elementId: `${sceneId}_graph`, formalExpression: data.expression, mathSymbol: 'f', isVerified: true }], trustedMathBindings: [], dataBindings: [] });
 }
 

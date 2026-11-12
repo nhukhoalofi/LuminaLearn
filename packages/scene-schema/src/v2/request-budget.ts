@@ -67,9 +67,9 @@ export class GeminiRequestBudget {
     this.maxTtsRequestsPerJob =
       options.maxTtsRequestsPerJob ??
       initial?.limits.maxTtsRequestsPerJob ??
-      parsePositiveIntEnv(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB, 5);
+      parsePositiveIntEnv(process.env.GEMINI_TTS_MAX_REQUESTS_PER_JOB, 10);
     this.maxCurriculumRequests =
-      options.maxCurriculumRequests ?? initial?.limits.maxCurriculumRequests ?? Math.min(2, this.maxRequestsPerJob);
+      options.maxCurriculumRequests ?? initial?.limits.maxCurriculumRequests ?? Math.min(3, this.maxRequestsPerJob);
     this.maxNarrationRequests =
       options.maxNarrationRequests ?? initial?.limits.maxNarrationRequests ?? Math.min(2, this.maxRequestsPerJob);
     this.onChange = options.onChange;
@@ -315,7 +315,7 @@ export function classifyGeminiError(
   const isTransientStatus = status !== undefined && (status === 408 || status >= 500);
   const isTransientNetwork =
     status === undefined &&
-    /econnreset|econnrefused|socket|network|fetch failed|503|temporarily unavailable/i.test(safeMessage);
+    /econnreset|econnrefused|socket|network|fetch failed|http client.*unusable|503|temporarily unavailable/i.test(safeMessage);
 
   if (isTransientStatus || isTransientNetwork) {
     const code = `${scope}_transient_failed`;

@@ -342,6 +342,7 @@ export const VisualFormulaElementSchema = z.object({
   contentPolicy: MathContentPolicySchema.optional(),
   fontSize: z.number().min(12).max(72).default(36),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8'),
+  position: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
   animation: VisualAnimationPresetV3Schema.default('step_reveal')
 }).strict();
 

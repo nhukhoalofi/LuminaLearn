@@ -27,6 +27,13 @@ export interface RegisteredVisualComponentV3 {
   requiresMathVerification: boolean;
 }
 
+function genericSceneSchemaFor(sceneType: 'formula_derivation' | 'graph_plot' | 'flowchart_simulation' | 'comparison_table') {
+  return GenericSceneVisualPayloadSchema.refine(
+    (payload) => payload.sceneType === sceneType,
+    { path: ['sceneType'], message: `sceneType phải là '${sceneType}'` }
+  );
+}
+
 export class EducationalVisualRegistryV3 {
   private static instance: EducationalVisualRegistryV3;
   private components: Map<string, RegisteredVisualComponentV3> = new Map();
@@ -139,6 +146,62 @@ export class EducationalVisualRegistryV3 {
       defaultLayout: 'centered_focus',
       defaultStyle: 'math_chalkboard',
       requiresMathVerification: true
+    });
+
+    // SceneInspector validates by the exact sceneType, while the renderer uses
+    // the shared GenericScene payload contract for these four scene families.
+    // Register exact IDs with narrowed schemas so supported renderer paths are
+    // represented honestly without weakening scene/payload matching.
+    this.register({
+      componentId: 'formula_derivation',
+      name: 'Biến đổi công thức từng bước (Formula Derivation)',
+      description: 'Trình bày chuỗi công thức; dữ liệu verified_formula_steps được chuyển tới FormulaSequenceSceneV3.',
+      category: 'mathematics',
+      supportedTopics: ['*'],
+      supportedBackends: ['remotion', 'manim', 'hybrid'],
+      payloadSchema: genericSceneSchemaFor('formula_derivation'),
+      defaultLayout: 'stacked_column',
+      defaultStyle: 'math_chalkboard',
+      requiresMathVerification: true
+    });
+
+    this.register({
+      componentId: 'graph_plot',
+      name: 'Đồ thị khoa học (Graph Plot)',
+      description: 'Hiển thị đồ thị typed hoặc scientificData một chiều bằng adapter đã đăng ký.',
+      category: 'mathematics',
+      supportedTopics: ['*'],
+      supportedBackends: ['remotion', 'manim', 'hybrid'],
+      payloadSchema: genericSceneSchemaFor('graph_plot'),
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'math_chalkboard',
+      requiresMathVerification: true
+    });
+
+    this.register({
+      componentId: 'flowchart_simulation',
+      name: 'Lưu đồ mô phỏng (Flowchart Simulation)',
+      description: 'Trình bày luồng thuật toán hoặc sơ đồ có hướng bằng payload typed.',
+      category: 'common',
+      supportedTopics: ['*'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: genericSceneSchemaFor('flowchart_simulation'),
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
+    });
+
+    this.register({
+      componentId: 'comparison_table',
+      name: 'Bảng so sánh (Comparison Table)',
+      description: 'Đối chiếu các khái niệm hoặc kết quả trong bố cục typed an toàn.',
+      category: 'common',
+      supportedTopics: ['*'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: genericSceneSchemaFor('comparison_table'),
+      defaultLayout: 'split_horizontal',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
     });
   }
 
