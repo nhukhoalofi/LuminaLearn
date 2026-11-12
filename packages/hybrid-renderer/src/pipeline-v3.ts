@@ -232,6 +232,13 @@ export async function runRenderPipelineV3(
           })
         : new GoogleCloudTtsProvider()
     );
+    const configuredTtsIntervalMs = Number.parseInt(
+      process.env.GEMINI_TTS_MIN_REQUEST_INTERVAL_MS ?? '21000',
+      10
+    );
+    const geminiTtsIntervalMs = Number.isInteger(configuredTtsIntervalMs) && configuredTtsIntervalMs >= 0
+      ? Math.min(configuredTtsIntervalMs, 60_000)
+      : 21_000;
 
     const syncResult = await defaultSceneAudioSynchronizer.synchronizeStoryboard(
       approvedStoryboard.scenes.map((s) => ({
@@ -247,6 +254,7 @@ export async function runRenderPipelineV3(
         preRollSeconds: 0.25,
         postRollSeconds: 0.35,
         maxPostSpeechHoldSeconds: 0.25,
+        minProviderRequestIntervalMs: isGemini && !isOfflineFixture ? geminiTtsIntervalMs : 0,
         ownerId: artifact.ownerId,
         outputDir
       }

@@ -68,7 +68,7 @@ export const devfestDerivativeStoryboardV3: EducationalStoryboardV3 = {
       rendererTarget: 'remotion_infographic',
       narration: {
         vietnamese: 'Về mặt giải tích, đạo hàm là giới hạn của tỉ số biến thiên khi khoảng cách h tiến dần về không. Với x bình phương, đạo hàm tổng quát bằng hai x.',
-        subtitleVietnamese: "f'(x) = lim_{h->0} [f(x+h) - f(x)] / h = 2x. Tại x=1: f'(1) = 2."
+        subtitleVietnamese: 'Khi h tiến về 0, tỉ số biến thiên tiến tới 2x. Tại x bằng 1, độ dốc bằng 2.'
       },
       visualPayload: {
         sceneType: 'formula_derivation',

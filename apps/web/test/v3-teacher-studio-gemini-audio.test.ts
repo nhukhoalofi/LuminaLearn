@@ -14,6 +14,13 @@ test('V3 Teacher Studio carries explicit Gemini TTS selection and consent throug
   assert.match(source, /option value="300s"/);
   assert.match(source, /generationMode:\s*requestedMode/);
   assert.match(source, /void generate\('mock'\)/);
+  assert.match(source, /function selectCuratedPreset/);
+  assert.match(source, /setDurationPreset\('300s'\)/);
+  assert.match(source, /setMode\('mock'\)/);
+  assert.match(source, /setNarrationMode\('gemini_tts'\)/);
+  assert.match(source, /curated-preset-ready/);
+  assert.match(source, /5 phút \+ TTS/g);
+  assert.match(source, /Curated Mode: nội dung deterministic; chỉ Gemini TTS dùng API/);
 });
 
 test('TTS job resume reissues artifact-bound narration consent instead of retrying without authority', async () => {

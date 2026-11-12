@@ -191,5 +191,35 @@ test('Scene-Level Narration & Audio Synchronizer (Phase 11)', async (t) => {
     const postSpeechGap = (s.endFrame - s.speechEndFrame) / result4.fps;
     assert.ok(postSpeechGap <= 0.65, `Post-speech gap must be <= 0.65s, got ${postSpeechGap}s`);
   });
+
+  await t.test('5. Paces cache-miss provider requests without delaying cache hits', async () => {
+    const starts: number[] = [];
+    const baseMock = new MockTtsProvider(0.5);
+    const pacedProvider = {
+      id: 'gemini_tts_rate_limit_fixture',
+      voice: 'Kore',
+      isSilentFixture: false,
+      async synthesize(text: string, outputPath: string) {
+        starts.push(Date.now());
+        await baseMock.synthesize(text, outputPath);
+      }
+    };
+    const pacedScenes: SceneNarrationInput[] = [
+      { id: 'paced_1', durationSeconds: 2, narration: { vietnamese: 'Nội dung nhịp một hoàn toàn riêng biệt.' } },
+      { id: 'paced_2', durationSeconds: 2, narration: { vietnamese: 'Nội dung nhịp hai hoàn toàn riêng biệt.' } }
+    ];
+    const outDir5 = join(tempDir, 'run5');
+
+    await synchronizer.synchronizeStoryboard(pacedScenes, {
+      ttsProvider: pacedProvider,
+      audioCache: cache,
+      outputDir: outDir5,
+      ownerId: 'teacher_rate_limit',
+      minProviderRequestIntervalMs: 30
+    });
+
+    assert.equal(starts.length, 2);
+    assert.ok(starts[1] - starts[0] >= 25, `Expected paced calls, got ${starts[1] - starts[0]}ms`);
+  });
 });
 

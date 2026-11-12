@@ -223,6 +223,12 @@ export const GenericSceneVisualPayloadSchema = z.object({
   sceneType: z.enum(['formula_derivation', 'graph_plot', 'flowchart_simulation', 'comparison_table']),
   headline: NoExecutableString.optional(),
   formulaTex: NoExecutableString.optional(),
+  displayMath: z.object({
+    latex: z.string().trim().min(1).max(300),
+    accessibleText: NoExecutableString,
+    presentation: z.enum(['graph_overlay', 'formula_focus']).default('graph_overlay')
+  }).strict().optional(),
+  visualIntent: z.enum(['curve_introduction', 'secant_measurement', 'limit_transition', 'tangent_result', 'formula_focus']).optional(),
   notes: NoExecutableString.optional(),
   scientificData: ScientificVisualDataV1Schema.optional()
 }).strict();
@@ -360,6 +366,7 @@ export const VisualGraphElementSchema = z.object({
   showSecantLine: z.boolean().optional(),
   secantFromX: z.number().finite().optional(),
   secantToX: z.number().finite().optional(),
+  secantProgression: z.array(z.number().finite()).min(2).max(12).optional(),
   animation: VisualAnimationPresetV3Schema.default('draw_line')
 }).strict();
 

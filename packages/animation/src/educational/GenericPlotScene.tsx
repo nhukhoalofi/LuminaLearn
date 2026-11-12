@@ -87,7 +87,7 @@ export const GenericPlotScene: React.FC<GenericPlotSceneProps> = ({
           </div>
         )}
 
-        {payload.formulaTex && (
+        {(payload.displayMath?.latex || payload.formulaTex) && (
           <div
             style={{
               backgroundColor: '#0F172A',
@@ -103,7 +103,7 @@ export const GenericPlotScene: React.FC<GenericPlotSceneProps> = ({
               overflowWrap: 'break-word'
             }}
           >
-            <MathExpression expression={payload.formulaTex} fontSize={32} maxWidthPx={560} />
+            <MathExpression expression={payload.displayMath?.latex ?? payload.formulaTex!} fontSize={32} maxWidthPx={560} />
           </div>
         )}
 
@@ -117,7 +117,7 @@ export const GenericPlotScene: React.FC<GenericPlotSceneProps> = ({
       {/* Subtitle */}
       {subtitleText && (
         <div style={{ textAlign: 'center', fontSize: 18, color: '#94A3B8', fontStyle: 'italic' }}>
-          {subtitleText}
+          {formatEducationalMathDisplay(subtitleText)}
         </div>
       )}
     </AbsoluteFill>

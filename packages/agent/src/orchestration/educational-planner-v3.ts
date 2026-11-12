@@ -1019,7 +1019,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             sceneType: 'concept_intro',
             title: 'Khái niệm cát tuyến trên parabol',
             pedagogicalGoal: 'Khởi đầu với đường thẳng nối hai điểm trên đồ thị y = x^2',
-            durationSeconds: 12,
+            durationSeconds: 10,
             boundClaimIds: ['claim_poly_deriv'],
             rendererTarget: 'manim_hybrid',
             narration: {
@@ -1036,22 +1036,24 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             }
           },
           {
-            sceneId: 'sc_limit',
+            sceneId: 'sc_secant_measurement',
             sceneType: 'formula_derivation',
-            title: 'Khoảng cách h co về 0',
-            pedagogicalGoal: 'Mô phỏng cát tuyến tiệm cận tiếp tuyến khi hai điểm chập một',
-            durationSeconds: 16,
+            title: 'Đo độ dốc của cát tuyến PQ',
+            pedagogicalGoal: 'Liên hệ trực quan cát tuyến với thương sai phân giữa hai điểm',
+            durationSeconds: 14,
             boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
             rendererTarget: 'manim_hybrid',
             narration: {
-              vietnamese: 'Khi cho khoảng cách h co dần về 0, đường cát tuyến xoay dần và trở thành tiếp tuyến duy nhất.',
-              subtitleVietnamese: 'Khi h co về 0, cát tuyến trở thành tiếp tuyến duy nhất.'
+              vietnamese: 'Đặt P tại x bằng 1 và cho Q chuyển động trên parabol. Độ dốc cát tuyến bằng độ thay đổi theo phương đứng chia cho độ thay đổi theo phương ngang.',
+              subtitleVietnamese: 'Độ dốc cát tuyến bằng thương số giữa độ thay đổi tung độ và hoành độ.'
             },
             visualPayload: {
               sceneType: 'formula_derivation',
-              headline: 'Giới hạn tỉ số biến thiên',
-              formulaTex: "f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h} = 2x",
-              notes: 'Hệ số góc cát tuyến 2+h tiến tới 2 khi h tiến về 0',
+              headline: 'Hệ số góc cát tuyến',
+              formulaTex: 'm_{PQ}=\\frac{f(x_Q)-f(1)}{x_Q-1}',
+              displayMath: { latex: 'm_{PQ}=\\frac{f(x_Q)-f(1)}{x_Q-1}', accessibleText: 'Hệ số góc cát tuyến PQ', presentation: 'graph_overlay' },
+              visualIntent: 'secant_measurement',
+              notes: 'Q bắt đầu ở xa P để quan sát rõ độ dốc của cát tuyến.',
               scientificData: {
                 kind: 'scalar_function_1d',
                 functionType: 'polynomial',
@@ -1061,9 +1063,62 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
                 pointX: 1,
                 tangentAtX: 1,
                 secantFromX: 1,
-                secantToX: 2.25,
+                secantToX: 2,
                 claimId: 'claim_poly_deriv',
                 validation: 'formally_verified'
+              }
+            }
+          },
+          {
+            sceneId: 'sc_limit_transition',
+            sceneType: 'formula_derivation',
+            title: 'Q tiến gần P: cát tuyến tiến tới tiếp tuyến',
+            pedagogicalGoal: 'Quan sát liên tục sự hội tụ của hệ số góc cát tuyến',
+            durationSeconds: 14,
+            boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
+            rendererTarget: 'manim_hybrid',
+            narration: {
+              vietnamese: 'Bây giờ Q tiến liên tục về P. Cát tuyến xoay dần, còn hệ số góc tiến từ 3 về 2. Ở vị trí giới hạn, cát tuyến trở thành tiếp tuyến.',
+              subtitleVietnamese: 'Khi Q tiến về P, hệ số góc cát tuyến tiến về 2.'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation',
+              headline: 'Giới hạn của cát tuyến',
+              formulaTex: '\\lim_{x_Q \\to 1}m_{PQ}=2',
+              displayMath: { latex: '\\lim_{x_Q \\to 1}m_{PQ}=2', accessibleText: 'Giới hạn hệ số góc cát tuyến bằng 2', presentation: 'graph_overlay' },
+              visualIntent: 'limit_transition',
+              notes: 'Các vị trí trung gian chỉ minh họa cùng một quá trình giới hạn.',
+              scientificData: {
+                kind: 'scalar_function_1d', functionType: 'polynomial', expression: 'x^2',
+                xRange: [-2, 3], yRange: [-1, 9], pointX: 1, tangentAtX: 1,
+                secantFromX: 1, secantToX: 2, secantProgression: [2, 1.5, 1.2, 1.05, 1.01],
+                claimId: 'claim_poly_deriv', validation: 'formally_verified'
+              }
+            }
+          },
+          {
+            sceneId: 'sc_formula_focus',
+            sceneType: 'formula_derivation',
+            title: 'Từ giới hạn đến đạo hàm',
+            pedagogicalGoal: 'Kết nối trực quan cát tuyến với định nghĩa đạo hàm',
+            durationSeconds: 12,
+            boundClaimIds: ['claim_poly_deriv', 'claim_secant_limit'],
+            rendererTarget: 'remotion_infographic',
+            narration: {
+              vietnamese: 'Viết bằng công thức, đạo hàm là giới hạn của thương sai phân khi h tiến về 0. Với f của x bằng x bình phương, kết quả là 2x.',
+              subtitleVietnamese: 'Đạo hàm của x bình phương là 2x.'
+            },
+            visualPayload: {
+              sceneType: 'formula_derivation',
+              headline: 'Định nghĩa đạo hàm',
+              formulaTex: "f'(x)=\\lim_{h\\to0}\\frac{f(x+h)-f(x)}{h}=2x",
+              displayMath: { latex: "f'(x)=\\lim_{h\\to0}\\frac{f(x+h)-f(x)}{h}=2x", accessibleText: 'Đạo hàm của x bình phương bằng 2x', presentation: 'formula_focus' },
+              visualIntent: 'formula_focus',
+              notes: 'Tại x = 1, hệ số góc tiếp tuyến bằng f phẩy của 1 bằng 2.',
+              scientificData: {
+                kind: 'scalar_function_1d', functionType: 'polynomial', expression: 'x^2',
+                xRange: [-2, 3], yRange: [-1, 9], pointX: 1, tangentAtX: 1,
+                claimId: 'claim_poly_deriv', validation: 'formally_verified'
               }
             }
           },
@@ -1072,7 +1127,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
             sceneType: 'summary',
             title: 'Ý nghĩa đạo hàm',
             pedagogicalGoal: 'Khái quát hệ số góc tiếp tuyến chính là giá trị đạo hàm tại điểm',
-            durationSeconds: 12,
+            durationSeconds: 10,
             boundClaimIds: ['claim_poly_deriv'],
             rendererTarget: 'remotion_infographic',
             narration: {
@@ -1087,7 +1142,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
                 'Đạo hàm là hệ số góc tiếp tuyến tại điểm xét',
                 'f\'(x) = 2x cho hàm số f(x) = x^2'
               ],
-              verifiedFacts: ['diff(x^2, x) = 2x'],
+              verifiedFacts: ["f'(x) = 2x"],
               reviewNotes: [],
               finalCallout: 'Đạo hàm là nền tảng của các thuật toán tối ưu hóa trong học máy.'
             }

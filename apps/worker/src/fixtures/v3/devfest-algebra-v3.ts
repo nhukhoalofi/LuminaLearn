@@ -42,7 +42,7 @@ export const devfestAlgebraStoryboardV3: EducationalStoryboardV3 = {
         sceneType: 'algebra_identity',
         identityId: 'square_sum',
         leftExpression: '(a+b)^2',
-        rightExpression: 'a^2+2*a*b+b^2',
+        rightExpression: 'a^2 + 2ab + b^2',
         presentation: 'expansion',
         transformationSteps: [
           {

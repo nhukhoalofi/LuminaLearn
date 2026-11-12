@@ -108,18 +108,19 @@ export const SceneDispatcherV3: React.FC<{
   subtitlesEnabled: boolean;
   trustedProofContext?: TrustedProofContextV3;
   sceneDurationFrames?: number;
-  scalarGraphPhase?: 'introduce_curve' | 'secant_step' | 'tangent_hold';
+  scalarGraphPhase?: 'introduce_curve' | 'secant_step' | 'secant_motion' | 'tangent_hold';
 }> = ({ scene, subtitlesEnabled, trustedProofContext, sceneDurationFrames, scalarGraphPhase }) => {
+  const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   if (scene.visualDefinition) {
     return (
       <AnimatedVisualDslSceneV3
         definition={scene.visualDefinition}
         trustedProofContext={trustedProofContext}
         durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
       />
     );
   }
-  const subtitle = subtitlesEnabled ? (scene.narration.subtitleVietnamese || scene.narration.vietnamese) : undefined;
   const payload = scene.visualPayload;
 
   // Universal Scientific Visual Engine auto-dispatch when typed scientificData is bound
@@ -136,17 +137,18 @@ export const SceneDispatcherV3: React.FC<{
       );
     }
     if (sci.kind === 'scalar_function_1d') {
-      if (scalarGraphPhase === 'tangent_hold' && payload.sceneType === 'formula_derivation') {
+      if ((payload.visualIntent === 'formula_focus' || payload.displayMath?.presentation === 'formula_focus') && payload.sceneType === 'formula_derivation') {
         return <GenericPlotScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
       }
       return (
         <AnimatedVisualDslSceneV3
           definition={adaptScalarFunctionGraphV3(sci, scene.sceneId, {
             phase: scalarGraphPhase,
-            formulaTex: payload.sceneType === 'formula_derivation' ? payload.formulaTex : undefined
+            formulaTex: payload.sceneType === 'formula_derivation' ? (payload.displayMath?.latex ?? payload.formulaTex) : undefined
           })}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
         />
       );
     }
@@ -156,6 +158,7 @@ export const SceneDispatcherV3: React.FC<{
           definition={adaptGeometry2dV3(sci, scene.sceneId)}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
         />
       );
     }
@@ -165,6 +168,7 @@ export const SceneDispatcherV3: React.FC<{
           definition={adaptDirectedDiagramV3(sci, scene.sceneId)}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
         />
       );
     }
@@ -174,6 +178,7 @@ export const SceneDispatcherV3: React.FC<{
           definition={adaptAttentionMatrixV3(sci, scene.sceneId)}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
         />
       );
     }
@@ -183,6 +188,7 @@ export const SceneDispatcherV3: React.FC<{
           definition={adaptProbabilityTreeV3(sci, scene.sceneId)}
           trustedProofContext={trustedProofContext}
           durationInFrames={sceneDurationFrames}
+          subtitleText={subtitle}
         />
       );
     }
@@ -262,8 +268,17 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
           candidate.visualPayload.scientificData?.kind === 'scalar_function_1d'
         );
         const scalarGraphIndex = scalarGraphScenes.findIndex((candidate) => candidate.sceneId === scene.sceneId);
+        const typedVisualIntent = 'visualIntent' in scene.visualPayload ? scene.visualPayload.visualIntent : undefined;
         const scalarGraphPhase = scalarGraphIndex < 0
           ? undefined
+          : typedVisualIntent === 'curve_introduction'
+            ? 'introduce_curve' as const
+            : typedVisualIntent === 'limit_transition'
+              ? 'secant_motion' as const
+              : typedVisualIntent === 'secant_measurement'
+                ? 'secant_step' as const
+                : typedVisualIntent === 'tangent_result' || typedVisualIntent === 'formula_focus'
+                  ? 'tangent_hold' as const
           : scalarGraphIndex === 0
             ? 'introduce_curve' as const
             : 'scientificData' in scene.visualPayload && scene.visualPayload.scientificData?.kind === 'scalar_function_1d' && scene.visualPayload.scientificData.secantFromX !== undefined

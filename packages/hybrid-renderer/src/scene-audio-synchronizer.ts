@@ -10,6 +10,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { probeAudio, type AudioMetadata, type TtsProvider } from './audio';
 import {
   AudioCacheManager,
@@ -67,6 +68,8 @@ export interface SynchronizeAudioOptions {
   maxSceneExtensionSeconds?: number;
   ownerId?: string;
   outputDir: string;
+  /** Minimum delay between cache-miss provider calls. Cache hits never wait. */
+  minProviderRequestIntervalMs?: number;
   onProgress?: (sceneIndex: number, totalScenes: number, sceneId: string) => void;
 }
 
@@ -215,6 +218,7 @@ export class SceneAudioSynchronizer {
 
     let currentStartFrame = 0;
     let cueIndex = 1;
+    let lastProviderRequestStartedAt = 0;
 
     for (let index = 0; index < scenes.length; index++) {
       const scene = scenes[index];
@@ -278,6 +282,14 @@ export class SceneAudioSynchronizer {
           await writeFile(rawSceneAudioPath, cached.data);
           return cached.meta.durationSeconds;
         }
+        const minProviderRequestIntervalMs = Math.max(0, options.minProviderRequestIntervalMs ?? 0);
+        if (lastProviderRequestStartedAt > 0 && minProviderRequestIntervalMs > 0) {
+          const elapsedMs = Date.now() - lastProviderRequestStartedAt;
+          if (elapsedMs < minProviderRequestIntervalMs) {
+            await delay(minProviderRequestIntervalMs - elapsedMs);
+          }
+        }
+        lastProviderRequestStartedAt = Date.now();
         await options.ttsProvider.synthesize(normalizedText, rawSceneAudioPath, {
           voice, speakingRate, pitch, languageCode: language,
           model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined

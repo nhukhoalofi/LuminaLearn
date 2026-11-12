@@ -20,13 +20,14 @@ import {
   type ScreenBox
 } from './graph-math';
 import { deriveMotionRecipeFrameV3 } from './motion-recipes-v3';
+import { formatEducationalMathDisplay } from './educational-math-display';
 
 // Standard 9:16 vertical coordinate box for graph/axes (centered with safe margins)
 const DEFAULT_GRAPH_BOX: ScreenBox = {
   xMin: 80,
-  yMin: 320,
+  yMin: 280,
   width: 560,
-  height: 480
+  height: 600
 };
 
 const positionOf = (element: VisualElementV3, index: number) => {
@@ -102,6 +103,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
   );
   const shouldAnimateGraphTrace = graphElement?.animation === 'draw_line';
   const shouldHoldSecantStep = graphElement?.animation === 'step_reveal';
+  const shouldAnimateSecantProgression = graphElement?.animation === 'spring_scale' && Boolean(graphElement.secantProgression?.length);
   const axesElement = definition.elements.find((element) => element.elementType === 'axes');
 
   const isGeometryScene = definition.elements.some((el) => el.elementType === 'polygon' || el.elementType === 'segment');
@@ -138,7 +140,7 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
       const midY = (minY + maxY) / 2;
 
       // Isometric aspect ratio (1:1): guarantee pixelsPerMathUnitX === pixelsPerMathUnitY
-      // DEFAULT_GRAPH_BOX is 560 x 480. We use 78% of the viewport for comfortable margin.
+      // Use 78% of the 560 x 600 graph viewport for comfortable safe margins.
       const usableW = DEFAULT_GRAPH_BOX.width * 0.78;
       const usableH = DEFAULT_GRAPH_BOX.height * 0.78;
       const pixelsPerMathUnit = Math.min(usableW / spanX, usableH / spanY);
@@ -181,9 +183,14 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
         tangentLine = computeTangentLine(parsedFn, graphElement.tangentAtX, transform);
       }
       if (graphElement.showSecantLine && typeof graphElement.secantFromX === 'number' && typeof graphElement.secantToX === 'number') {
-        const movingX = shouldHoldSecantStep
-          ? graphElement.secantToX
-          : graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
+        let movingX = shouldHoldSecantStep ? graphElement.secantToX : graphElement.secantToX + (graphElement.secantFromX - graphElement.secantToX) * parameterMotion.progress;
+        if (shouldAnimateSecantProgression && graphElement.secantProgression) {
+          const scaled = parameterMotion.progress * (graphElement.secantProgression.length - 1);
+          const fromIndex = Math.min(graphElement.secantProgression.length - 1, Math.floor(scaled));
+          const toIndex = Math.min(graphElement.secantProgression.length - 1, fromIndex + 1);
+          const localProgress = scaled - fromIndex;
+          movingX = graphElement.secantProgression[fromIndex] + (graphElement.secantProgression[toIndex] - graphElement.secantProgression[fromIndex]) * localProgress;
+        }
         if (Math.abs(movingX - graphElement.secantFromX) >= 1e-8) {
           secantLine = computeSecantLine(parsedFn, graphElement.secantFromX, movingX, transform);
           const mathY = parsedFn.evaluate(movingX);
@@ -385,14 +392,31 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
 
         {/* 3. Secant approaches the verified tangent; intermediate positions are illustrative, not iterations. */}
         {secantLine && (
-          <g clipPath="url(#graph-viewport-clip)" opacity={shouldHoldSecantStep ? 1 : 1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
+          <g clipPath="url(#graph-viewport-clip)" opacity={shouldHoldSecantStep || shouldAnimateSecantProgression ? 1 : 1 - parameterMotion.progress * 0.72} data-motion-recipe="R04" data-scientific-role="illustrative-secant-transition">
             <line x1={secantLine.screenX1} y1={secantLine.screenY1} x2={secantLine.screenX2} y2={secantLine.screenY2} stroke="#A78BFA" strokeWidth="3" strokeDasharray="8 5" />
             {secantMovingPoint && <circle cx={secantMovingPoint.x} cy={secantMovingPoint.y} r="7" fill="#A78BFA" stroke="#FFFFFF" strokeWidth="2.5" />}
             {secantMovingPoint && (
               <g data-dynamic-label="secant-motion">
+                {(() => {
+                  const isNearTangentPoint = tangentLine
+                    ? Math.hypot(
+                        secantMovingPoint.x - tangentLine.screenX0,
+                        secantMovingPoint.y - tangentLine.screenY0,
+                      ) < 72
+                    : false;
+                  const labelX = isNearTangentPoint
+                    ? Math.min(410, Math.max(85, secantMovingPoint.x + 12))
+                    : Math.min(410, Math.max(85, secantMovingPoint.x - 95));
+                  const labelY = Math.max(
+                    DEFAULT_GRAPH_BOX.yMin + 8,
+                    secantMovingPoint.y - (isNearTangentPoint ? 86 : 44),
+                  );
+
+                  return (
+                    <>
                 <rect
-                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95))}
-                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44)}
+                  x={labelX}
+                  y={labelY}
                   width="210"
                   height="38"
                   rx="8"
@@ -401,8 +425,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                   strokeWidth="1.2"
                 />
                 <text
-                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95)) + 10}
-                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44) + 15}
+                  x={labelX + 10}
+                  y={labelY + 15}
                   fill="#DDD6FE"
                   fontSize="11"
                   fontWeight="bold"
@@ -411,8 +435,8 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                   {`Q(${secantMovingPoint.mathX.toFixed(2)}, ${secantMovingPoint.mathY.toFixed(2)}) · m=${secantMovingPoint.slope.toFixed(2)}`}
                 </text>
                 <text
-                  x={Math.min(410, Math.max(85, secantMovingPoint.x - 95)) + 10}
-                  y={Math.max(DEFAULT_GRAPH_BOX.yMin + 8, secantMovingPoint.y - 44) + 31}
+                  x={labelX + 10}
+                  y={labelY + 31}
                   fill="#C4B5FD"
                   fontSize="10"
                   fontWeight="bold"
@@ -420,6 +444,9 @@ export const VisualDslSceneV3: React.FC<{ definition: VisualSceneDefinitionV3; t
                 >
                   cát tuyến → tiếp tuyến
                 </text>
+                    </>
+                  );
+                })()}
               </g>
             )}
           </g>
@@ -985,9 +1012,37 @@ export const AnimatedVisualDslSceneV3: React.FC<{
   definition: VisualSceneDefinitionV3;
   trustedProofContext?: TrustedProofContextV3;
   durationInFrames?: number;
+  subtitleText?: string;
 }> = (props) => {
   const frame = useCurrentFrame();
   const videoConfig = useVideoConfig();
   const durationInFrames = props.durationInFrames ?? props.definition.timeline?.durationFrames ?? videoConfig.durationInFrames;
-  return <VisualDslSceneV3 {...props} frame={frame} durationInFrames={durationInFrames} />;
+  return (
+    <AbsoluteFill>
+      <VisualDslSceneV3 {...props} frame={frame} durationInFrames={durationInFrames} />
+      {props.subtitleText && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 54,
+            right: 54,
+            bottom: 92,
+            zIndex: 30,
+            padding: '14px 20px',
+            borderRadius: 14,
+            border: '1px solid rgba(56, 189, 248, 0.28)',
+            background: 'rgba(8, 15, 28, 0.90)',
+            color: '#E2E8F0',
+            fontSize: 20,
+            lineHeight: 1.38,
+            fontWeight: 600,
+            textAlign: 'center',
+            boxShadow: '0 12px 30px rgba(0, 0, 0, 0.35)'
+          }}
+        >
+          {formatEducationalMathDisplay(props.subtitleText)}
+        </div>
+      )}
+    </AbsoluteFill>
+  );
 };

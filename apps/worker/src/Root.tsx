@@ -29,6 +29,7 @@ import { sprintBDerivativeGraphFixtureV3 } from './fixtures/v3/sprint-b-derivati
 import { devfestAlgebraStoryboardV3 } from './fixtures/v3/devfest-algebra-v3';
 import { devfestDerivativeStoryboardV3 } from './fixtures/v3/devfest-derivative-v3';
 import { devfestGradientDescentStoryboardV3 } from './fixtures/v3/devfest-gradient-descent-v3';
+import { devfestAlgebraLongformStoryboardV3, devfestDerivativeLongformStoryboardV3, devfestGradientLongformStoryboardV3 } from './fixtures/v3/devfest-longform-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -232,6 +233,39 @@ export const Root: React.FC = () => {
         calculateMetadata={({ props }) => ({
           durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24))
         })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestAlgebraLongformV3"
+        component={LuminaSceneV3}
+        durationInFrames={7200}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestAlgebraLongformStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({ durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24)) })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestDerivativeLongformV3"
+        component={LuminaSceneV3}
+        durationInFrames={7200}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestDerivativeLongformStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({ durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24)) })}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="DevFestGradientLongformV3"
+        component={LuminaSceneV3}
+        durationInFrames={7200}
+        fps={24}
+        width={720}
+        height={1280}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: devfestGradientLongformStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({ durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 24)) })}
       />
     </>
   );

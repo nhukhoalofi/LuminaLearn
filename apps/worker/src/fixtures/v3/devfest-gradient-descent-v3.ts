@@ -36,7 +36,7 @@ export const devfestGradientDescentStoryboardV3: EducationalStoryboardV3 = {
       rendererTarget: 'remotion_infographic',
       narration: {
         vietnamese: 'Hãy quan sát hàm mất mát L w bằng w trừ 2 tất cả bình cộng 1. Bắt đầu từ vị trí w bằng 4 có sai số bằng 5, gradient chỉ hướng lên dốc. Với tốc độ học không phẩy 4, mô hình bước ngược hướng gradient, lần lượt di chuyển về 2 phẩy 4, rồi 2 phẩy 08, tiến sát đáy cực tiểu w bằng 2.',
-        subtitleVietnamese: 'L(w)=(w-2)²+1. Bước cập nhật w_{t+1} = w_t - 0.4 * L\'(w_t) đưa loss từ 5.0 về 1.0.'
+        subtitleVietnamese: 'Mỗi bước đi ngược chiều gradient làm mất mát giảm từ 5 và tiến dần về giá trị nhỏ nhất là 1.'
       },
       visualPayload: {
         sceneType: 'loss_landscape',
@@ -64,7 +64,7 @@ export const devfestGradientDescentStoryboardV3: EducationalStoryboardV3 = {
       rendererTarget: 'remotion_infographic',
       narration: {
         vietnamese: 'Công thức cập nhật vô cùng ngắn gọn: trọng số mới bằng trọng số cũ trừ đi tốc độ học nhân với đạo hàm. Dấu trừ đảm bảo ta luôn đi ngược hướng dốc để giảm thiểu mất mát.',
-        subtitleVietnamese: 'w_{t+1} = w_t - η · ∇L(w_t). Dấu trừ đảm bảo luôn đi ngược hướng dốc.'
+        subtitleVietnamese: 'Trọng số mới bằng trọng số cũ trừ tốc độ học nhân gradient, nên mô hình luôn đi xuống dốc.'
       },
       visualPayload: {
         sceneType: 'formula_derivation',

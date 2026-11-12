@@ -18,7 +18,7 @@ type AttentionData = Extract<ScientificVisualDataV1, { kind: 'attention_matrix' 
 type GeometryData = Extract<ScientificVisualDataV1, { kind: 'geometry_2d' }>;
 type ProbabilityTreeData = Extract<ScientificVisualDataV1, { kind: 'probability_tree' }>;
 
-export type ScalarGraphPresentationPhaseV3 = 'introduce_curve' | 'secant_step' | 'tangent_hold';
+export type ScalarGraphPresentationPhaseV3 = 'introduce_curve' | 'secant_step' | 'secant_motion' | 'tangent_hold';
 
 export interface ScalarGraphPresentationOptionsV3 {
   phase?: ScalarGraphPresentationPhaseV3;
@@ -41,11 +41,13 @@ export function adaptScalarFunctionGraphV3(
     ? 'draw_line'
     : phase === 'secant_step'
       ? 'step_reveal'
-      : 'fade_in';
+      : phase === 'secant_motion'
+        ? 'spring_scale'
+        : 'fade_in';
   const elements: VisualSceneDefinitionV3['elements'] = [
     { elementType: 'text', elementId: `${sceneId}_title`, content: 'Đồ thị hàm số và tiếp tuyến', typography: 'heading_1', color: '#F8FAFC', position: { x: 360, y: 105 }, animation: 'fade_in' },
     { elementType: 'axes', elementId: `${sceneId}_axes`, xLabel: 'x', yLabel: 'f(x)', showGrid: true, gridColor: '#334155' },
-    { elementType: 'graph', elementId: `${sceneId}_graph`, functionType: data.functionType, expression: data.expression, claimId: data.claimId, contentPolicy: 'formal_verified', xRange: data.xRange, yRange: data.yRange, showTangentLine: data.tangentAtX !== undefined, tangentAtX: data.tangentAtX, showSecantLine: data.secantFromX !== undefined, secantFromX: data.secantFromX, secantToX: data.secantToX, animation: graphAnimation }
+    { elementType: 'graph', elementId: `${sceneId}_graph`, functionType: data.functionType, expression: data.expression, claimId: data.claimId, contentPolicy: 'formal_verified', xRange: data.xRange, yRange: data.yRange, showTangentLine: data.tangentAtX !== undefined, tangentAtX: data.tangentAtX, showSecantLine: data.secantFromX !== undefined, secantFromX: data.secantFromX, secantToX: data.secantToX, secantProgression: data.secantProgression, animation: graphAnimation }
   ];
   if (data.pointX !== undefined) elements.push({ elementType: 'point', elementId: `${sceneId}_point`, coordinates: [data.pointX, fn.evaluate(data.pointX)], label: `(${data.pointX}, ${Number(fn.evaluate(data.pointX).toFixed(3))})`, color: '#F59E0B', pulse: true, animation: 'highlight_pulse' });
   if (options.formulaTex?.trim()) {
@@ -97,7 +99,7 @@ export function adaptGeometry2dV3(input: GeometryData, sceneId = 'scientific_geo
   const maxY = Math.max(...ys, 2) + 1;
 
   const elements: VisualSceneDefinitionV3['elements'] = [
-    { elementType: 'text', elementId: `${sceneId}_title`, content: 'Hình học tọa độ & Miền diện tích', typography: 'heading_1', color: '#F8FAFC', position: { x: 360, y: 110 }, animation: 'fade_in' },
+    { elementType: 'text', elementId: `${sceneId}_title`, content: 'Phân rã hình học theo diện tích', typography: 'heading_1', color: '#F8FAFC', position: { x: 360, y: 110 }, animation: 'fade_in' },
     { elementType: 'axes', elementId: `${sceneId}_axes`, xLabel: 'x', yLabel: 'y', showGrid: true, gridColor: '#334155' }
   ];
 
@@ -138,11 +140,12 @@ export function adaptGeometry2dV3(input: GeometryData, sceneId = 'scientific_geo
 
   // Render points
   data.points.forEach((p) => {
+    const studentLabel = p.pointId.replace(/^(?:pt|point)[_-]/i, '');
     elements.push({
       elementType: 'point',
       elementId: p.pointId,
       coordinates: [p.x, p.y],
-      label: `${p.pointId}(${p.x},${p.y})`,
+      label: `${studentLabel}(${p.x},${p.y})`,
       color: '#F59E0B',
       pulse: false,
       animation: 'highlight_pulse'

@@ -156,6 +156,19 @@ describe('VisualDslSceneV3 — Visual Fidelity & Mathematical Typesetting', () =
     assert.ok(html.includes('text-anchor="end"'));
   });
 
+  test('2e. Animates a typed secant progression without knowing the lesson topic', () => {
+    const definition = adaptScalarFunctionGraphV3({
+      kind: 'scalar_function_1d', functionType: 'polynomial', expression: 'x^3',
+      xRange: [-1, 3], yRange: [-2, 27], pointX: 1, tangentAtX: 1,
+      secantFromX: 1, secantToX: 2, secantProgression: [2, 1.5, 1.1],
+      claimId: 'claim_cubic', validation: 'formally_verified'
+    }, 'generic_motion', { phase: 'secant_motion' });
+    const start = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition, frame: 0, durationInFrames: 240 }));
+    const end = renderToStaticMarkup(React.createElement(VisualDslSceneV3, { definition, frame: 220, durationInFrames: 240 }));
+    assert.ok(start.includes('Q(2.00, 8.00)'));
+    assert.ok(end.includes('Q(1.10, 1.33)'));
+  });
+
   test('2c. Formula step reference alone remains neutral even with artifact integrity', () => {
     const html = renderToStaticMarkup(React.createElement(FormulaStepCard, {
       step: {

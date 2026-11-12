@@ -63,6 +63,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('60s');
   const [narrationMode, setNarrationMode] = useState<'none' | 'gemini_tts'>('none');
+  const [curatedPresetLabel, setCuratedPresetLabel] = useState<string>('');
   const [confirmExternalApi, setConfirmExternalApi] = useState(false);
   const [draft, setDraft] = useState<Draft>();
   const [trace, setTrace] = useState<SupervisorTrace>();
@@ -79,6 +80,27 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [myDrafts, setMyDrafts] = useState<Array<{ draftId: string; version: number; status: string; lessonPlan: { title: string } }>>([]);
   const [showMyDrafts, setShowMyDrafts] = useState(false);
   const externalApiRequired = mode === 'live' || narrationMode === 'gemini_tts';
+
+  function selectCuratedPreset(options: {
+    label: string;
+    domain: 'mathematics' | 'artificial_intelligence';
+    topic: string;
+  }) {
+    setCuratedPresetLabel(options.label);
+    setDomain(options.domain);
+    setTopic(options.topic);
+    setDurationPreset('300s');
+    // Curated lesson content is deterministic and already covered by the
+    // verification pipeline. Only narration uses the external Gemini TTS API.
+    setMode('mock');
+    setNarrationMode('gemini_tts');
+    setSubtitlesEnabled(true);
+    setConfirmExternalApi(false);
+    setDraft(undefined);
+    setJob(undefined);
+    setTrace(undefined);
+    setError('');
+  }
 
   useEffect(() => {
     fetch('/api/auth/session')
@@ -456,10 +478,15 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       )}
 
       <h2 id="v3-studio-title">V3 Teacher Studio — AI & Toán học</h2>
-      <p>{mode === 'mock' ? 'Mock Mode: nội dung fixture xác định, hoàn toàn offline.' : 'Live Gemini: chỉ gọi API sau xác nhận rõ ràng.'}</p>
+      <p>{mode === 'mock'
+        ? narrationMode === 'gemini_tts'
+          ? 'Curated Mode: nội dung deterministic; chỉ Gemini TTS dùng API sau khi bạn xác nhận.'
+          : 'Mock Mode: nội dung fixture xác định, hoàn toàn offline.'
+        : 'Live Gemini: chỉ gọi API sau xác nhận rõ ràng.'}</p>
       <label className="form-label">Lĩnh vực</label>
       <select className="form-input" value={domain} onChange={(event) => {
         const selected = event.target.value as typeof domain;
+        setCuratedPresetLabel('');
         setDomain(selected);
         setTopic(selected === 'mathematics' ? '7 hằng đẳng thức đáng nhớ' : 'Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
       }}>
@@ -476,49 +503,70 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             className="quick-chip"
             style={{ borderColor: '#38BDF8', color: '#F8FAFC', fontWeight: 600 }}
             onClick={() => {
-              setDomain('mathematics');
-              setTopic('Vì sao (a+b)² = a² + 2ab + b²?');
-              setDurationPreset('60s');
+              selectCuratedPreset({
+                label: 'Hằng đẳng thức (a+b)²',
+                domain: 'mathematics',
+                topic: 'Vì sao (a+b)² = a² + 2ab + b²?'
+              });
             }}
           >
-            📐 1. Hằng đẳng thức (a+b)²
+            📐 1. Hằng đẳng thức (a+b)² · 5 phút + TTS
           </button>
           <button
             type="button"
             className="quick-chip"
             style={{ borderColor: '#38BDF8', color: '#F8FAFC', fontWeight: 600 }}
             onClick={() => {
-              setDomain('mathematics');
-              setTopic('Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến');
-              setDurationPreset('60s');
+              selectCuratedPreset({
+                label: 'Đạo hàm: Cát tuyến → Tiếp tuyến',
+                domain: 'mathematics',
+                topic: 'Đạo hàm là gì? Từ cát tuyến đến tiếp tuyến'
+              });
             }}
           >
-            📈 2. Đạo hàm: Cát tuyến → Tiếp tuyến
+            📈 2. Đạo hàm: Cát tuyến → Tiếp tuyến · 5 phút + TTS
           </button>
           <button
             type="button"
             className="quick-chip"
             style={{ borderColor: '#10B981', color: '#F8FAFC', fontWeight: 600 }}
             onClick={() => {
-              setDomain('artificial_intelligence');
-              setTopic('Gradient Descent — AI tìm điểm tối ưu như thế nào?');
-              setDurationPreset('60s');
+              selectCuratedPreset({
+                label: 'Gradient Descent: Tối ưu hóa AI',
+                domain: 'artificial_intelligence',
+                topic: 'Gradient Descent — AI tìm điểm tối ưu như thế nào?'
+              });
             }}
           >
-            📉 3. Gradient Descent: Tối ưu hóa AI
+            📉 3. Gradient Descent: Tối ưu hóa AI · 5 phút + TTS
           </button>
         </div>
+        {curatedPresetLabel && (
+          <div data-testid="curated-preset-ready" style={{ marginTop: 10, color: '#A7F3D0', fontSize: 13, lineHeight: 1.5 }}>
+            ✓ Đã chọn bản curated “{curatedPresetLabel}”: nội dung deterministic 300 giây, phụ đề bật và Gemini TTS được chọn.
+            Hãy tích xác nhận quota bên dưới trước khi tạo bài học.
+          </div>
+        )}
       </div>
       <label className="form-label">Chủ đề</label>
-      <textarea className="form-textarea" value={topic} onChange={(event) => setTopic(event.target.value)} />
+      <textarea className="form-textarea" value={topic} onChange={(event) => {
+        setCuratedPresetLabel('');
+        setTopic(event.target.value);
+      }} />
       <div aria-label="Ví dụ chương trình học">
         {(domain === 'mathematics'
           ? [['7 hằng đẳng thức đáng nhớ', true], ['Đạo hàm của x³', true], ['Định lý Bayes', false], ['Tích phân Riemann', true], ['Đại số tuyến tính', false]]
           : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
-        ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => setTopic(String(example))}>{example} · {ready ? 'render-ready' : 'planning-only'}</button>)}
+        ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => {
+          setCuratedPresetLabel('');
+          setTopic(String(example));
+        }}>{example} · {ready ? 'render-ready' : 'planning-only'}</button>)}
       </div>
       <label className="form-label">Thời lượng bài học (Duration Preset)</label>
-      <select className="form-input" value={durationPreset} onChange={(event) => setDurationPreset(event.target.value as typeof durationPreset)}>
+      <select className="form-input" value={durationPreset} onChange={(event) => {
+        setCuratedPresetLabel('');
+        setDurationPreset(event.target.value as typeof durationPreset);
+      }}>
         <option value="35s">35 giây (Demo nhanh)</option>
         <option value="60s">1 phút (60s) — Khái niệm & Trực giác cốt lõi</option>
         <option value="180s">3 phút (180s) — Lý thuyết & Ví dụ trực quan</option>
@@ -528,6 +576,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       <label className="form-label">Chế độ tạo nội dung</label>
       <select className="form-input" value={mode} onChange={(event) => {
         const nextMode = event.target.value as 'mock' | 'live';
+        if (nextMode === 'live') setCuratedPresetLabel('');
         setMode(nextMode);
         setConfirmExternalApi(false);
         if (nextMode === 'live') {

@@ -2,6 +2,7 @@ import React from 'react';
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { AlgebraIdentityVisualPayload } from '@luminalearn/scene-schema';
 import { MathExpression } from './MathExpression';
+import { normalizeEducationalMathLatex } from './educational-math-display';
 import type { TrustedProofContextV3 } from './VisualDslSceneV3';
 
 export const AlgebraIdentityScene: React.FC<{
@@ -330,7 +331,7 @@ export const AlgebraIdentityScene: React.FC<{
 
         {/* Current Transformation Formula with Highlight */}
         <div style={{ padding: '10px 0', display: 'flex', justifyContent: 'center' }}>
-          <MathExpression expression={currentStep.expression} fontSize={30} maxWidthPx={520} />
+          <MathExpression expression={normalizeEducationalMathLatex(currentStep.expression)} fontSize={30} maxWidthPx={520} />
         </div>
 
         {/* Step Pedagogical Explanation in Vietnamese */}
@@ -388,9 +389,9 @@ export const AlgebraIdentityScene: React.FC<{
           color: '#F1F5F9'
         }}
       >
-        <MathExpression expression={payload.leftExpression} displayMode={false} fontSize={22} maxWidthPx={230} />
+        <MathExpression expression={normalizeEducationalMathLatex(payload.leftExpression)} displayMode={false} fontSize={22} maxWidthPx={230} />
         <span style={{ color: '#FBBF24', margin: '0 12px' }}>=</span>
-        <MathExpression expression={payload.rightExpression} displayMode={false} fontSize={22} maxWidthPx={280} />
+        <MathExpression expression={normalizeEducationalMathLatex(payload.rightExpression)} displayMode={false} fontSize={22} maxWidthPx={280} />
       </div>
 
       {/* Burned-in Subtitles if enabled */}

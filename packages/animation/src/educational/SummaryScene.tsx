@@ -107,7 +107,7 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
                 {idx + 1}
               </div>
               <div style={{ fontSize: 20, fontWeight: 600, color: '#E2E8F0', lineHeight: 1.35 }}>
-                {takeaway}
+                {formatEducationalMathDisplay(takeaway)}
               </div>
             </div>
           );
@@ -155,7 +155,7 @@ export const SummaryScene: React.FC<SummarySceneProps> = ({
       {/* Subtitle */}
       {subtitleText && (
         <div style={{ textAlign: 'center', fontSize: 18, color: '#94A3B8', fontStyle: 'italic' }}>
-          {subtitleText}
+          {formatEducationalMathDisplay(subtitleText)}
         </div>
       )}
     </AbsoluteFill>

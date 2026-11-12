@@ -57,6 +57,7 @@ export const ScalarFunctionDataV1Schema = z.object({
   tangentAtX: z.number().finite().optional(),
   secantFromX: z.number().finite().optional(),
   secantToX: z.number().finite().optional(),
+  secantProgression: z.array(z.number().finite()).min(2).max(12).optional(),
   claimId: SafeIdString,
   validation: z.literal('formally_verified')
 }).strict().superRefine((data, ctx) => {
@@ -73,6 +74,16 @@ export const ScalarFunctionDataV1Schema = z.object({
   }
   if (data.secantFromX !== undefined && data.secantToX !== undefined && data.secantFromX === data.secantToX) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['secantToX'], message: 'A secant requires two distinct x coordinates.' });
+  }
+  if (data.secantProgression) {
+    if (data.secantFromX === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['secantProgression'], message: 'secantProgression requires secantFromX.' });
+    }
+    data.secantProgression.forEach((value, index) => {
+      if (value < data.xRange[0] || value > data.xRange[1] || value === data.secantFromX) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['secantProgression', index], message: 'Every progression value must be inside xRange and distinct from secantFromX.' });
+      }
+    });
   }
 });
 

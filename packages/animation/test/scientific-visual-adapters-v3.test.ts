@@ -25,10 +25,12 @@ describe('Quality Sprint B scientific visual adapters', () => {
     const introduction = adaptScalarFunctionGraphV3(input, 'intro', { phase: 'introduce_curve' });
     const secant = adaptScalarFunctionGraphV3(input, 'secant', { phase: 'secant_step', formulaTex: 'm_{PQ}=3' });
     const tangent = adaptScalarFunctionGraphV3(input, 'tangent', { phase: 'tangent_hold' });
+    const motion = adaptScalarFunctionGraphV3({ ...input, secantProgression: [2, 1.5, 1.05] }, 'motion', { phase: 'secant_motion' });
     const animationOf = (scene: typeof introduction) => scene.elements.find((element) => element.elementType === 'graph')?.animation;
     assert.equal(animationOf(introduction), 'draw_line');
     assert.equal(animationOf(secant), 'step_reveal');
     assert.equal(animationOf(tangent), 'fade_in');
+    assert.equal(animationOf(motion), 'spring_scale');
     const formula = secant.elements.find((element) => element.elementType === 'formula');
     assert.equal(formula?.elementType === 'formula' ? formula.latex : undefined, 'm_{PQ}=3');
     assert.equal(formula && 'claimId' in formula ? formula.claimId : undefined, undefined);
@@ -81,6 +83,8 @@ describe('Quality Sprint B scientific visual adapters', () => {
     assert.equal(scene.elements.filter((el) => el.elementType === 'point').length, 3);
     assert.equal(scene.elements.filter((el) => el.elementType === 'segment').length, 3);
     assert.equal(scene.elements.filter((el) => el.elementType === 'polygon').length, 1);
+    const firstPoint = scene.elements.find((el) => el.elementType === 'point');
+    assert.equal(firstPoint && 'label' in firstPoint ? firstPoint.label : undefined, 'A(0,0)');
   });
 
   it('builds probability tree hierarchical nodes and branch edges', () => {
