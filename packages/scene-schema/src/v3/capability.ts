@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 import { NoExecutableString, SafeIdString } from '../v2/document';
 
 export const EducationalDomainSchema = z.enum(['mathematics', 'artificial_intelligence', 'physics']);
@@ -282,9 +282,27 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 3. Physics & Optics Patterns
+  // 3. Physics Patterns (Optics, Electromagnetism, Telecom, Thermodynamics)
   if (/cầu vồng|cau vong|rainbow|tán sắc|tan sac|khúc xạ|khuc xa|phản xạ toàn phần|raindrop|lăng kính|quang học/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['physics.optics.rainbow'];
+  }
+  if (/faraday|cảm ứng điện từ|điện thoại|phone|viễn thông|nghe gọi|sóng điện từ|bts|lorentz|từ thông/i.test(normalized)) {
+    return {
+      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
+      topicId: 'physics.electromagnetism.telecom',
+      subCategory: 'Electromagnetism & Waves',
+      displayName: 'Nguyên lý Cảm ứng điện từ & Truyền thông sóng',
+      limitations: ['Mô phỏng dao động sóng, cơ chế cảm ứng điện từ Faraday và truyền sóng mang cao tần.']
+    };
+  }
+  if (/ngưng tụ|sương|lon nước|dew point/i.test(normalized)) {
+    return {
+      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
+      topicId: 'physics.thermodynamics.condensation',
+      subCategory: 'Thermodynamics & Phase Transition',
+      displayName: 'Hiện tượng Ngưng tụ hơi nước & Nhiệt độ Điểm sương',
+      limitations: ['Mô phỏng chuyển động động học phân tử chất khí và quá trình ngưng tụ tại điểm sương.']
+    };
   }
 
   // 4. Mathematics Patterns (Chủ đề toán học thuần túy)
@@ -338,6 +356,17 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
       evidenceRequirements: ['mathematical_proof', 'human_signoff'],
       renderReadiness: 'planning_only',
       limitations: ['Chủ đề toán tổng quát; cần kiểm định hình thức cho các công thức trước khi hỗ trợ kết xuất video tự động.']
+    };
+  }
+
+  // 6. Physics Generic Fallback
+  if (!FORBIDDEN_DOMAINS_REGEX.test(normalized) && /vật lý|physics|dao động|con lắc|chuyển động thẳng|động năng|thế năng|sóng âm|sóng cơ|ánh sáng|tán sắc|khúc xạ|điện tích|từ trường/i.test(normalized)) {
+    return {
+      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
+      topicId: 'physics.general.concept',
+      subCategory: 'General Physics',
+      displayName: topicText.trim(),
+      limitations: ['Chủ đề vật lý được mô phỏng qua hệ thống Visual Canvas đa năng LuminaLearn.']
     };
   }
 

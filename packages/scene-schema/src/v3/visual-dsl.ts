@@ -257,6 +257,60 @@ export const AlgebraIdentityVisualPayloadSchema = z.object({
 });
 export type AlgebraIdentityVisualPayload = z.infer<typeof AlgebraIdentityVisualPayloadSchema>;
 
+// 7. Physics Optics Visual Payload
+// Numeric bounds are intentionally narrow: AI may choose the pedagogical stage,
+// but it cannot invent refractive indices or rainbow exit angles outside the
+// supported geometric-optics model.
+export const PhysicsOpticsStageV3Schema = z.enum([
+  'hook',
+  'white_light_spectrum',
+  'entry_refraction',
+  'internal_reflection',
+  'exit_angles',
+  'observer_arc'
+]);
+export type PhysicsOpticsStageV3 = z.infer<typeof PhysicsOpticsStageV3Schema>;
+
+export const PhysicsOpticsVisualPayloadSchema = z.object({
+  sceneType: z.literal('physics_optics'),
+  stage: PhysicsOpticsStageV3Schema,
+  headline: NoExecutableString,
+  focusLabel: NoExecutableString,
+  airRefractiveIndex: z.number().finite().min(0.999).max(1.001).default(1),
+  waterRefractiveIndices: z.object({
+    red: z.number().finite().min(1.32).max(1.35),
+    violet: z.number().finite().min(1.33).max(1.36)
+  }).strict(),
+  primaryRainbowAnglesDeg: z.object({
+    red: z.number().finite().min(41.5).max(43),
+    violet: z.number().finite().min(39.5).max(41.5)
+  }).strict(),
+  showNormals: z.boolean().default(false),
+  cameraMove: z.enum(['push_in', 'track_ray', 'orbit_drop', 'pull_out']).default('track_ray'),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8')
+}).strict().superRefine((payload, ctx) => {
+  if (payload.waterRefractiveIndices.violet <= payload.waterRefractiveIndices.red) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['waterRefractiveIndices'], message: 'Chiết suất tím phải lớn hơn chiết suất đỏ trong mô hình tán sắc nước.' });
+  }
+  if (payload.primaryRainbowAnglesDeg.red <= payload.primaryRainbowAnglesDeg.violet) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['primaryRainbowAnglesDeg'], message: 'Góc cầu vồng chính của tia đỏ phải lớn hơn tia tím.' });
+  }
+  const causticAngle = (n: number) => {
+    const incident = Math.acos(Math.sqrt((n * n - 1) / 3));
+    const refracted = Math.asin(Math.sin(incident) / n);
+    return Math.abs((4 * refracted - 2 * incident) * 180 / Math.PI);
+  };
+  const expectedRed = causticAngle(payload.waterRefractiveIndices.red);
+  const expectedViolet = causticAngle(payload.waterRefractiveIndices.violet);
+  if (Math.abs(payload.primaryRainbowAnglesDeg.red - expectedRed) > 0.35) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['primaryRainbowAnglesDeg', 'red'], message: `Góc đỏ không khớp mô hình Descartes; xấp xỉ ${expectedRed.toFixed(2)}°.` });
+  }
+  if (Math.abs(payload.primaryRainbowAnglesDeg.violet - expectedViolet) > 0.35) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['primaryRainbowAnglesDeg', 'violet'], message: `Góc tím không khớp mô hình Descartes; xấp xỉ ${expectedViolet.toFixed(2)}°.` });
+  }
+});
+export type PhysicsOpticsVisualPayload = z.infer<typeof PhysicsOpticsVisualPayloadSchema>;
+
 // Union của toàn bộ visual payloads có kiểm định chặt chẽ
 export const EducationalVisualPayloadSchema = z.union([
   ConceptIntroVisualPayloadSchema,
@@ -264,6 +318,7 @@ export const EducationalVisualPayloadSchema = z.union([
   LossLandscapeVisualPayloadSchema,
   AttentionHeatmapVisualPayloadSchema,
   AlgebraIdentityVisualPayloadSchema,
+  PhysicsOpticsVisualPayloadSchema,
   SummaryVisualPayloadSchema,
   GenericSceneVisualPayloadSchema
 ]);

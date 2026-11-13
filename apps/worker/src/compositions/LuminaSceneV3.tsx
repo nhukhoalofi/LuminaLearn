@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Audio, Sequence, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import type { EducationalStoryboardV3, EducationalSceneV3 } from '@luminalearn/scene-schema';
 import {
   ConceptIntroScene,
@@ -12,6 +12,7 @@ import {
   AnimatedVisualDslSceneV3,
   VisualDslSceneV3,
   FormulaSequenceSceneV3,
+  PhysicsOpticsScene,
   supportedSubtitleMathLatex,
   adaptScalarFunctionGraphV3,
   adaptGeometry2dV3,
@@ -213,6 +214,8 @@ export const SceneDispatcherV3: React.FC<{
           trustedProofContext={trustedProofContext}
         />
       );
+    case 'physics_optics':
+      return <PhysicsOpticsScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'summary':
       return <SummaryScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'formula_derivation':
@@ -254,9 +257,11 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
 }) => {
   const { fps } = useVideoConfig();
   const hasAuthoritativeCues = Array.isArray(subtitleCues) && subtitleCues.length > 0;
+  const isPhysicsOptics = storyboard.scenes.some((scene) => scene.sceneType === 'physics_optics');
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#070B14' }}>
+      {isPhysicsOptics && <Audio src={staticFile('audio/rainbow-procedural-score.wav')} volume={0.7} />}
       {/* 1. Sequence từng scene dọc theo timeline */}
       {storyboard.scenes.map((scene, idx) => {
         const startSeconds = storyboard.scenes.slice(0, idx).reduce((sum, item) => sum + item.durationSeconds, 0);

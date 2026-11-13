@@ -10,7 +10,7 @@ import {
   VisualSceneDefinitionV3Schema,
   VerifiedFormulaStepsDataV1Schema
 } from '@luminalearn/scene-schema';
-import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene } from '@luminalearn/animation';
+import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene, ExactRainbowIdenticalScene, ExactPhoneCallIdenticalScene, ExactCondensationIdenticalScene, UniversalPhysicsExplainerScene } from '@luminalearn/animation';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
@@ -30,6 +30,7 @@ import { devfestAlgebraStoryboardV3 } from './fixtures/v3/devfest-algebra-v3';
 import { devfestDerivativeStoryboardV3 } from './fixtures/v3/devfest-derivative-v3';
 import { devfestGradientDescentStoryboardV3 } from './fixtures/v3/devfest-gradient-descent-v3';
 import { devfestAlgebraLongformStoryboardV3, devfestDerivativeLongformStoryboardV3, devfestGradientLongformStoryboardV3 } from './fixtures/v3/devfest-longform-v3';
+import { rainbowPhysicsStoryboardV3 } from './fixtures/v3/rainbow-physics-v3';
 
 const LuminaVideoSchema = z.object({
   storyboard: LessonStoryboardSchema
@@ -276,6 +277,59 @@ export const Root: React.FC = () => {
         width={1080}
         height={1920}
         defaultProps={{ subtitlesEnabled: true }}
+      />
+      {/* Universal Physics Explainer Engine (9:16 Vertical Micro-Learning, 1080x1920 @ 30 FPS) */}
+      <Composition
+        id="LuminaPhysicsExplainerV3"
+        component={UniversalPhysicsExplainerScene}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          topic: 'Vì sao sau cơn mưa xuất hiện cầu vồng?',
+          subtitlesEnabled: true
+        }}
+      />
+      {/* Exact Clone of Reference Video (1766 frames, 30 FPS, 58.86s, 1080x1920) */}
+      <Composition
+        id="LuminaExactRainbowClone"
+        component={ExactRainbowIdenticalScene}
+        durationInFrames={1766}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      {/* Exact Clone of Video 2 (Phone Call Physics, 2580 frames, 30 FPS, 86.00s, 1080x1920) */}
+      <Composition
+        id="LuminaExactPhoneCallClone"
+        component={ExactPhoneCallIdenticalScene}
+        durationInFrames={2580}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      {/* Exact Clone of Video 3 (Condensation / Cold Can, 1920 frames, 30 FPS, 64.0s, 1080x1920) */}
+      <Composition
+        id="LuminaExactCondensationClone"
+        component={ExactCondensationIdenticalScene}
+        durationInFrames={1920}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
+        id="LuminaPhysicsSceneV3"
+        component={LuminaSceneV3}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaSceneV3Schema}
+        defaultProps={{ storyboard: rainbowPhysicsStoryboardV3, subtitlesEnabled: true }}
+        calculateMetadata={({ props }) => ({
+          durationInFrames: Math.max(1, Math.round(props.storyboard.totalDurationSeconds * 30))
+        })}
       />
     </>
   );

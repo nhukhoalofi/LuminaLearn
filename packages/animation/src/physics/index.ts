@@ -6,4 +6,14 @@ export * from './InternalReflection';
 export * from './RainbowFormation';
 export * from './PhysicsCameraTransitions';
 export * from './RainbowFullScene';
+export * from './PhysicsOpticsScene';
+export * from './MascotRobot';
+export * from './ExactRainbowIdenticalScene';
+export * from './ExactPhoneCallIdenticalScene';
+export * from './ExactCondensationIdenticalScene';
+export * from './UniversalPhysicsExplainerScene';
+export * from './WaveOscillationCanvas';
+export * from './ParticleKineticCanvas';
+export * from './VectorFieldForceCanvas';
+export * from './GenericPhysicsCanvas';
 

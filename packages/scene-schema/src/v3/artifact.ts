@@ -15,15 +15,25 @@ export const LessonRequestV3Schema = z.object({
   domain: EducationalDomainSchema,
   generationMode: GenerationModeV3Schema,
   targetDurationSeconds: z.number().int().min(20).max(600).default(35),
-  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),
+  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts', 'dutai_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   // Phase 4 exposes one honest, fully tested vertical-video profile. Supporting
   // arbitrary values here would make the approved artifact disagree with the
   // fixed Remotion composition.
-  fps: z.literal(24).default(24),
-  width: z.literal(720).default(720),
-  height: z.literal(1280).default(1280)
-}).strict();
+  fps: z.union([z.literal(24), z.literal(30)]).default(24),
+  width: z.union([z.literal(720), z.literal(1080)]).default(720),
+  height: z.union([z.literal(1280), z.literal(1920)]).default(1280)
+}).strict().superRefine((request, ctx) => {
+  const isStandard = request.fps === 24 && request.width === 720 && request.height === 1280;
+  const isCinematicPhysics = request.fps === 30 && request.width === 1080 && request.height === 1920 && request.domain === 'physics';
+  if (!isStandard && !isCinematicPhysics) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fps'],
+      message: 'Profile được hỗ trợ: 720×1280@24fps, hoặc Physics 1080×1920@30fps.'
+    });
+  }
+});
 export type LessonRequestV3 = z.infer<typeof LessonRequestV3Schema>;
 
 export const TeacherApprovalV3Schema = z.object({

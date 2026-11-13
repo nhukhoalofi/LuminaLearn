@@ -4,7 +4,7 @@ import { assertExternalApiConfirmed, readBoundedJson, SecurityError } from './se
 const ApprovalRequestSchema = z.object({
   note: z.string().trim().min(1).max(500).optional(),
   renderMode: z.enum(['mock', 'live']).optional(),
-  narrationMode: z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts']).optional(),
+  narrationMode: z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts', 'dutai_tts']).optional(),
   visualStyleId: z.enum(['math_chalkboard', 'clean_educational_infographic']).optional(),
   subtitlesEnabled: z.boolean().optional(),
   confirmExternalApi: z.boolean().optional(),
@@ -15,10 +15,10 @@ const ApprovalRequestSchema = z.object({
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 
 export function assertApprovalExternalApiConsent(
-  current: { renderMode: 'mock' | 'live'; narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' },
+  current: { renderMode: 'mock' | 'live'; narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' | 'dutai_tts' },
   proposed: ApprovalRequest,
   headerConfirmed: boolean
-): { renderMode: 'mock' | 'live'; narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' } {
+): { renderMode: 'mock' | 'live'; narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' | 'dutai_tts' } {
   const effective = {
     renderMode: proposed.renderMode ?? current.renderMode,
     narrationMode: proposed.narrationMode ?? current.narrationMode

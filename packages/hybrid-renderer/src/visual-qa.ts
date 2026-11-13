@@ -173,7 +173,7 @@ export function evaluateAudioTruthfulness(options: {
 
   if (isSilent) {
     const isLiveTtsProvider =
-      ttsProviderId === 'gemini_tts' || ttsProviderId === 'google_cloud_tts';
+      ttsProviderId === 'gemini_tts' || ttsProviderId === 'google_cloud_tts' || ttsProviderId === 'dutai_tts';
     return [
       presenceCheck,
       {

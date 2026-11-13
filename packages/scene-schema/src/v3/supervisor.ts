@@ -40,7 +40,7 @@ export const SupervisorRequestV3Schema = z.object({
   targetAudience: TargetAudienceSchema.default('undergraduate'),
   targetDurationSeconds: z.number().int().min(20).max(600).default(40),
   generationMode: z.enum(['mock', 'live']).default('mock'),
-  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),
+  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts', 'dutai_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   fps: z.union([z.literal(24), z.literal(30), z.literal(60)]).default(24),
   width: z.number().int().min(480).max(1920).default(720),

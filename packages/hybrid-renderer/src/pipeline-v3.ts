@@ -13,6 +13,7 @@ import {
 } from '@luminalearn/scene-schema';
 import { GoogleCloudTtsProvider, isTrustedOfflineTtsFixture, probeAudio, probeAudioSignal, type TtsProvider } from './audio';
 import { GeminiTtsProvider } from './gemini-tts';
+import { DutaiTtsProvider } from './dutai-tts';
 import { defaultSceneAudioSynchronizer } from './scene-audio-synchronizer';
 import type { SynchronizedStoryboardAudio } from './scene-audio-synchronizer';
 import { srtTimestamp } from './subtitles';
@@ -186,10 +187,15 @@ export async function runRenderPipelineV3(
       throw new Error('v3_audio_silent: provided audio is completely silent');
     }
     audioTrackPath = realAudioPath;
-  } else if (artifact.request.narrationMode === 'gemini_tts' || artifact.request.narrationMode === 'google_cloud_tts') {
+  } else if (
+    artifact.request.narrationMode === 'gemini_tts' ||
+    artifact.request.narrationMode === 'google_cloud_tts' ||
+    artifact.request.narrationMode === 'dutai_tts'
+  ) {
     options.onStage?.('synthesizing_audio');
     const isGemini = artifact.request.narrationMode === 'gemini_tts';
-    const providerId = isGemini ? 'gemini_tts' : 'google_cloud_tts';
+    const isDutai = artifact.request.narrationMode === 'dutai_tts';
+    const providerId = isGemini ? 'gemini_tts' : isDutai ? 'dutai_tts' : 'google_cloud_tts';
 
     const suppliedProvider = options.ttsProvider;
     const isOfflineFixture = isTrustedOfflineTtsFixture(suppliedProvider);
@@ -230,15 +236,19 @@ export async function runRenderPipelineV3(
         ? new GeminiTtsProvider({
             requestBudget: new GeminiRequestBudget({ maxTtsRequestsPerJob: enforcedTtsBudget })
           })
-        : new GoogleCloudTtsProvider()
+        : isDutai
+          ? new DutaiTtsProvider()
+          : new GoogleCloudTtsProvider()
     );
     const configuredTtsIntervalMs = Number.parseInt(
       process.env.GEMINI_TTS_MIN_REQUEST_INTERVAL_MS ?? '21000',
       10
     );
-    const geminiTtsIntervalMs = Number.isInteger(configuredTtsIntervalMs) && configuredTtsIntervalMs >= 0
-      ? Math.min(configuredTtsIntervalMs, 60_000)
-      : 21_000;
+    const geminiTtsIntervalMs = isDutai
+      ? 200
+      : Number.isInteger(configuredTtsIntervalMs) && configuredTtsIntervalMs >= 0
+        ? Math.min(configuredTtsIntervalMs, 60_000)
+        : 21_000;
 
     const syncResult = await defaultSceneAudioSynchronizer.synchronizeStoryboard(
       approvedStoryboard.scenes.map((s) => ({
@@ -350,9 +360,10 @@ export async function runRenderPipelineV3(
   const workerDir = resolve(repositoryRoot, 'apps/worker');
   const command = process.execPath;
   const remotionTarget = audioTrackPath ? rawVideoPath : outputPath;
+  const compositionId = artifact.request.domain === 'physics' ? 'LuminaPhysicsSceneV3' : 'LuminaSceneV3';
   const args = [
     resolve(workerDir, 'node_modules/@remotion/cli/remotion-cli.js'), 'render',
-    'src/index.ts', 'LuminaSceneV3', remotionTarget,
+    'src/index.ts', compositionId, remotionTarget,
     '--props', propsPath,
     '--codec', 'h264'
   ];
@@ -377,20 +388,21 @@ export async function runRenderPipelineV3(
     }
 
     // Pad audio with silence up to videoDuration so speech is never truncated and video is never shortened
-    const ffmpegArgs = [
-      '-y',
-      '-i', remotionTarget,
-      '-i', audioTrackPath,
-      '-map', '0:v:0',
-      '-map', '1:a:0',
-      '-c:v', 'copy',
-      '-c:a', 'aac',
-      '-b:a', '160k',
-      '-ar', '48000',
-      '-af', `apad=whole_dur=${videoDuration.toFixed(3)}`,
-      '-t', videoDuration.toFixed(3),
-      outputPath
-    ];
+    const ffmpegArgs = artifact.request.domain === 'physics'
+      ? [
+          '-y', '-i', remotionTarget, '-i', audioTrackPath,
+          '-filter_complex', `[0:a:0]volume=0.18[score];[1:a:0]apad=whole_dur=${videoDuration.toFixed(3)}[voice];[score][voice]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[mix]`,
+          '-map', '0:v:0', '-map', '[mix]',
+          '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
+          '-t', videoDuration.toFixed(3), outputPath
+        ]
+      : [
+          '-y', '-i', remotionTarget, '-i', audioTrackPath,
+          '-map', '0:v:0', '-map', '1:a:0',
+          '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
+          '-af', `apad=whole_dur=${videoDuration.toFixed(3)}`,
+          '-t', videoDuration.toFixed(3), outputPath
+        ];
     await execute('ffmpeg', ffmpegArgs);
 
     // Validate merged media with FFprobe

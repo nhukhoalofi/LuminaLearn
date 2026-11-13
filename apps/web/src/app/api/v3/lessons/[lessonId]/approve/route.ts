@@ -22,7 +22,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
 
     const needsExternalTts =
       currentDraft.request.narrationMode === 'gemini_tts' ||
-      currentDraft.request.narrationMode === 'google_cloud_tts';
+      currentDraft.request.narrationMode === 'google_cloud_tts' ||
+      currentDraft.request.narrationMode === 'dutai_tts';
 
     if (needsExternalTts) {
       assertExternalApiConfirmed({
@@ -37,9 +38,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
 
     let consentRecord: ExternalApiConsentRecordV3 | undefined;
     if (needsExternalTts && isConfirmed) {
+      const mode = draft.approvedArtifact.request.narrationMode;
       consentRecord = issueExternalApiConsentV3({
         ownerId,
-        provider: draft.approvedArtifact.request.narrationMode === 'gemini_tts' ? 'gemini_tts' : 'google_cloud_tts',
+        provider: mode === 'gemini_tts' ? 'gemini_tts' : mode === 'dutai_tts' ? 'dutai_tts' : 'google_cloud_tts',
         operation: 'narration',
         draftId: draft.draftId,
         artifactId: draft.approvedArtifact.artifactId,

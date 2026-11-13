@@ -92,7 +92,7 @@ export interface LessonDraftUpdateInput {
   narrationTexts?: Record<string, { text?: string; subtitleText?: string }>;
   mathSpec?: MathVisualizationSpecV2;
   renderMode?: 'mock' | 'live';
-  narrationMode?: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
+  narrationMode?: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' | 'dutai_tts';
   visualStyleId?: VisualStyleId;
   subtitlesEnabled?: boolean;
   humanSemanticReviewConfirmed?: boolean;

@@ -45,7 +45,7 @@ export const LongFormLessonRequestV3Schema = z.object({
     z.literal(600)
   ]),
   targetDurationFrames: z.number().int().positive(),
-  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts']).default('none'),
+  narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts', 'dutai_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   fps: z.literal(24).default(24),
   width: z.literal(720).default(720),

@@ -287,7 +287,8 @@ export function assertExternalApiConfirmed(options: {
   const needsExternalApi =
     options.renderMode === 'live' ||
     options.narrationMode === 'gemini_tts' ||
-    options.narrationMode === 'google_cloud_tts';
+    options.narrationMode === 'google_cloud_tts' ||
+    options.narrationMode === 'dutai_tts';
   if (!needsExternalApi) return;
 
   if (options.confirmExternalApi !== true && options.headerConfirmed !== true) {

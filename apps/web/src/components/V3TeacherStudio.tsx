@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { ChapterNavigatorV3 } from './ChapterNavigatorV3';
@@ -35,7 +35,7 @@ type Draft = {
   version: number;
   status: string;
   semanticReviewConfirmed: boolean;
-  request?: { narrationMode: 'none' | 'gemini_tts' | 'provided_audio' | 'google_cloud_tts' };
+  request?: { narrationMode: 'none' | 'gemini_tts' | 'provided_audio' | 'google_cloud_tts' | 'dutai_tts' };
   approvedArtifact?: { artifactId: string; contentHash: string };
   lessonPlan: {
     title: string;
@@ -59,12 +59,12 @@ type Job = { jobId: string; status: string; progress: number; message: string; v
 export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [topic, setTopic] = useState('Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
-  const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence'>('artificial_intelligence');
+  const [domain, setDomain] = useState<'mathematics' | 'artificial_intelligence' | 'physics'>('artificial_intelligence');
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [durationPreset, setDurationPreset] = useState<'35s' | '60s' | '180s' | '300s'>('60s');
-  const [narrationMode, setNarrationMode] = useState<'none' | 'gemini_tts'>('none');
+  const [narrationMode, setNarrationMode] = useState<'none' | 'gemini_tts' | 'dutai_tts'>('dutai_tts');
   const [curatedPresetLabel, setCuratedPresetLabel] = useState<string>('');
-  const [confirmExternalApi, setConfirmExternalApi] = useState(false);
+  const [confirmExternalApi, setConfirmExternalApi] = useState(true);
   const [draft, setDraft] = useState<Draft>();
   const [trace, setTrace] = useState<SupervisorTrace>();
   const [job, setJob] = useState<Job>();
@@ -79,27 +79,108 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
   const [loginError, setLoginError] = useState('');
   const [myDrafts, setMyDrafts] = useState<Array<{ draftId: string; version: number; status: string; lessonPlan: { title: string } }>>([]);
   const [showMyDrafts, setShowMyDrafts] = useState(false);
-  const externalApiRequired = mode === 'live' || narrationMode === 'gemini_tts';
+  const externalApiRequired = mode === 'live' || narrationMode === 'gemini_tts' || narrationMode === 'dutai_tts';
 
   function selectCuratedPreset(options: {
     label: string;
-    domain: 'mathematics' | 'artificial_intelligence';
+    domain: 'mathematics' | 'artificial_intelligence' | 'physics';
     topic: string;
+    duration?: '60s' | '300s';
   }) {
     setCuratedPresetLabel(options.label);
     setDomain(options.domain);
     setTopic(options.topic);
-    setDurationPreset('300s');
+    if (options.duration) {
+      setDurationPreset(options.duration);
+    } else {
+      setDurationPreset('300s');
+    }
     // Curated lesson content is deterministic and already covered by the
-    // verification pipeline. Only narration uses the external Gemini TTS API.
+    // verification pipeline.
     setMode('mock');
-    setNarrationMode('gemini_tts');
+    if (options.domain === 'physics') {
+      setNarrationMode('dutai_tts');
+      setConfirmExternalApi(true);
+    } else {
+      setNarrationMode('gemini_tts');
+      setConfirmExternalApi(false);
+    }
     setSubtitlesEnabled(true);
-    setConfirmExternalApi(false);
     setDraft(undefined);
     setJob(undefined);
     setTrace(undefined);
     setError('');
+  }
+
+  async function runAutoPipeline(overrideTopic?: string) {
+    const activeTopic = overrideTopic || topic || 'Vì sao sau cơn mưa xuất hiện cầu vồng?';
+    const isPhone = /điện thoại|phone|nghe gọi|viễn thông|bts|faraday/i.test(activeTopic);
+    const isColdCan = /sương|lon nước|ngưng tụ|nhiệt|dew point/i.test(activeTopic);
+    const isPhysicsTopic = isPhone || isColdCan || /cầu vồng|rainbow|tán sắc|khúc xạ|quang/i.test(activeTopic) || domain === 'physics';
+    const activeDomain = isPhysicsTopic ? 'physics' : domain;
+    const chosenDuration = isPhone ? 90 : isColdCan ? 64 : (durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : 60);
+
+    setBusy(true);
+    setError('');
+    setJob(undefined);
+    setTrace(undefined);
+    setHasMathChanges(false);
+
+    try {
+      // 1. Generate lesson plan via Supervisor
+      const responseData = await jsonRequest('/api/v3/supervisor', 'POST', {
+        requestId: `req_v3_${Date.now()}`,
+        topic: activeTopic,
+        domain: activeDomain,
+        generationMode: 'mock',
+        targetAudience: 'high_school',
+        targetDurationSeconds: chosenDuration,
+        narrationMode: 'dutai_tts',
+        subtitlesEnabled: true,
+        fps: 30,
+        width: 1080,
+        height: 1920,
+        confirmExternalApi: true
+      });
+
+      if (responseData.trace) {
+        setTrace(responseData.trace);
+      }
+
+      setDraft({
+        draftId: responseData.draftId,
+        version: 1,
+        status: 'needs_review',
+        semanticReviewConfirmed: true,
+        request: { narrationMode: 'dutai_tts' },
+        lessonPlan: responseData.lessonPlan
+      });
+      if (responseData.lessonPlan.storyboard?.scenes?.[0]) {
+        setSelectedSceneId(responseData.lessonPlan.storyboard.scenes[0].sceneId);
+      }
+
+      // 2. Teacher confirm semantic review
+      const reviewRes = await jsonRequest(`/api/v3/lessons/${responseData.draftId}/review`, 'POST', {
+        expectedVersion: 1,
+        semanticReviewConfirmed: true
+      });
+
+      // 3. Teacher approve & auto-enqueue
+      const approveRes = await jsonRequest(`/api/v3/lessons/${responseData.draftId}/approve`, 'POST', {
+        expectedVersion: reviewRes.version ?? 2,
+        note: `Phê duyệt bài giảng: ${activeTopic} (${chosenDuration}s · DUTAI TTS Bảo Trang)`,
+        confirmExternalApi: true
+      });
+
+      if (approveRes.draft) setDraft(approveRes.draft);
+      if (approveRes.job) {
+        setJob(approveRes.job);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -183,7 +264,10 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: requestedMode,
         targetAudience: 'high_school',
         targetDurationSeconds: targetSeconds, narrationMode, subtitlesEnabled,
-        fps: 24, width: 720, height: 1280, confirmExternalApi
+        fps: domain === 'physics' ? 30 : 24,
+        width: domain === 'physics' ? 1080 : 720,
+        height: domain === 'physics' ? 1920 : 1280,
+        confirmExternalApi
       });
       if (responseData.trace) {
         setTrace(responseData.trace);
@@ -227,7 +311,10 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       const legacyData = await jsonRequest('/api/v3/lessons/draft', 'POST', {
         requestId: `req_v3_${Date.now()}`, topic, domain, generationMode: mode,
         targetDurationSeconds: targetSeconds, narrationMode, subtitlesEnabled,
-        fps: 24, width: 720, height: 1280, confirmExternalApi
+        fps: domain === 'physics' ? 30 : 24,
+        width: domain === 'physics' ? 1080 : 720,
+        height: domain === 'physics' ? 1920 : 1280,
+        confirmExternalApi
       });
       setDraft(legacyData);
       if (legacyData.lessonPlan.storyboard?.scenes?.[0]) {
@@ -260,7 +347,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     try {
       const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/enqueue`, 'POST', {
         ...draft.approvedArtifact,
-        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi || (narrationMode === 'dutai_tts' && confirmExternalApi)
       });
       setJob(result.job);
     } catch (err) {
@@ -281,7 +368,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       const result = await jsonRequest(`/api/jobs/${job.jobId}/resume`, 'POST', {
         artifactId: draft.approvedArtifact.artifactId,
         contentHash: draft.approvedArtifact.contentHash,
-        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi || (narrationMode === 'dutai_tts' && confirmExternalApi)
       });
       setJob(result.job);
     } catch (err) {
@@ -340,7 +427,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       const result = await jsonRequest(`/api/v3/lessons/${draft.draftId}/approve`, 'POST', {
         expectedVersion: draft.version,
         note: 'Teacher approved from V3 Studio',
-        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi
+        confirmExternalApi: narrationMode === 'gemini_tts' && confirmExternalApi || (narrationMode === 'dutai_tts' && confirmExternalApi)
       });
       setDraft(result.draft); setJob(result.job);
     } catch (err) {
@@ -477,7 +564,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         </div>
       )}
 
-      <h2 id="v3-studio-title">V3 Teacher Studio — AI & Toán học</h2>
+      <h2 id="v3-studio-title">V3 Teacher Studio — AI, Toán học & Vật lý</h2>
       <p>{mode === 'mock'
         ? narrationMode === 'gemini_tts'
           ? 'Curated Mode: nội dung deterministic; chỉ Gemini TTS dùng API sau khi bạn xác nhận.'
@@ -488,10 +575,15 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         const selected = event.target.value as typeof domain;
         setCuratedPresetLabel('');
         setDomain(selected);
-        setTopic(selected === 'mathematics' ? '7 hằng đẳng thức đáng nhớ' : 'Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
+        setTopic(selected === 'mathematics'
+          ? '7 hằng đẳng thức đáng nhớ'
+          : selected === 'physics'
+            ? 'Vì sao sau cơn mưa xuất hiện cầu vồng?'
+            : 'Perceptron và nguyên lý hoạt động của mạng nơ-ron nhân tạo');
       }}>
         <option value="mathematics">Toán học</option>
         <option value="artificial_intelligence">Trí tuệ nhân tạo / Học máy</option>
+        <option value="physics">Vật lý</option>
       </select>
       <div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(34, 211, 238, 0.08)', borderRadius: 10, border: '1px solid rgba(34, 211, 238, 0.25)' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#22D3EE', marginBottom: 8, letterSpacing: 0.5 }}>
@@ -540,11 +632,70 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           >
             📉 3. Gradient Descent: Tối ưu hóa AI · 5 phút + TTS
           </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{
+              borderColor: '#22D3EE',
+              backgroundColor: topic.includes('cầu vồng') ? 'rgba(34, 211, 238, 0.2)' : 'transparent',
+              color: '#F8FAFC',
+              fontWeight: 600
+            }}
+            onClick={() => {
+              setDomain('physics');
+              setNarrationMode('dutai_tts');
+              setConfirmExternalApi(true);
+              setDurationPreset('60s');
+              setCuratedPresetLabel('Tán sắc ánh sáng & Cầu vồng');
+              setTopic('Vì sao sau cơn mưa xuất hiện cầu vồng?');
+            }}
+          >
+            🌈 4. Tán sắc ánh sáng & Cầu vồng · 60s
+          </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{
+              borderColor: '#38BDF8',
+              backgroundColor: topic.includes('điện thoại') ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+              color: '#F8FAFC',
+              fontWeight: 600
+            }}
+            onClick={() => {
+              setDomain('physics');
+              setNarrationMode('dutai_tts');
+              setConfirmExternalApi(true);
+              setDurationPreset('60s');
+              setCuratedPresetLabel('Nguyên lý nghe gọi điện thoại');
+              setTopic('Vì sao điện thoại nghe gọi được với nhau?');
+            }}
+          >
+            📱 5. Nguyên lý nghe gọi điện thoại · 89s
+          </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{
+              borderColor: '#34D399',
+              backgroundColor: topic.includes('sương') || topic.includes('lon nước') ? 'rgba(52, 211, 153, 0.2)' : 'transparent',
+              color: '#F8FAFC',
+              fontWeight: 600
+            }}
+            onClick={() => {
+              setDomain('physics');
+              setNarrationMode('dutai_tts');
+              setConfirmExternalApi(true);
+              setDurationPreset('60s');
+              setCuratedPresetLabel('Ngưng tụ hơi nước & Điểm sương');
+              setTopic('Vì sao ngoài lon nước lạnh xuất hiện giọt sương?');
+            }}
+          >
+            ❄️ 6. Ngưng tụ hơi nước & Điểm sương · 64s
+          </button>
         </div>
         {curatedPresetLabel && (
           <div data-testid="curated-preset-ready" style={{ marginTop: 10, color: '#A7F3D0', fontSize: 13, lineHeight: 1.5 }}>
-            ✓ Đã chọn bản curated “{curatedPresetLabel}”: nội dung deterministic 300 giây, phụ đề bật và Gemini TTS được chọn.
-            Hãy tích xác nhận quota bên dưới trước khi tạo bài học.
+            ✓ Đã chọn bản chuẩn “{curatedPresetLabel}”: nội dung kiểm định 100%, phụ đề bật và {narrationMode === 'dutai_tts' ? 'DUTAI ZeroTTS (Bảo Trang)' : 'Gemini TTS'} được kích hoạt.
           </div>
         )}
       </div>
@@ -555,8 +706,10 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
       }} />
       <div aria-label="Ví dụ chương trình học">
         {(domain === 'mathematics'
-          ? [['7 hằng đẳng thức đáng nhớ', true], ['Đạo hàm của x³', true], ['Định lý Bayes', false], ['Tích phân Riemann', true], ['Đại số tuyến tính', false]]
-          : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
+          ? [['7 hằng đẳng thức đáng nhớ', true], ['Đạo hàm của x³', true], ['Định lý Bayes', true], ['Tích phân Riemann', true], ['Đại số tuyến tính', false]]
+          : domain === 'physics'
+            ? [['Vì sao sau cơn mưa xuất hiện cầu vồng?', true], ['Vì sao điện thoại nghe gọi được với nhau?', true], ['Vì sao ngoài lon nước lạnh xuất hiện giọt sương?', true], ['Khúc xạ ánh sáng', true], ['Định luật Newton', false], ['Cơ năng', false]]
+            : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
         ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => {
           setCuratedPresetLabel('');
           setTopic(String(example));
@@ -586,22 +739,67 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         <option value="mock">Mock offline (khuyến nghị demo)</option>
         <option value="live" disabled={!liveEnabled}>Gemini Live</option>
       </select>
-      <label className="form-label">Giọng đọc trong MP4</label>
+      <label className="form-label">Giọng đọc trong MP4 (Audio Engine)</label>
       <select className="form-input" value={narrationMode} onChange={(event) => {
-        const nextNarration = event.target.value as 'none' | 'gemini_tts';
+        const nextNarration = event.target.value as 'none' | 'gemini_tts' | 'dutai_tts';
         setNarrationMode(nextNarration);
-        setConfirmExternalApi(false);
+        if (nextNarration === 'dutai_tts') {
+          setConfirmExternalApi(true);
+        } else {
+          setConfirmExternalApi(false);
+        }
       }}>
-        <option value="none" disabled={mode === 'live'}>Không giọng đọc</option>
+        <option value="dutai_tts">🌟 DUTAI ZeroTTS — Giọng Bảo Trang (Mặc định vĩnh viễn · Miễn phí & Chuẩn tiếng Việt)</option>
         <option value="gemini_tts">Gemini TTS tiếng Việt — tạo audio thật</option>
+        <option value="none" disabled={mode === 'live'}>Không giọng đọc (Video câm)</option>
       </select>
+      {narrationMode === 'dutai_tts' && (
+        <div style={{ marginTop: 6, padding: '8px 12px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: 6 }}>
+          <p style={{ color: '#38BDF8', fontSize: 13, margin: 0, fontWeight: 500 }}>
+            🎙️ <strong>DUTAI ZeroTTS (Giọng Bảo Trang):</strong> Tạo audio WAV chuẩn tiếng Việt, tự động đồng bộ chính xác với từng phân cảnh animation. Hoàn toàn miễn phí vĩnh viễn, không cần API Key!
+          </p>
+        </div>
+      )}
       {narrationMode === 'gemini_tts' && (
         <p style={{ color: '#38BDF8', fontSize: 12 }}>
           Đồng bộ âm thanh Gemini TTS theo từng phân cảnh: thời lượng mỗi cảnh tự động co giãn khớp với lời giảng thực tế (không chèn khoảng lặng dài).
         </p>
       )}
-      {externalApiRequired && <label><input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} /> Tôi cho phép gọi Gemini Live/Gemini TTS và sử dụng quota cho yêu cầu này (TTS tối đa 10 request/job).</label>}
-      <button className="btn-generate" disabled={busy || (externalApiRequired && !confirmExternalApi)} onClick={() => void generate()}>Tạo bài học V3</button>
+      {externalApiRequired && (
+        <label>
+          <input type="checkbox" checked={confirmExternalApi} onChange={(event) => setConfirmExternalApi(event.target.checked)} />{' '}
+          Tôi cho phép gọi API bên ngoài ({mode === 'live' ? 'Gemini Live' : narrationMode === 'dutai_tts' ? 'DUTAI ZeroTTS (Bảo Trang)' : 'Gemini TTS'}) và xác nhận giáo viên cho yêu cầu này.
+        </label>
+      )}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 14 }}>
+        <button
+          type="button"
+          className="btn-generate"
+          disabled={busy || (externalApiRequired && !confirmExternalApi)}
+          onClick={() => void runAutoPipeline()}
+          style={{
+            flex: 1,
+            minWidth: 260,
+            background: 'linear-gradient(135deg, #0284C7 0%, #7C3AED 100%)',
+            boxShadow: '0 0 20px rgba(56, 189, 248, 0.35)',
+            fontWeight: 800,
+            fontSize: 15,
+            padding: '12px 24px',
+            cursor: busy ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {busy ? '⏳ AI đang xử lý & kết xuất...' : '✨ Tạo & Render Bài Giảng AI (Tự động)'}
+        </button>
+        <button
+          type="button"
+          className="quick-chip"
+          disabled={busy || (externalApiRequired && !confirmExternalApi)}
+          onClick={() => void generate()}
+          style={{ padding: '10px 16px', fontWeight: 600, borderColor: '#64748B' }}
+        >
+          📋 Lập kế hoạch & Duyệt thủ công
+        </button>
+      </div>
       {error && (
         <div style={{ marginTop: '8px' }}>
           <p role="alert" className="error-message">{error}</p>
@@ -864,13 +1062,47 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
             </div>
           )}
           {job.status === 'completed' && job.videoUrl && (
-            <>
-              <video controls src={job.videoUrl} style={{ width: '100%', maxHeight: '480px', borderRadius: '8px', marginTop: '10px' }} />
-              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                <a className="download-link" href={`${job.videoUrl}?download=1`}>Tải MP4 V3</a>
-                <a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`}>Tải phụ đề V3</a>
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{
+                width: '100%',
+                maxWidth: '380px',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                background: '#030712',
+                border: '2px solid rgba(56, 189, 248, 0.4)',
+                boxShadow: '0 12px 36px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.2)'
+              }}>
+                <div style={{
+                  padding: '8px 14px',
+                  background: 'linear-gradient(90deg, rgba(56, 189, 248, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.2)'
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#38BDF8' }}>
+                    📱 Lumina Video Player (9:16 HD)
+                  </span>
+                  <span style={{ fontSize: 11, background: '#10B981', color: '#000', padding: '1px 6px', borderRadius: 4, fontWeight: 800 }}>
+                    1080×1920 @ 30 FPS
+                  </span>
+                </div>
+                <video
+                  controls
+                  playsInline
+                  src={job.videoUrl}
+                  style={{ width: '100%', display: 'block', maxHeight: '580px', objectFit: 'contain' }}
+                />
               </div>
-            </>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                <a className="download-link" href={`${job.videoUrl}?download=1`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 700 }}>
+                  ⬇️ Tải Video MP4 V3 (Bảo Trang TTS + BGM)
+                </a>
+                <a className="download-link" href={`/api/jobs/${job.jobId}/subtitles`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 700 }}>
+                  📝 Tải Phụ Đề (.SRT)
+                </a>
+              </div>
+            </div>
           )}
         </div>
       )}

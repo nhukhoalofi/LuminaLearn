@@ -110,7 +110,7 @@ export async function runHybridPipelineV2(
   let mathSpec!: MathVisualizationSpecV2;
   let topicId!: string;
   let renderMode: 'mock' | 'live';
-  let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts';
+  let narrationMode: 'none' | 'provided_audio' | 'google_cloud_tts' | 'gemini_tts' | 'dutai_tts';
   let aspectRatio: '9:16' | '16:9' | '1:1';
   let visualStyleId: VisualStyleId = 'clean_educational_infographic';
   let subtitlesEnabled = true;

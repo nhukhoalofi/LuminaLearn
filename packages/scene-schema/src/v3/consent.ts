@@ -122,7 +122,7 @@ export function hmacSha256Hex(keyStr: string, dataStr: string): string {
   return outerHash.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export const ExternalApiProviderSchema = z.enum(['gemini', 'gemini_tts', 'google_cloud_tts']);
+export const ExternalApiProviderSchema = z.enum(['gemini', 'gemini_tts', 'google_cloud_tts', 'dutai_tts']);
 export type ExternalApiProvider = z.infer<typeof ExternalApiProviderSchema>;
 
 export const ExternalApiOperationSchema = z.enum(['planning', 'narration']);

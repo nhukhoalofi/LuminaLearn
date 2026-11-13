@@ -10,7 +10,7 @@ export const SupportedLanguageSchema = z.enum(['vi', 'en']);
 export const SupportedAspectRatioSchema = z.enum(['9:16', '16:9', '1:1']);
 export type SupportedAspectRatio = z.infer<typeof SupportedAspectRatioSchema>;
 export const SupportedRenderModeSchema = z.enum(['mock', 'live']);
-export const SupportedNarrationModeSchema = z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts']);
+export const SupportedNarrationModeSchema = z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts', 'dutai_tts']);
 export const SupportedInputModeSchema = z.enum(['topic_prompt', 'source_document']);
 
 /**

@@ -34,13 +34,15 @@ describe('V3 Educational Contracts & Capability Registry', () => {
 
   it('registers the benchmark topics plus Phase 4 algebra with honest renderReadiness', () => {
     const keys = Object.keys(REGISTERED_TOPICS_V3);
-    assert.equal(keys.length, 11);
+    assert.equal(keys.length, 12);
 
     const mathTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'mathematics');
     const aiTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'artificial_intelligence');
+    const physicsTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'physics');
 
     assert.equal(mathTopics.length, 6);
     assert.equal(aiTopics.length, 5);
+    assert.equal(physicsTopics.length, 1);
 
     // Only topics with real renderers are marked render_ready
     assert.equal(REGISTERED_TOPICS_V3['calculus.derivative.intuition'].renderReadiness, 'render_ready');

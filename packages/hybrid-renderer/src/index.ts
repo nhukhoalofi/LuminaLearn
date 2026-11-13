@@ -19,4 +19,5 @@ export * from './longform-renderer-v3';
 export * from './vietnamese-narration-normalizer';
 export * from './audio-cache-manager';
 export * from './scene-audio-synchronizer';
+export * from './dutai-tts';
 

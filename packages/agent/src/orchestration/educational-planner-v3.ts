@@ -339,8 +339,65 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
     let claims: EducationalClaimV3[] = [];
     let scenes: EducationalStoryboardV3['scenes'] = [];
 
-    // --- MATHEMATICS BENCHMARKS ---
-    if (capability.topicId === 'algebra.identities.seven') {
+    // --- PHYSICS BENCHMARKS ---
+    if (capability.topicId === 'physics.optics.rainbow') {
+      summary = 'Sự hình thành cầu vồng qua tán sắc, khúc xạ và phản xạ trong giọt nước mưa.';
+      learningObjectives = [
+        'Hiểu cơ chế tán sắc ánh sáng mặt trời qua giọt nước mưa',
+        'Nắm vững định luật khúc xạ ánh sáng và phản xạ toàn phần trong giọt nước',
+        'Giải thích góc nhìn 42 độ tạo nên cung tròn cầu vồng'
+      ];
+      keyConcepts = ['Tán sắc ánh sáng', 'Khúc xạ', 'Phản xạ toàn phần', 'Góc cầu vồng chính 42 độ'];
+      claims = [
+        {
+          id: 'claim_rainbow_dispersion',
+          claimType: 'ai_concept' as const,
+          statement: 'Ánh sáng trắng bị tán sắc thành các màu khi khúc xạ qua mặt giọt nước.',
+          verificationStatus: 'unverified' as const
+        },
+        {
+          id: 'claim_rainbow_internal_reflection',
+          claimType: 'ai_concept' as const,
+          statement: 'Tia sáng phản xạ ở mặt trong phía sau giọt nước trước khi thoát ra ngoài.',
+          verificationStatus: 'unverified' as const
+        },
+        {
+          id: 'claim_rainbow_angles',
+          claimType: 'formal_mathematics' as const,
+          statement: 'Góc cầu vồng chính lệch 42.37° (đỏ) và 40.51° (tím) theo định luật Snell.',
+          formalExpression: 'theta_red=42.37, theta_violet=40.51',
+          verificationStatus: 'unverified' as const
+        }
+      ];
+
+      const optics = {
+        airRefractiveIndex: 1,
+        waterRefractiveIndices: { red: 1.331, violet: 1.344 },
+        primaryRainbowAnglesDeg: { red: 42.37, violet: 40.51 },
+        accentColor: '#38BDF8'
+      };
+
+      const beats = [
+        ['hook', 'Một giọt mưa có thể tách ánh sáng?', 'Theo dấu một tia sáng', 'push_in', false, 5, 'Ngay sau cơn mưa, hàng triệu giọt nước còn lơ lửng. Chỉ một tia sáng Mặt Trời đi qua đúng đường đã đủ tạo nên một mảnh cầu vồng.'],
+        ['white_light_spectrum', 'Ánh sáng trắng chứa một phổ liên tục', 'Mỗi bước sóng bị bẻ cong khác nhau', 'track_ray', false, 9, 'Ánh sáng trắng không phải đúng bảy màu rời rạc. Nó là một phổ liên tục; trong nước, mỗi bước sóng có chiết suất hơi khác nhau.'],
+        ['entry_refraction', 'Lần 1: khúc xạ khi đi vào', 'Tia đổi hướng tại mặt giọt nước', 'push_in', true, 11, 'Khi đi từ không khí vào nước, tia sáng chậm lại và khúc xạ về phía pháp tuyến. Tia tím bị bẻ cong mạnh hơn tia đỏ.'],
+        ['internal_reflection', 'Lần 2: phản xạ ở mặt sau', 'Một lần phản xạ tạo cầu vồng chính', 'orbit_drop', true, 10, 'Các tia chạm mặt sau của giọt và phản xạ trở lại. Với cầu vồng chính, đường đi quan trọng có đúng một lần phản xạ bên trong.'],
+        ['exit_angles', 'Lần 3: khúc xạ khi đi ra', 'Đỏ khoảng 42,37° · tím khoảng 40,51°', 'track_ray', true, 11, 'Khi rời giọt nước, tia khúc xạ lần nữa. Mô hình cho góc cực đại khoảng bốn mươi hai phẩy ba bảy độ với đỏ và bốn mươi phẩy năm mốt độ với tím.'],
+        ['observer_arc', 'Vì sao ta thấy một cung tròn?', 'Mặt Trời sau lưng · mưa phía trước', 'pull_out', false, 14, 'Mắt chỉ nhận những tia đến từ các giọt nằm đúng trên một hình nón quanh hướng đối Mặt Trời. Mặt đất che phần dưới, nên ta thường thấy một cung: đỏ ở ngoài, tím ở trong.']
+      ] as const;
+
+      scenes = beats.map(([stage, headline, focusLabel, cameraMove, showNormals, durationSeconds, narration], index) => ({
+        sceneId: `sc_rainbow_${index + 1}`,
+        sceneType: 'physics_optics' as const,
+        title: headline,
+        pedagogicalGoal: focusLabel,
+        durationSeconds,
+        boundClaimIds: [index < 2 ? 'claim_rainbow_dispersion' : index === 3 ? 'claim_rainbow_internal_reflection' : 'claim_rainbow_angles'],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: narration, subtitleVietnamese: narration },
+        visualPayload: { sceneType: 'physics_optics' as const, stage, headline, focusLabel, ...optics, showNormals, cameraMove } as any
+      }));
+    } else if (capability.topicId === 'algebra.identities.seven') {
       const identities = [
         ['square_sum', '(a+b)^2', 'a^2+2*a*b+b^2', 'Bình phương của một tổng'],
         ['square_difference', '(a-b)^2', 'a^2-2*a*b+b^2', 'Bình phương của một hiệu'],
@@ -775,7 +832,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           verificationStatus: 'unverified'
         }
       ];
-      if (targetDurationSeconds >= 240 && targetDurationSeconds < 600) {
+      if (targetDurationSeconds >= 240) {
         // CHECKPOINT 5-MINUTE (300s): Comprehensive 8-scene pedagogical progression for Calculus Derivative
         scenes = [
           {

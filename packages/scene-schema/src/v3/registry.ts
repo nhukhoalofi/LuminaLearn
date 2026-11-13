@@ -6,6 +6,7 @@ import {
   AttentionHeatmapVisualPayloadSchema,
   SummaryVisualPayloadSchema,
   AlgebraIdentityVisualPayloadSchema,
+  PhysicsOpticsVisualPayloadSchema,
   GenericSceneVisualPayloadSchema,
   VisualLayoutPresetV3,
   VisualStylePresetV3
@@ -205,6 +206,19 @@ export class EducationalVisualRegistryV3 {
     });
 
     // --- PHYSICS & OPTICS ENGINE COMPONENTS ---
+    this.register({
+      componentId: 'physics_optics',
+      name: 'Mô phỏng quang học theo tiến trình (Physics Optics)',
+      description: 'Payload typed cho ánh sáng trắng, tán sắc, khúc xạ, phản xạ trong, góc thoát và hình học người quan sát.',
+      category: 'physics',
+      supportedTopics: ['physics.optics.rainbow', 'optics', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: PhysicsOpticsVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: true
+    });
+
     this.register({
       componentId: 'light_ray_animation',
       name: 'Mô phỏng tia sáng quang học (Light Ray Animation)',

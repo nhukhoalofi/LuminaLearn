@@ -121,6 +121,7 @@ export const EducationalSceneTypeSchema = z.enum([
   'algebra_identity',
   'flowchart_simulation',
   'comparison_table',
+  'physics_optics',
   'summary'
 ]);
 export type EducationalSceneType = z.infer<typeof EducationalSceneTypeSchema>;
