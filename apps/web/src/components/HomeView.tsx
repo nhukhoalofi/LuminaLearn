@@ -486,7 +486,7 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             </div>
           </div>
 
-          {/* Card 2: Gradient Descent */}
+          {/* Card 2: Seasons */}
           <div
             onClick={onGoToAlbum}
             style={{
@@ -509,8 +509,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
           >
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', backgroundColor: '#0F172A' }}>
               <Image
-                src="/demo/thumb-gradient-descent.png"
-                alt="Gradient Descent"
+                src="/demo/thumb-seasons-frame.png"
+                alt="Vì sao mùa hè nóng, mùa đông lạnh"
                 fill
                 style={{ objectFit: 'cover' }}
               />
@@ -528,7 +528,7 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                   borderRadius: '9999px',
                 }}
               >
-                Tin học / AI
+                Vật lý
               </span>
               <span
                 style={{
@@ -543,17 +543,17 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                   borderRadius: '6px',
                 }}
               >
-                ▶ 03:40
+                ▶ 00:56
               </span>
             </div>
             <div style={{ padding: '1rem 1.15rem' }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
-                Thuật toán Gradient Descent & Tối ưu hóa hàm mất mát
+                Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?
               </h3>
             </div>
           </div>
 
-          {/* Card 3: Secant Tangent Derivative */}
+          {/* Card 3: Projectile Motion */}
           <div
             onClick={onGoToAlbum}
             style={{
@@ -576,8 +576,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
           >
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', backgroundColor: '#0F172A' }}>
               <Image
-                src="/demo/thumb-secant-tangent.png"
-                alt="Đạo hàm cát tuyến"
+                src="/demo/thumb-projectile-motion.png"
+                alt="Chuyển động ném ngang"
                 fill
                 style={{ objectFit: 'cover' }}
               />
@@ -595,7 +595,7 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                   borderRadius: '9999px',
                 }}
               >
-                Toán học
+                Vật lý
               </span>
               <span
                 style={{
@@ -610,12 +610,12 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                   borderRadius: '6px',
                 }}
               >
-                ▶ 03:42
+                ▶ 01:00
               </span>
             </div>
             <div style={{ padding: '1rem 1.15rem' }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
-                Bản chất hình học của đạo hàm: Cát tuyến đến tiếp tuyến
+                Chuyển động ném ngang và phân tích quỹ đạo parabol
               </h3>
             </div>
           </div>
