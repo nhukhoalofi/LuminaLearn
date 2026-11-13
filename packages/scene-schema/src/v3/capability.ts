@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 import { NoExecutableString, SafeIdString } from '../v2/document';
 
 export const EducationalDomainSchema = z.enum(['mathematics', 'artificial_intelligence', 'physics']);
@@ -213,6 +213,126 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     evidenceRequirements: ['mathematical_proof', 'source_citation'],
     renderReadiness: 'render_ready',
     limitations: ['Mô phỏng quang hình học định luật Snell (n1 sin i = n2 sin r), tán sắc bước sóng qua giọt nước hình cầu và góc lệch cực tiểu Descartes 40°-42°.']
+  },
+  'physics.electromagnetism.telecom': {
+    topicId: 'physics.electromagnetism.telecom',
+    domain: 'physics',
+    subCategory: 'Electromagnetism & Waves',
+    displayName: 'Âm thanh được truyền qua cuộc gọi điện thoại như thế nào?',
+    supportedCapabilities: ['conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô hình sư phạm 6 bước: micro, số hóa, sóng vô tuyến, trạm gốc, giải mã và loa; không mô phỏng chi tiết giao thức mạng.']
+  },
+  'physics.thermodynamics.condensation': {
+    topicId: 'physics.thermodynamics.condensation',
+    domain: 'physics',
+    subCategory: 'Thermodynamics & Phase Transition',
+    displayName: 'Vì sao lon nước lạnh bị đọng sương?',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô hình động học hạt và điều kiện nhiệt độ bề mặt không vượt điểm sương; không thay thế mô hình psychrometric đầy đủ.']
+  },
+  'physics.waves.sound': {
+    topicId: 'physics.waves.sound',
+    domain: 'physics',
+    subCategory: 'Mechanical Waves & Acoustics',
+    displayName: 'Sóng âm truyền qua không khí như thế nào?',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô hình sóng điều hòa trong môi trường đồng nhất; không mô phỏng nhiễu xạ, phản xạ phòng hoặc suy hao phức tạp.']
+  },
+  'physics.waves.lightning_thunder': {
+    topicId: 'physics.waves.lightning_thunder',
+    domain: 'physics',
+    subCategory: 'Acoustics & Electromagnetism',
+    displayName: 'Vì sao ta thấy tia chớp trước rồi mới nghe thấy tiếng sấm?',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['So sánh vận tốc ánh sáng c ≈ 300.000 km/s và vận tốc âm thanh v ≈ 340 m/s trong không khí; giải thích độ trễ thời gian Δt = d / v_âm.']
+  },
+  'physics.mechanics.inertia_braking': {
+    topicId: 'physics.mechanics.inertia_braking',
+    domain: 'physics',
+    subCategory: 'Classical Mechanics & Inertia',
+    displayName: 'Quán tính: Vì sao xe phanh gấp người lại chúi về phía trước?',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô tả định luật I Newton và hiện tượng quán tính trong hệ quy chiếu xe giảm tốc; hợp lực hãm làm xe chậm lại trong khi cơ thể duy trì vận tốc cũ.']
+  },
+  'physics.mechanics.newton_forces': {
+    topicId: 'physics.mechanics.newton_forces',
+    domain: 'physics',
+    subCategory: 'Classical Mechanics',
+    displayName: 'Hợp lực và định luật II Newton',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô hình vật rắn như chất điểm trong hệ quy chiếu quán tính; payload số phải thỏa F = ma.']
+  },
+  'physics.astronomy.earth_seasons': {
+    topicId: 'physics.astronomy.earth_seasons',
+    domain: 'physics',
+    subCategory: 'Astronomy & Thermodynamics',
+    displayName: 'Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô tả độ nghiêng trục Trái Đất 23.5° và định luật góc chiếu bức xạ quang năng Lambert; so sánh ngày đêm thực tế Hà Nội.']
+  },
+  'physics.mechanics.projectile': {
+    topicId: 'physics.mechanics.projectile',
+    domain: 'physics',
+    subCategory: 'Kinematics',
+    displayName: 'Chuyển động ném xiên và quỹ đạo parabol',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Bỏ qua lực cản không khí, dùng gia tốc trọng trường không đổi và mặt đất phẳng.']
+  },
+  'physics.mechanics.pendulum': {
+    topicId: 'physics.mechanics.pendulum',
+    domain: 'physics',
+    subCategory: 'Oscillations',
+    displayName: 'Con lắc đơn và chu kỳ dao động',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Công thức chu kỳ chỉ áp dụng cho con lắc đơn góc nhỏ, dây nhẹ và bỏ qua lực cản.']
+  },
+  'physics.mechanics.energy_conservation': {
+    topicId: 'physics.mechanics.energy_conservation',
+    domain: 'physics',
+    subCategory: 'Work & Energy',
+    displayName: 'Bảo toàn cơ năng trong hệ lý tưởng',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Chỉ bảo toàn động năng cộng thế năng khi không có công của lực không bảo toàn; payload luôn ghi rõ mô hình lý tưởng.']
   }
 };
 
@@ -251,7 +371,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
   // 1. Kiểm tra phạm vi nghiêm ngặt (Fail-closed)
   if (FORBIDDEN_DOMAINS_REGEX.test(normalized)) {
     throw new DomainScopeViolationError(
-      `LuminaLearn chỉ hỗ trợ hai lĩnh vực: Toán học (Mathematics) và Trí tuệ nhân tạo (AI/ML). Chủ đề "${topicText}" nằm ngoài phạm vi giáo dục của hệ thống.`
+      `LuminaLearn hiện hỗ trợ Toán học, Trí tuệ nhân tạo và các chủ đề Vật lý đã đăng ký. Chủ đề "${topicText}" nằm ngoài phạm vi giáo dục của hệ thống.`
     );
   }
 
@@ -282,27 +402,39 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 3. Physics Patterns (Optics, Electromagnetism, Telecom, Thermodynamics)
-  if (/cầu vồng|cau vong|rainbow|tán sắc|tan sac|khúc xạ|khuc xa|phản xạ toàn phần|raindrop|lăng kính|quang học/i.test(normalized)) {
+  // 3. Physics Patterns (Optics, Electromagnetism, Telecom, Thermodynamics, Mechanics, Waves, Energy, Astronomy)
+  if (/mùa hè|mùa đông|mua he|mua dong|trục trái đất|truc trai dat|23\.5|các mùa|cac mua|seasons|hạ chí|đông chí|ngày dài đêm ngắn/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.astronomy.earth_seasons'];
+  }
+  if (/sấm sét|sam set|chớp.*sấm|sấm.*chớp|tia chớp|tiếng sấm|chớp trước.*sấm|sét trước.*sấm|lightning|thunder/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.waves.lightning_thunder'];
+  }
+  if (/cầu vồng|cau vong|rainbow|tán sắc|tan sac|khúc xạ|khuc xa|phản xạ toàn phần|raindrop|lăng kính|quang học|ánh sáng|quang phổ|gương|thấu kính/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['physics.optics.rainbow'];
   }
-  if (/faraday|cảm ứng điện từ|điện thoại|phone|viễn thông|nghe gọi|sóng điện từ|bts|lorentz|từ thông/i.test(normalized)) {
-    return {
-      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
-      topicId: 'physics.electromagnetism.telecom',
-      subCategory: 'Electromagnetism & Waves',
-      displayName: 'Nguyên lý Cảm ứng điện từ & Truyền thông sóng',
-      limitations: ['Mô phỏng dao động sóng, cơ chế cảm ứng điện từ Faraday và truyền sóng mang cao tần.']
-    };
+  if (/điện thoại|phone|viễn thông|nghe gọi|cuộc gọi|bts|trạm phát sóng|sóng điện từ|vô tuyến|ăng ten|antenna/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.electromagnetism.telecom'];
   }
-  if (/ngưng tụ|sương|lon nước|dew point/i.test(normalized)) {
-    return {
-      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
-      topicId: 'physics.thermodynamics.condensation',
-      subCategory: 'Thermodynamics & Phase Transition',
-      displayName: 'Hiện tượng Ngưng tụ hơi nước & Nhiệt độ Điểm sương',
-      limitations: ['Mô phỏng chuyển động động học phân tử chất khí và quá trình ngưng tụ tại điểm sương.']
-    };
+  if (/ngưng tụ|sương|lon nước|dew point|bay hơi|nhiệt độ|nhiệt học|đông đặc|nóng chảy|chuyển thể|khí lý tưởng|áp suất/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.thermodynamics.condensation'];
+  }
+  if (/sóng âm|truyền âm|âm thanh truyền|tần số âm|bước sóng âm|acoustic|sound wave|sóng cơ|dao động sóng|giao thoa sóng|hộp đàn|tiếng vang/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.waves.sound'];
+  }
+  if (/ném ngang|ném xiên|ném chéo|quỹ đạo parabol|projectile|rơi tự do|chuyển động cong|tầm xa|vận tốc đầu/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.mechanics.projectile'];
+  }
+  if (/con lắc|pendulum|chu kỳ dao động|dao động điều hòa|dao động cơ|lực kéo về|vị trí cân bằng/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.mechanics.pendulum'];
+  }
+  if (/bảo toàn cơ năng|chuyển hóa động năng.*thế năng|động năng.*thế năng|conservation of mechanical energy|thế năng|động năng|cơ năng|va chạm đàn hồi|tàu lượn/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.mechanics.energy_conservation'];
+  }
+  if (/quán tính|quan tinh|phanh gấp|phanh xe|hãm phanh|chúi.*phía trước|ngả.*phía sau|xe.*dừng.*đột ngột|định luật i newton|định luật 1 newton/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.mechanics.inertia_braking'];
+  }
+  if (/định luật ii newton|định luật 2 newton|newton.*thứ hai|hợp lực|lực ma sát|lực kéo|lực đẩy|gia tốc|f\s*=\s*m\s*\*?\s*a/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.mechanics.newton_forces'];
   }
 
   // 4. Mathematics Patterns (Chủ đề toán học thuần túy)
@@ -344,7 +476,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
   }
 
   // 5. Mathematics Generic Fallback
-  if (/toán|hàm số|phương trình|đồ thị|hình học|calculus|algebra|geometry/i.test(normalized)) {
+  if (/toán|hàm số|phương trình|đồ thị|hình học|calculus|algebra|geometry|pythagor|tam giác|định lý|lượng giác/i.test(normalized)) {
     return {
       topicId: 'math.general.concept',
       domain: 'mathematics',
@@ -359,20 +491,37 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 6. Physics Generic Fallback
-  if (!FORBIDDEN_DOMAINS_REGEX.test(normalized) && /vật lý|physics|dao động|con lắc|chuyển động thẳng|động năng|thế năng|sóng âm|sóng cơ|ánh sáng|tán sắc|khúc xạ|điện tích|từ trường/i.test(normalized)) {
+  // 6. Physics Generic Dynamic Topics (Cho phép render tự động mọi hiện tượng vật lý qua Universal Cinematic Engine)
+  if (!FORBIDDEN_DOMAINS_REGEX.test(normalized)) {
+    // Tự động phân loại phân họ vật lý phù hợp nhất
+    const isWave = /sóng|âm thanh|dao động|tần số|bước sóng|lan truyền/i.test(normalized);
+    const isThermodynamics = /nhiệt|nóng|lạnh|ngưng tụ|bay hơi|đông|sôi|áp suất|chất khí|phân tử/i.test(normalized);
+    const isOptics = /quang|sáng|màu|gương|kính|khúc xạ|phản xạ|tán sắc|hình ảnh|mắt/i.test(normalized);
+    const isEnergy = /năng lượng|cơ năng|động năng|thế năng|bảo toàn|chuyển hóa/i.test(normalized);
+
+    const subCategory = isWave ? 'Waves & Oscillations'
+      : isThermodynamics ? 'Thermodynamics & Kinetics'
+      : isOptics ? 'Optics & Electromagnetism'
+      : isEnergy ? 'Work & Energy'
+      : 'Classical Mechanics & Dynamics';
+
     return {
-      ...REGISTERED_TOPICS_V3['physics.optics.rainbow'],
       topicId: 'physics.general.concept',
-      subCategory: 'General Physics',
+      domain: 'physics',
+      subCategory,
       displayName: topicText.trim(),
-      limitations: ['Chủ đề vật lý được mô phỏng qua hệ thống Visual Canvas đa năng LuminaLearn.']
+      supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+      requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+      availableRenderers: ['remotion_infographic'],
+      evidenceRequirements: ['source_citation', 'human_signoff'],
+      renderReadiness: 'render_ready',
+      limitations: ['Chủ đề vật lý tổng quát được sinh động theo 6 nhịp sư phạm và bộ Universal Cinematic Engine.']
     };
   }
 
   // 6. Fail-closed
   throw new DomainScopeViolationError(
-    `Không nhận diện được chủ đề Toán học hoặc Trí tuệ nhân tạo từ nội dung: "${topicText}". Vui lòng cung cấp chủ đề cụ thể trong phạm vi Toán hoặc AI.`
+    `Không nhận diện được chủ đề Toán học, Trí tuệ nhân tạo hoặc Vật lý từ nội dung: "${topicText}". Vui lòng cung cấp một chủ đề cụ thể thuộc capability registry.`
   );
 }
 

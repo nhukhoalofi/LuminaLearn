@@ -311,6 +311,167 @@ export const PhysicsOpticsVisualPayloadSchema = z.object({
 });
 export type PhysicsOpticsVisualPayload = z.infer<typeof PhysicsOpticsVisualPayloadSchema>;
 
+// 8. Reusable cinematic physics formats extracted from the approved reference
+// videos. Content generation may choose a family and beat, but every simulation
+// parameter stays inside a bounded, typed contract.
+export const PhysicsExplainerFamilyV3Schema = z.enum([
+  'process_chain',
+  'particle_state',
+  'wave_propagation',
+  'force_motion',
+  'energy_transfer'
+]);
+export type PhysicsExplainerFamilyV3 = z.infer<typeof PhysicsExplainerFamilyV3Schema>;
+
+export const PhysicsExplainerBeatV3Schema = z.enum([
+  'hook',
+  'system_model',
+  'mechanism_a',
+  'mechanism_b',
+  'evidence',
+  'takeaway'
+]);
+
+const ProcessChainSimulationV3Schema = z.object({
+  kind: z.literal('process_chain'),
+  nodes: z.array(NoExecutableString).min(3).max(7),
+  activeNodeIndex: z.number().int().min(0).max(6),
+  carrierLabel: NoExecutableString
+}).strict();
+
+const ParticleStateSimulationV3Schema = z.object({
+  kind: z.literal('particle_state'),
+  particleCount: z.number().int().min(12).max(60),
+  temperature: z.enum(['low', 'medium', 'high']),
+  phase: z.enum(['gas', 'liquid', 'condensing']),
+  surfaceTemperatureC: z.number().finite().min(-50).max(100).optional(),
+  dewPointC: z.number().finite().min(-50).max(60).optional()
+}).strict();
+
+const WaveSimulationV3Schema = z.object({
+  kind: z.literal('wave'),
+  amplitude: z.number().finite().min(20).max(120),
+  spatialFrequency: z.number().finite().min(0.5).max(8),
+  propagationSpeed: z.number().finite().min(0.5).max(10),
+  wavelengthLabel: NoExecutableString,
+  relationLabel: NoExecutableString,
+  frequencyHz: z.number().finite().positive().max(100_000).optional(),
+  wavelengthMeters: z.number().finite().positive().max(10_000).optional(),
+  physicalSpeedMps: z.number().finite().positive().max(400_000_000).optional()
+}).strict();
+
+const ForceSimulationV3Schema = z.object({
+  kind: z.literal('force_motion'),
+  objectType: z.enum(['box', 'sphere', 'pendulum', 'coil', 'projectile', 'car', 'apple', 'submarine', 'skater']),
+  motionModel: z.enum(['static', 'oscillatory', 'projectile']).default('static'),
+  formula: NoExecutableString,
+  forces: z.array(z.object({
+    label: NoExecutableString,
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    angleDeg: z.number().finite().min(0).max(360),
+    magnitude: z.number().finite().min(20).max(220)
+  }).strict()).min(1).max(6),
+  massKg: z.number().finite().positive().max(10_000).optional(),
+  accelerationMps2: z.number().finite().min(-1000).max(1000).optional(),
+  netForceN: z.number().finite().min(-1_000_000).max(1_000_000).optional(),
+  gravityMps2: z.number().finite().min(9).max(10).optional(),
+  initialSpeedMps: z.number().finite().positive().max(500).optional(),
+  launchAngleDeg: z.number().finite().min(1).max(89).optional(),
+  pendulumLengthM: z.number().finite().positive().max(20).optional(),
+  periodSeconds: z.number().finite().positive().max(30).optional()
+}).strict();
+
+const EnergySimulationV3Schema = z.object({
+  kind: z.literal('energy_transfer'),
+  kineticFraction: z.number().finite().min(0).max(1),
+  potentialFraction: z.number().finite().min(0).max(1),
+  totalEnergyLabel: NoExecutableString
+}).strict();
+
+export const PhysicsExplainerSimulationV3Schema = z.discriminatedUnion('kind', [
+  ProcessChainSimulationV3Schema,
+  ParticleStateSimulationV3Schema,
+  WaveSimulationV3Schema,
+  ForceSimulationV3Schema,
+  EnergySimulationV3Schema
+]);
+
+export const PhysicsExplainerVisualPayloadSchema = z.object({
+  sceneType: z.literal('physics_explainer'),
+  family: PhysicsExplainerFamilyV3Schema,
+  beat: PhysicsExplainerBeatV3Schema,
+  headline: NoExecutableString,
+  focusLabel: NoExecutableString,
+  insight: NoExecutableString,
+  simulation: PhysicsExplainerSimulationV3Schema,
+  cameraMove: z.enum(['push_in', 'track', 'macro', 'pull_out']).default('track'),
+  accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#38BDF8')
+}).strict().superRefine((payload, ctx) => {
+  const allowedKindByFamily: Record<z.infer<typeof PhysicsExplainerFamilyV3Schema>, z.infer<typeof PhysicsExplainerSimulationV3Schema>['kind']> = {
+    process_chain: 'process_chain',
+    particle_state: 'particle_state',
+    wave_propagation: 'wave',
+    force_motion: 'force_motion',
+    energy_transfer: 'energy_transfer'
+  };
+  if (payload.simulation.kind !== allowedKindByFamily[payload.family]) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'kind'], message: 'Kiểu mô phỏng không khớp format family đã chọn.' });
+  }
+  if (payload.simulation.kind === 'process_chain' && payload.simulation.activeNodeIndex >= payload.simulation.nodes.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'activeNodeIndex'], message: 'Nút đang hoạt động phải tồn tại trong chuỗi quá trình.' });
+  }
+  if (payload.simulation.kind === 'particle_state' && payload.simulation.phase === 'condensing') {
+    if (payload.simulation.surfaceTemperatureC === undefined || payload.simulation.dewPointC === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'surfaceTemperatureC'], message: 'Mô phỏng ngưng tụ cần nhiệt độ bề mặt và điểm sương.' });
+    } else if (payload.simulation.surfaceTemperatureC > payload.simulation.dewPointC) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'surfaceTemperatureC'], message: 'Ngưng tụ chỉ được mô phỏng khi bề mặt không nóng hơn điểm sương.' });
+    }
+  }
+  if (payload.simulation.kind === 'energy_transfer' && Math.abs(payload.simulation.kineticFraction + payload.simulation.potentialFraction - 1) > 0.001) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'kineticFraction'], message: 'Các phần năng lượng phải bảo toàn tổng bằng 1 trong mô hình lý tưởng.' });
+  }
+  if (payload.simulation.kind === 'wave') {
+    const { frequencyHz, wavelengthMeters, physicalSpeedMps } = payload.simulation;
+    const supplied = [frequencyHz, wavelengthMeters, physicalSpeedMps].filter((value) => value !== undefined).length;
+    if (supplied > 0 && supplied < 3) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation'], message: 'Kiểm định sóng cần đủ tần số, bước sóng và vận tốc truyền.' });
+    } else if (frequencyHz !== undefined && wavelengthMeters !== undefined && physicalSpeedMps !== undefined) {
+      const expected = frequencyHz * wavelengthMeters;
+      if (Math.abs(physicalSpeedMps - expected) / expected > 0.001) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'physicalSpeedMps'], message: 'Vận tốc truyền phải thỏa v = fλ.' });
+      }
+    }
+  }
+  if (payload.simulation.kind === 'force_motion') {
+    const simulation = payload.simulation;
+    if (simulation.objectType === 'projectile' || simulation.motionModel === 'projectile') {
+      if (simulation.initialSpeedMps === undefined || simulation.launchAngleDeg === undefined || simulation.gravityMps2 === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation'], message: 'Ném xiên cần vận tốc đầu, góc phóng và gia tốc trọng trường.' });
+      }
+    }
+    if (simulation.objectType === 'pendulum' || simulation.motionModel === 'oscillatory') {
+      if (simulation.pendulumLengthM === undefined || simulation.gravityMps2 === undefined || simulation.periodSeconds === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation'], message: 'Con lắc cần chiều dài, gia tốc trọng trường và chu kỳ.' });
+      } else {
+        const expectedPeriod = 2 * Math.PI * Math.sqrt(simulation.pendulumLengthM / simulation.gravityMps2);
+        if (Math.abs(simulation.periodSeconds - expectedPeriod) > 0.02) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'periodSeconds'], message: 'Chu kỳ phải khớp mô hình góc nhỏ T = 2π√(L/g).' });
+        }
+      }
+    }
+    const dynamicsValues = [simulation.massKg, simulation.accelerationMps2, simulation.netForceN];
+    const suppliedDynamics = dynamicsValues.filter((value) => value !== undefined).length;
+    if (suppliedDynamics > 0 && suppliedDynamics < 3) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation'], message: 'Kiểm định động lực học cần đủ khối lượng, gia tốc và hợp lực.' });
+    } else if (simulation.massKg !== undefined && simulation.accelerationMps2 !== undefined && simulation.netForceN !== undefined) {
+      if (Math.abs(simulation.netForceN - simulation.massKg * simulation.accelerationMps2) > 0.001) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['simulation', 'netForceN'], message: 'Hợp lực phải thỏa F = ma.' });
+      }
+    }
+  }
+});
+export type PhysicsExplainerVisualPayload = z.infer<typeof PhysicsExplainerVisualPayloadSchema>;
+
 // Union của toàn bộ visual payloads có kiểm định chặt chẽ
 export const EducationalVisualPayloadSchema = z.union([
   ConceptIntroVisualPayloadSchema,
@@ -319,6 +480,7 @@ export const EducationalVisualPayloadSchema = z.union([
   AttentionHeatmapVisualPayloadSchema,
   AlgebraIdentityVisualPayloadSchema,
   PhysicsOpticsVisualPayloadSchema,
+  PhysicsExplainerVisualPayloadSchema,
   SummaryVisualPayloadSchema,
   GenericSceneVisualPayloadSchema
 ]);

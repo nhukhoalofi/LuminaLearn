@@ -44,11 +44,28 @@ const DropletDiagram: React.FC<{ payload: PhysicsOpticsVisualPayload; progress: 
       <ellipse cx="352" cy="300" rx="92" ry="38" fill="#fff" opacity=".16" transform="rotate(-25 352 300)" />
       {payload.showNormals && <line x1="110" y1="340" x2="790" y2="560" stroke="#cbd5e1" strokeDasharray="15 13" strokeWidth="3" opacity=".55" />}
       {showEntry && <path d={`M 0 255 L ${170 + entry * 280} ${335 + entry * 65}`} fill="none" stroke="#fff" strokeWidth="13" strokeLinecap="round" filter="url(#glow)" />}
+      {payload.stage === 'entry_refraction' && spectrum.map((color, i) => (
+        <path
+          key={`entry-${color}`}
+          d={`M 450 ${400 + i * 2} L ${450 + inside * 245} ${400 + inside * (92 + i * 5)}`}
+          fill="none"
+          stroke={color}
+          strokeWidth="7"
+          strokeLinecap="round"
+          opacity=".95"
+        />
+      ))}
       {showInside && spectrum.map((color, i) => <React.Fragment key={color}>
         <path d={`M 450 ${400 + i * 4} L ${450 + inside * 280} ${400 + inside * (170 + i * 5)}`} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round" opacity=".95" />
         <path d={`M 730 ${570 + i * 5} L ${730 - reflected * 280} ${570 + reflected * (150 + i * 3)}`} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round" opacity=".95" />
       </React.Fragment>)}
       {showExit && spectrum.map((color, i) => <path key={color} d={`M 450 ${720 + i * 8} L ${450 - exit * 390} ${720 + exit * (125 + i * 5)}`} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" filter="url(#glow)" />)}
+      {payload.stage === 'exit_angles' && <g opacity={exit}>
+        <path d="M 450 720 A 118 118 0 0 0 345 782" fill="none" stroke="#ef4444" strokeWidth="4" strokeDasharray="8 8" />
+        <path d="M 450 720 A 88 88 0 0 0 374 766" fill="none" stroke="#a855f7" strokeWidth="4" strokeDasharray="8 8" />
+        <text x="315" y="805" fill="#fecaca" fontSize="27" fontWeight="800">42,37°</text>
+        <text x="400" y="748" fill="#e9d5ff" fontSize="27" fontWeight="800">40,51°</text>
+      </g>}
       {payload.stage === 'entry_refraction' && <text x="450" y="830" fill="#e0f2fe" textAnchor="middle" fontSize="34" fontWeight="700">n đỏ = {payload.waterRefractiveIndices.red} · n tím = {payload.waterRefractiveIndices.violet}</text>}
       {payload.stage === 'internal_reflection' && <text x="450" y="830" fill="#e0f2fe" textAnchor="middle" fontSize="34" fontWeight="700">1 lần phản xạ trong</text>}
       {payload.stage === 'exit_angles' && <text x="450" y="830" fill="#e0f2fe" textAnchor="middle" fontSize="32" fontWeight="700">đỏ {payload.primaryRainbowAnglesDeg.red.toFixed(2)}° · tím {payload.primaryRainbowAnglesDeg.violet.toFixed(2)}°</text>}
@@ -76,7 +93,10 @@ const ObserverScene: React.FC<{ progress: number }> = ({ progress }) => {
     <path d="M 150 250 L 690 690" stroke="#fff" strokeDasharray="12 14" strokeWidth="4" opacity=".5" />
     <circle cx="700" cy="720" r="32" fill="#f8fafc"/><path d="M700 752v92M700 776l-54 62M700 776l54 62" stroke="#f8fafc" strokeWidth="14" strokeLinecap="round"/>
     {spectrum.map((color, i) => <path key={color} d={`M ${110 + i * 8} ${800 - i * 6} A ${340 + i * 14} ${340 + i * 14} 0 0 1 ${790 - i * 8} ${800 - i * 6}`} fill="none" stroke={color} strokeWidth="17" strokeDasharray="1100" strokeDashoffset={1100 * (1 - reveal)} filter="url(#arcGlow)" />)}
-    <text x="700" y="900" textAnchor="middle" fill="#e0f2fe" fontSize="30">Mặt Trời ở sau lưng người quan sát</text>
+    <text x="620" y="872" textAnchor="middle" fill="#e0f2fe" fontSize="29" fontWeight="650">
+      <tspan x="620" dy="0">Mặt Trời ở sau lưng</tspan>
+      <tspan x="620" dy="38">người quan sát</tspan>
+    </text>
   </svg>;
 };
 

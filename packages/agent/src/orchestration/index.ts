@@ -22,5 +22,6 @@ export * from './timeline-normalizer-v3';
 export * from './universal-educational-director-v3';
 export * from './educational-content-preflight-v3';
 export * from './pedagogical-beat-compiler-v3';
+export * from './antigravity-agent-runtime';
 
 

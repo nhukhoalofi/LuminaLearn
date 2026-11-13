@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { RenderManifestV2Schema } from '@luminalearn/scene-schema';
-import { evaluateAudioTruthfulness, evaluateDeterministicVisualLayout } from '../src/visual-qa';
+import {
+  evaluateAudioTruthfulness,
+  evaluateDeterministicVisualLayout,
+  evaluateMotionContinuity,
+  parseFreezeSegments,
+  representativeFrames
+} from '../src/visual-qa';
+import { evaluateV3MediaQuality } from '../src/v3-media-quality';
 
 function manifest(subtitleText = 'Phụ đề ngắn, rõ ràng.') {
   return RenderManifestV2Schema.parse({
@@ -83,4 +90,81 @@ test('evaluateAudioTruthfulness separates audio_presence from audible_speech and
   });
   assert.equal(audibleNonSilent.status, 'requires_manual_review');
   assert.match(audibleNonSilent.evidence, /audible_non_silent/);
+});
+
+test('motion continuity rejects a long frozen frame and flags excessive static holds for review', () => {
+  const parsed = parseFreezeSegments([
+    'lavfi.freezedetect.freeze_start: 1.25',
+    'lavfi.freezedetect.freeze_end: 4.10',
+    'lavfi.freezedetect.freeze_start: 8.00',
+    'lavfi.freezedetect.freeze_end: 9.25'
+  ].join('\n'), 10);
+  assert.equal(parsed.length, 2);
+  assert.ok(Math.abs(parsed[0].duration - 2.85) < 0.001);
+  assert.equal(evaluateMotionContinuity(parsed, 10).status, 'fail');
+
+  const review = evaluateMotionContinuity([
+    { start: 1, end: 2.2, duration: 1.2 },
+    { start: 5, end: 6.1, duration: 1.1 }
+  ], 10);
+  assert.equal(review.status, 'requires_manual_review');
+});
+
+test('contact sheet sampling covers every scene midpoint up to the nine-frame QA bound', () => {
+  const multiScene = manifest();
+  multiScene.timeline = Array.from({ length: 6 }, (_, index) => ({
+    ...multiScene.timeline[0],
+    id: `scene_${index}`,
+    startFrame: index * 120,
+    durationFrames: 120
+  }));
+  multiScene.totalFrames = 720;
+  assert.deepEqual(representativeFrames(multiScene), [50, 60, 180, 300, 420, 540, 660]);
+});
+
+test('V3 media gate fails closed for missing narration and an invalid cinematic profile', () => {
+  const checks = evaluateV3MediaQuality({
+    probe: { durationSeconds: 60, width: 720, height: 1280, fps: 24, hasAudio: true },
+    expectedWidth: 1080,
+    expectedHeight: 1920,
+    expectedFps: 30,
+    expectedDurationSeconds: 60,
+    narrationRequired: true,
+    audioIsSilent: true,
+    blackSegments: [],
+    freezeSegments: []
+  });
+  assert.equal(checks.find((check) => check.id === 'dimensions_fps')?.status, 'fail');
+  assert.equal(checks.find((check) => check.id === 'narration_audio')?.status, 'fail');
+});
+
+test('V3 media gate accepts a valid narrated cinematic artifact', () => {
+  const checks = evaluateV3MediaQuality({
+    probe: { durationSeconds: 60.01, width: 1080, height: 1920, fps: 30, hasAudio: true },
+    expectedWidth: 1080,
+    expectedHeight: 1920,
+    expectedFps: 30,
+    expectedDurationSeconds: 60,
+    narrationRequired: true,
+    audioIsSilent: false,
+    blackSegments: [],
+    freezeSegments: [{ start: 5, end: 6.1, duration: 1.1 }]
+  });
+  assert.ok(checks.every((check) => check.status === 'pass'));
+});
+
+test('V3 media gate labels trusted silent fixture audio for manual review instead of claiming narration', () => {
+  const checks = evaluateV3MediaQuality({
+    probe: { durationSeconds: 60, width: 1080, height: 1920, fps: 30, hasAudio: true },
+    expectedWidth: 1080,
+    expectedHeight: 1920,
+    expectedFps: 30,
+    expectedDurationSeconds: 60,
+    narrationRequired: true,
+    trustedSilentFixture: true,
+    audioIsSilent: true,
+    blackSegments: [],
+    freezeSegments: []
+  });
+  assert.equal(checks.find((check) => check.id === 'narration_audio')?.status, 'requires_manual_review');
 });

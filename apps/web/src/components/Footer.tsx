@@ -44,7 +44,7 @@ export function Footer() {
               Demo Hackathon
             </span>
             <span>•</span>
-            <span>Remotion & DUTAI TTS</span>
+            <span>Video bài giảng trực quan</span>
           </div>
         </div>
       </div>

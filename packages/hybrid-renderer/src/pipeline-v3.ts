@@ -17,6 +17,7 @@ import { DutaiTtsProvider } from './dutai-tts';
 import { defaultSceneAudioSynchronizer } from './scene-audio-synchronizer';
 import type { SynchronizedStoryboardAudio } from './scene-audio-synchronizer';
 import { srtTimestamp } from './subtitles';
+import { createV3MediaQualityReport } from './v3-media-quality';
 
 export interface SubtitleCueV3 {
   cueId?: string;
@@ -153,6 +154,7 @@ export async function runRenderPipelineV3(
 
   // Audio handling
   let audioTrackPath: string | undefined;
+  let audioIsTrustedSilentFixture = false;
   if (artifact.request.narrationMode === 'provided_audio') {
     if (!options.providedAudioPath) {
       throw new Error('v3_audio_missing: providedAudioPath is required when narrationMode is provided_audio');
@@ -199,6 +201,7 @@ export async function runRenderPipelineV3(
 
     const suppliedProvider = options.ttsProvider;
     const isOfflineFixture = isTrustedOfflineTtsFixture(suppliedProvider);
+    audioIsTrustedSilentFixture = isOfflineFixture && Boolean(suppliedProvider?.isSilentFixture);
     // Consent is mandatory for every real/custom external provider, including injected providers.
     if (!isOfflineFixture) {
       if (!options.consentRecord) {
@@ -365,9 +368,10 @@ export async function runRenderPipelineV3(
     resolve(workerDir, 'node_modules/@remotion/cli/remotion-cli.js'), 'render',
     'src/index.ts', compositionId, remotionTarget,
     '--props', propsPath,
+    '--concurrency', '2',
     '--codec', 'h264'
   ];
-  const chrome = process.env.REMOTION_BROWSER_EXECUTABLE;
+  const chrome = process.env.REMOTION_BROWSER_EXECUTABLE || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
   if (chrome) args.push('--browser-executable', chrome);
   await execute(command, args, workerDir);
 
@@ -410,6 +414,25 @@ export async function runRenderPipelineV3(
     if (finalAudioMeta.codec !== 'aac') {
       throw new Error(`muxing_verification_failed: Expected AAC audio in output container, got ${finalAudioMeta.codec}`);
     }
+  }
+
+  await createV3MediaQualityReport({
+    videoPath: outputPath,
+    jobDirectory: outputDir,
+    storyboard: resolvedStoryboard,
+    expectedWidth: artifact.request.width,
+    expectedHeight: artifact.request.height,
+    expectedFps: artifact.request.fps,
+    narrationRequired: artifact.request.narrationMode !== 'none',
+    trustedSilentFixture: audioIsTrustedSilentFixture
+  });
+
+  // Tự động trích xuất frame đầu tiên (0.5s) làm ảnh bìa thumbnail chất lượng cao
+  try {
+    const thumbPath = resolve(outputDir, 'thumbnail.png');
+    await execute('ffmpeg', ['-y', '-ss', '0.5', '-i', outputPath, '-vframes', '1', '-q:v', '2', thumbPath]);
+  } catch {
+    // Non-blocking
   }
 
   return { outputPath };

@@ -46,8 +46,14 @@ Import directly from `@luminalearn/animation`:
    - For thermodynamics, Brownian motion, temperature scaling, and surface condensation (dew point).
    - Elastic bouncing boundary physics with velocity motion trails.
 3. **`VectorFieldForceCanvas`**:
-   - For classical mechanics and electromagnetic forces.
-   - Dynamic free-body force vectors ($\vec{F}_{\text{Lorentz}}$, $\vec{P} = m\vec{g}$, $\vec{N}$, $\vec{F}_{\text{ms}}$) with glowing vector heads.
+   - For classical mechanics, dynamics, free-body force analysis, and real-world everyday physics.
+   - Dynamic free-body force vectors ($\vec{F}_{\text{phanh}}$, $\vec{P} = m\vec{g}$, $\vec{N}$, $\vec{F}_{\text{ms}}$, $\vec{F}_A$) with glowing vector heads, photon flow dots, and impulse ripples.
+   - **Real-World Animated Vector Elements**:
+     - `car`: Streamlined Cyberpunk car profile with spinning alloy wheels, forward headlight cone, glowing red brake tail light, and forward-tilting inertia passenger silhouette.
+     - `apple`: Glossy 3D shaded red apple with wooden stem, emerald leaf, and gravity acceleration streaks.
+     - `submarine`: Streamlined submarine hull with conning tower, periscope, rotating propeller, sonar ping ripples, and rising bubbly air spheres.
+     - `skater`: Athletic ice skater silhouette with gleaming chrome blade and ice friction spray shards.
+     - `box` / `sphere` / `coil` / `projectile`: High-tech metallic physics cores for formal laboratory mechanics.
 4. **`GenericPhysicsCanvas`**:
    - Universal adaptive canvas wrapping any physics prompt into the full 9:16 layout.
 5. **`MascotRobot`**:

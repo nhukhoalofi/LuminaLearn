@@ -10,7 +10,7 @@ import {
   VisualSceneDefinitionV3Schema,
   VerifiedFormulaStepsDataV1Schema
 } from '@luminalearn/scene-schema';
-import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene, ExactRainbowIdenticalScene, ExactPhoneCallIdenticalScene, ExactCondensationIdenticalScene, UniversalPhysicsExplainerScene } from '@luminalearn/animation';
+import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene, ExactRainbowIdenticalScene, ExactPhoneCallIdenticalScene, ExactCondensationIdenticalScene, ExactProjectileIdenticalScene, ExactEarthSeasonsIdenticalScene, ExactCloudIdenticalScene, UniversalPhysicsExplainerScene } from '@luminalearn/animation';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
@@ -30,6 +30,7 @@ import { devfestAlgebraStoryboardV3 } from './fixtures/v3/devfest-algebra-v3';
 import { devfestDerivativeStoryboardV3 } from './fixtures/v3/devfest-derivative-v3';
 import { devfestGradientDescentStoryboardV3 } from './fixtures/v3/devfest-gradient-descent-v3';
 import { devfestAlgebraLongformStoryboardV3, devfestDerivativeLongformStoryboardV3, devfestGradientLongformStoryboardV3 } from './fixtures/v3/devfest-longform-v3';
+import { phoneProcessSceneV3, condensationParticleSceneV3, soundWaveSceneV3, projectileSceneV3, pendulumSceneV3, energySceneV3 } from './fixtures/v3/physics-format-v3';
 import { rainbowPhysicsStoryboardV3 } from './fixtures/v3/rainbow-physics-v3';
 
 const LuminaVideoSchema = z.object({
@@ -291,6 +292,66 @@ export const Root: React.FC = () => {
           subtitlesEnabled: true
         }}
       />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsProcessFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: phoneProcessSceneV3, subtitlesEnabled: true }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsParticleFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: condensationParticleSceneV3, subtitlesEnabled: true }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsWaveFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: soundWaveSceneV3, subtitlesEnabled: true }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsProjectileFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: projectileSceneV3, subtitlesEnabled: true }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsPendulumFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: pendulumSceneV3, subtitlesEnabled: true }}
+      />
+      <Composition<typeof LuminaScenePreviewV3Schema, LuminaScenePreviewV3Props>
+        id="PhysicsEnergyFamilyPreviewV3"
+        component={LuminaScenePreviewV3}
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        schema={LuminaScenePreviewV3Schema}
+        defaultProps={{ scene: energySceneV3, subtitlesEnabled: true }}
+      />
       {/* Exact Clone of Reference Video (1766 frames, 30 FPS, 58.86s, 1080x1920) */}
       <Composition
         id="LuminaExactRainbowClone"
@@ -314,6 +375,33 @@ export const Root: React.FC = () => {
         id="LuminaExactCondensationClone"
         component={ExactCondensationIdenticalScene}
         durationInFrames={1920}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      {/* Exact Clone of Video 4 (Projectile Motion / Parabola, 1800 frames, 30 FPS, 60.0s, 1080x1920) */}
+      <Composition
+        id="LuminaExactProjectileClone"
+        component={ExactProjectileIdenticalScene}
+        durationInFrames={1800}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      {/* Exact Clone of Video 4 (Earth Seasons / 23.5 Tilt, 1680 frames, 30 FPS, 56.0s, 1080x1920) */}
+      <Composition
+        id="LuminaExactEarthSeasonsClone"
+        component={ExactEarthSeasonsIdenticalScene}
+        durationInFrames={1680}
+        fps={30}
+        width={1080}
+        height={1920}
+      />
+      {/* Streamlined Clone of Video 5 (Cloud Scattering / Storm Cloud, 1380 frames, 30 FPS, 46.0s, 1080x1920) */}
+      <Composition
+        id="LuminaExactCloudClone"
+        component={ExactCloudIdenticalScene}
+        durationInFrames={1380}
         fps={30}
         width={1080}
         height={1920}

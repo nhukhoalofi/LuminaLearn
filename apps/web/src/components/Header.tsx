@@ -111,11 +111,10 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.55rem 1.15rem',
+                padding: '0.55rem 1.25rem',
                 borderRadius: '9999px',
                 fontSize: '0.9rem',
-                fontWeight: activeTab === 'home' ? 700 : 500,
+                fontWeight: activeTab === 'home' ? 800 : 600,
                 color: activeTab === 'home' ? '#6D28D9' : '#64748B',
                 backgroundColor: activeTab === 'home' ? '#FFFFFF' : 'transparent',
                 border: activeTab === 'home' ? '1.5px solid #8B5CF6' : '1.5px solid transparent',
@@ -127,10 +126,6 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
                 transition: 'all 0.2s ease',
               }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
               <span>Trang chủ</span>
             </button>
 
@@ -141,11 +136,10 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.55rem 1.15rem',
+                padding: '0.55rem 1.25rem',
                 borderRadius: '9999px',
                 fontSize: '0.9rem',
-                fontWeight: activeTab === 'create' ? 700 : 500,
+                fontWeight: activeTab === 'create' ? 800 : 600,
                 color: activeTab === 'create' ? '#6D28D9' : '#64748B',
                 backgroundColor: activeTab === 'create' ? '#FFFFFF' : 'transparent',
                 border: activeTab === 'create' ? '1.5px solid #8B5CF6' : '1.5px solid transparent',
@@ -157,16 +151,6 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
                 transition: 'all 0.2s ease',
               }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-                <line x1="7" y1="2" x2="7" y2="22" />
-                <line x1="17" y1="2" x2="17" y2="22" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <line x1="2" y1="7" x2="7" y2="7" />
-                <line x1="2" y1="17" x2="7" y2="17" />
-                <line x1="17" y1="17" x2="22" y2="17" />
-                <line x1="17" y1="7" x2="22" y2="7" />
-              </svg>
               <span>Tạo video</span>
             </button>
 
@@ -178,10 +162,10 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                padding: '0.55rem 1.15rem',
+                padding: '0.55rem 1.25rem',
                 borderRadius: '9999px',
                 fontSize: '0.9rem',
-                fontWeight: activeTab === 'album' ? 700 : 500,
+                fontWeight: activeTab === 'album' ? 800 : 600,
                 color: activeTab === 'album' ? '#6D28D9' : '#64748B',
                 backgroundColor: activeTab === 'album' ? '#FFFFFF' : 'transparent',
                 border: activeTab === 'album' ? '1.5px solid #8B5CF6' : '1.5px solid transparent',
@@ -193,18 +177,6 @@ export function Header({ activeTab, onTabChange, albumCount }: HeaderProps) {
                 transition: 'all 0.2s ease',
               }}
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill={activeTab === 'album' ? '#7C3AED' : 'none'}
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
               <span>Album video</span>
               {typeof albumCount === 'number' && albumCount > 0 && (
                 <span

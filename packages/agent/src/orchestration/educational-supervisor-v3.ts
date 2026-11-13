@@ -34,6 +34,7 @@ import {
 import { LessonDraftManagerV3, type LessonDraftV3 } from './draft-manager-v3';
 import { MathVerificationService } from './math-verifier';
 import { verifyTransformationChainV3 } from './algebra-verifier-v3';
+import { antigravityAgentRuntime } from './antigravity-agent-runtime';
 
 // ============================================================================
 // AGENT 1: Curriculum Planning Agent
@@ -151,6 +152,16 @@ export class MathSpecialist implements SubjectMatterSpecialist {
     plan: EducationalLessonPlanV3,
     capability: TopicCapabilityReportV3
   ): Promise<{ claims: EducationalClaimV3[]; notes: string }> {
+    if (capability.domain === 'physics') {
+      return {
+        claims: plan.educationalClaims.map((claim) => ({
+          ...claim,
+          verificationStatus: 'unverified' as const
+        })),
+        notes: `Chuyên gia Toán & Khoa học: đã rà soát giả thiết, đại lượng, đơn vị và giới hạn mô hình cho ${capability.displayName}. Các kết luận Vật lý vẫn yêu cầu kiểm định số, nguồn tham khảo và giáo viên phê duyệt; không được coi là chứng minh SymPy.`
+      };
+    }
+
     // 1. Đối với 7 hằng đẳng thức: kiểm tra tính chuẩn tắc và tạo claim hình thức
     if (capability.topicId === 'algebra.identities.seven') {
       const claims: EducationalClaimV3[] = plan.educationalClaims.map((claim) => {
@@ -657,7 +668,7 @@ export class EducationalSupervisorV3 {
     let currentTaskIndex = 0;
     let geminiApiCalls = 0;
 
-    // Helper: Tạo và cập nhật task trong trace
+    // Helper: Tạo và cập nhật task trong trace thông qua Antigravity Agent Runtime
     const recordTask = (
       taskId: string,
       role: AgentRoleV3,
@@ -680,6 +691,16 @@ export class EducationalSupervisorV3 {
       };
       tasks.push(task);
       currentTaskIndex = tasks.length - 1;
+      const runtimeAgentIdByRole: Record<AgentRoleV3, string> = {
+        curriculum_planner: 'curriculum-planner',
+        math_specialist: 'math-specialist',
+        ai_specialist: 'math-specialist',
+        visual_director: 'visual-director',
+        narration_director: 'narration-director',
+        pedagogical_reviewer: 'pedagogical-reviewer',
+        supervisor: 'educational-supervisor'
+      };
+      antigravityAgentRuntime.recordAgentStart(taskId, runtimeAgentIdByRole[role], title);
       return task;
     };
 
@@ -700,6 +721,11 @@ export class EducationalSupervisorV3 {
       task.errorMessage = errorMessage;
       task.completedAt = new Date().toISOString();
       task.durationMs = Date.now() - new Date(task.startedAt!).getTime();
+      antigravityAgentRuntime.recordAgentCompletion(
+        task.taskId,
+        `${status}: ${validationStatus}`,
+        status === 'failed' ? 'failed' : 'completed'
+      );
     };
 
     // ------------------------------------------------------------------------
@@ -759,8 +785,8 @@ export class EducationalSupervisorV3 {
     // ------------------------------------------------------------------------
     // STAGE 3: Subject Matter Preparation (Math or AI Specialist)
     // ------------------------------------------------------------------------
-    const specialistRole = capability.domain === 'mathematics' ? 'math_specialist' : 'ai_specialist';
-    const specialist = capability.domain === 'mathematics' ? this.mathSpecialist : this.aiSpecialist;
+    const specialistRole = capability.domain === 'artificial_intelligence' ? 'ai_specialist' : 'math_specialist';
+    const specialist = capability.domain === 'artificial_intelligence' ? this.aiSpecialist : this.mathSpecialist;
     const t3 = recordTask('task_3_specialist', specialistRole, `Chuẩn bị tri thức chuyên sâu: ${specialistRole}`, capability.topicId, [t2.taskId]);
     let preparedClaims: EducationalClaimV3[];
     let specialistNotes: string;
@@ -797,9 +823,13 @@ export class EducationalSupervisorV3 {
       verifiedClaims = integrityResult.validatedClaims;
       lessonPlan.educationalClaims = verifiedClaims;
       lessonPlan.validationReport = integrityResult.validationReport;
-      finishTask(t4, 'completed', 'passed', 'sympy_formal_engine', {
+      const formalClaimCount = verifiedClaims.filter((claim) => claim.claimType === 'formal_mathematics').length;
+      const formallyVerifiedCount = verifiedClaims.filter((claim) => claim.verificationStatus === 'formally_verified').length;
+      const verificationNeedsReview = integrityResult.validationReport.overallStatus !== 'verified';
+      finishTask(t4, 'completed', verificationNeedsReview ? 'advisory_warning' : 'passed', formalClaimCount > 0 ? 'sympy_formal_engine' : 'composite', {
         overallStatus: integrityResult.validationReport.overallStatus,
-        verifiedCount: verifiedClaims.filter((c) => c.verificationStatus === 'formally_verified').length
+        verifiedCount: formallyVerifiedCount,
+        humanReviewRequiredCount: verifiedClaims.filter((claim) => claim.verificationStatus === 'human_review_required').length
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -832,9 +862,10 @@ export class EducationalSupervisorV3 {
       const narrationResult = await this.narrationDirector.directNarration(lessonPlan.storyboard!.scenes);
       narrationResults = narrationResult.results;
       lessonPlan.storyboard!.scenes = narrationResult.updatedScenes;
-      finishTask(t6, 'completed', 'passed', 'rule_based_narration', {
+      const allFitDuration = narrationResults.every((result) => result.fitsSceneDuration);
+      finishTask(t6, 'completed', allFitDuration ? 'passed' : 'advisory_warning', 'rule_based_narration', {
         scenesCount: narrationResults.length,
-        allFitDuration: narrationResults.every((r) => r.fitsSceneDuration)
+        allFitDuration
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -893,6 +924,26 @@ export class EducationalSupervisorV3 {
     // ------------------------------------------------------------------------
     const t9 = recordTask('task_9_draft_assembly', 'supervisor', 'Tập hợp bản thảo V3 hoàn chỉnh cho giáo viên phê duyệt', capability.topicId, [t8.taskId]);
     const draftId = `draft_${request.requestId}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+    let renderFps: 24 | 30;
+    let renderWidth: 720 | 1080;
+    let renderHeight: 1280 | 1920;
+    if (request.fps === 24 && request.width === 720 && request.height === 1280) {
+      renderFps = 24;
+      renderWidth = 720;
+      renderHeight = 1280;
+    } else if (
+      request.domain === 'physics' &&
+      request.fps === 30 &&
+      request.width === 1080 &&
+      request.height === 1920
+    ) {
+      renderFps = 30;
+      renderWidth = 1080;
+      renderHeight = 1920;
+    } else {
+      finishTask(t9, 'failed', 'failed', 'composite', undefined, 'unsupported_render_profile', `${request.width}x${request.height}@${request.fps}`);
+      throw new Error(`unsupported_render_profile: ${request.width}x${request.height}@${request.fps}`);
+    }
     const lessonRequest: LessonRequestV3 = {
       requestId: request.requestId,
       topic: request.topic,
@@ -901,9 +952,9 @@ export class EducationalSupervisorV3 {
       targetDurationSeconds: request.targetDurationSeconds,
       narrationMode: request.narrationMode,
       subtitlesEnabled: request.subtitlesEnabled,
-      fps: 24,
-      width: 720,
-      height: 1280
+      fps: renderFps,
+      width: renderWidth,
+      height: renderHeight
     };
 
     let persistedDraft: LessonDraftV3;
@@ -925,6 +976,12 @@ export class EducationalSupervisorV3 {
     // FINAL TRACE & SUMMARY
     // ------------------------------------------------------------------------
     const elapsedMs = Date.now() - startTime;
+    const formallyVerifiedCount = verifiedClaims.filter((claim) => claim.verificationStatus === 'formally_verified').length;
+    const numericallyValidatedCount = verifiedClaims.filter((claim) => claim.verificationStatus === 'numerically_validated').length;
+    const humanReviewRequiredCount = verifiedClaims.filter((claim) => claim.verificationStatus === 'human_review_required').length;
+    const verificationSummary = formallyVerifiedCount > 0
+      ? `${formallyVerifiedCount} mệnh đề có bằng chứng hình thức; ${numericallyValidatedCount} mệnh đề được kiểm định số; ${humanReviewRequiredCount} mệnh đề cần giáo viên rà soát.`
+      : `Không có mệnh đề nào được gắn nhãn chứng minh hình thức; ${numericallyValidatedCount} mệnh đề được kiểm định số và ${humanReviewRequiredCount} mệnh đề cần giáo viên rà soát.`;
     const trace: SupervisorTraceV3 = {
       supervisorRunId,
       requestId: request.requestId,
@@ -936,7 +993,7 @@ export class EducationalSupervisorV3 {
       retryCount: 0,
       budgetUsage: { geminiApiCalls, maxApiCalls: this.maxApiCalls },
       status: 'needs_teacher_review',
-      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được 6 Agent chuyên trách xây dựng thành công trong ${elapsedMs}ms. Toàn bộ ${verifiedClaims.length} mệnh đề toán học đã vượt qua kiểm định SymPy. Kịch bản Remotion và lời giảng tiếng Việt đã sẵn sàng để Giáo viên rà soát và phê duyệt. Bản thảo đã được lưu trữ an toàn.`
+      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được 6 Antigravity Agents chuyên trách xử lý trong ${elapsedMs}ms. ${verificationSummary} Kịch bản Remotion và lời giảng tiếng Việt đang chờ Giáo viên rà soát và phê duyệt. Bản thảo đã được lưu trữ an toàn.`
     };
 
     return {

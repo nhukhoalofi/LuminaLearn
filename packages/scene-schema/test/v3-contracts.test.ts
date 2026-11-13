@@ -34,7 +34,7 @@ describe('V3 Educational Contracts & Capability Registry', () => {
 
   it('registers the benchmark topics plus Phase 4 algebra with honest renderReadiness', () => {
     const keys = Object.keys(REGISTERED_TOPICS_V3);
-    assert.equal(keys.length, 12);
+    assert.equal(keys.length, 19);
 
     const mathTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'mathematics');
     const aiTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'artificial_intelligence');
@@ -42,7 +42,7 @@ describe('V3 Educational Contracts & Capability Registry', () => {
 
     assert.equal(mathTopics.length, 6);
     assert.equal(aiTopics.length, 5);
-    assert.equal(physicsTopics.length, 1);
+    assert.equal(physicsTopics.length, 8);
 
     // Only topics with real renderers are marked render_ready
     assert.equal(REGISTERED_TOPICS_V3['calculus.derivative.intuition'].renderReadiness, 'render_ready');
@@ -51,6 +51,14 @@ describe('V3 Educational Contracts & Capability Registry', () => {
     assert.equal(REGISTERED_TOPICS_V3['ai.gradient_descent.optimization'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['ai.perceptron.activation'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['algebra.identities.seven'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.optics.rainbow'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.electromagnetism.telecom'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.thermodynamics.condensation'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.waves.sound'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.newton_forces'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.projectile'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.pendulum'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.energy_conservation'].renderReadiness, 'render_ready');
   });
 
   it('deterministic classifier routes math and AI topics appropriately', () => {
@@ -123,7 +131,7 @@ describe('V3 Educational Contracts & Capability Registry', () => {
   it('deterministic classifier strictly rejects out-of-scope domains (fail-closed)', () => {
     assert.throws(
       () => classifyEducationalTopic('Phản ứng nhiệt nhôm trong Hóa học'),
-      (err: unknown) => err instanceof DomainScopeViolationError && /chỉ hỗ trợ hai lĩnh vực/i.test(err.message)
+      (err: unknown) => err instanceof DomainScopeViolationError && /toán học.*trí tuệ nhân tạo.*vật lý/i.test(err.message)
     );
     assert.throws(
       () => classifyEducationalTopic('Quá trình quang hợp ở tế bào thực vật (Sinh học)'),

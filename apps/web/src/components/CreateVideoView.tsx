@@ -18,37 +18,67 @@ interface SubjectOption {
 }
 
 const SUBJECTS: SubjectOption[] = [
-  { id: 'physics', label: 'Vật lý', icon: '⚛️', domain: 'physics' },
-  { id: 'math', label: 'Toán học', icon: 'π', domain: 'mathematics' },
-  { id: 'chemistry', label: 'Hóa học', icon: '🧪', domain: 'physics' },
-  { id: 'biology', label: 'Sinh học', icon: '🌱', domain: 'physics' },
+  { id: 'physics', label: 'Vật lý', icon: '', domain: 'physics' },
+  { id: 'math', label: 'Toán học', icon: '', domain: 'mathematics' },
+  { id: 'chemistry', label: 'Hóa học', icon: '', domain: 'physics' },
+  { id: 'biology', label: 'Sinh học', icon: '', domain: 'physics' },
 ];
 
 const QUICK_SUGGESTIONS = [
   {
     topic: 'Vì sao sau cơn mưa xuất hiện cầu vồng?',
     subject: 'physics' as SubjectType,
-    label: '🌈 Vì sao có cầu vồng?',
+    label: 'Vì sao có cầu vồng?',
+  },
+  {
+    topic: 'Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?',
+    subject: 'physics' as SubjectType,
+    label: 'Vì sao mùa hè nóng, mùa đông lạnh?',
   },
   {
     topic: 'Làm thế nào điện thoại thông minh kết nối cuộc gọi?',
     subject: 'physics' as SubjectType,
-    label: '📱 Điện thoại kết nối cuộc gọi',
+    label: 'Điện thoại kết nối cuộc gọi',
   },
   {
     topic: 'Vì sao ngoài lon nước lạnh xuất hiện giọt sương?',
     subject: 'physics' as SubjectType,
-    label: '🥤 Đọng sương lon nước',
+    label: 'Đọng sương lon nước',
   },
   {
     topic: 'Định lý Pythagoras và ứng dụng hình học trực quan',
     subject: 'math' as SubjectType,
-    label: '📐 Định lý Pythagoras',
+    label: 'Định lý Pythagoras',
   },
   {
     topic: 'Chuyển động ném ngang và phân tích quỹ đạo parabol',
     subject: 'physics' as SubjectType,
-    label: '🚀 Chuyển động ném ngang',
+    label: 'Chuyển động ném ngang',
+  },
+  {
+    topic: 'Vì sao mây thường màu trắng nhưng mây giông lại xám đen?',
+    subject: 'physics' as SubjectType,
+    label: 'Vì sao mây giông đen?',
+  },
+  {
+    topic: 'Định luật II Newton và mối quan hệ F = m·a',
+    subject: 'physics' as SubjectType,
+    label: 'Định luật II Newton',
+  },
+  {
+    topic: 'Con lắc đơn và dao động điều hòa góc nhỏ',
+    subject: 'physics' as SubjectType,
+    label: 'Con lắc đơn',
+  },
+  {
+    topic: 'Sự truyền sóng cơ học và mối quan hệ v = λ·f',
+    subject: 'physics' as SubjectType,
+    label: 'Sóng cơ học',
+  },
+  {
+    topic: 'Định luật bảo toàn cơ năng trong trọng trường',
+    subject: 'physics' as SubjectType,
+    label: 'Bảo toàn cơ năng',
   },
 ];
 
@@ -127,7 +157,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
 
     setBusy(true);
     setError(null);
-    setStatusMessage('AI đang lập kế hoạch sư phạm và xác minh khoa học...');
+    setStatusMessage('Hệ thống đang lập kế hoạch bài giảng và chuẩn bị nội dung khoa học...');
 
     const chosenSubject = SUBJECTS.find((s) => s.id === selectedSubject) || SUBJECTS[0];
     const isPhone = /điện thoại|phone|nghe gọi|viễn thông|bts/i.test(activeTopic);
@@ -300,8 +330,8 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         approveExpectedVersion = revData.version ?? approveExpectedVersion;
       }
 
-      // 3. Phê duyệt & xếp hàng xuất video Remotion + DUTAI TTS
-      setStatusMessage('Bắt đầu xuất video với giọng đọc DUTAI TTS Bảo Trang...');
+      // 3. Phê duyệt & xếp hàng xuất video
+      setStatusMessage('Bắt đầu tạo video với thuyết minh giọng đọc...');
       setActiveStep(3);
 
       const approveRes = await fetch(`/api/v3/lessons/${draft.draftId}/approve`, {
@@ -322,7 +352,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
       const approveData = await approveRes.json();
       if (approveData.job) {
         setJob(approveData.job);
-        setStatusMessage(approveData.job.message || 'Đang render video Remotion...');
+        setStatusMessage(approveData.job.message || 'Đang kết xuất video bài giảng...');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -492,14 +522,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem',
-                  fontSize: '1rem',
-                  fontWeight: 700,
+                  fontSize: '1.05rem',
+                  fontWeight: 800,
                   color: '#0F172A',
                   marginBottom: '0.75rem',
                 }}
               >
-                <span>📝</span>
                 <span>Bạn muốn tạo video về chủ đề gì?</span>
               </label>
 
@@ -557,7 +585,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   marginBottom: '1.5rem',
                 }}
               >
-                <span style={{ fontSize: '0.78rem', color: '#94A3B8' }}>Gợi ý nhanh:</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>Gợi ý nhanh:</span>
                 {QUICK_SUGGESTIONS.map((item, idx) => (
                   <button
                     key={idx}
@@ -567,8 +595,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                       setSelectedSubject(item.subject);
                     }}
                     style={{
-                      fontSize: '0.78rem',
-                      padding: '0.2rem 0.6rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      padding: '0.3rem 0.75rem',
                       borderRadius: '9999px',
                       backgroundColor: '#F8FAFC',
                       border: '1px solid #E2E8F0',
@@ -598,14 +627,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.5rem',
-                    fontSize: '0.95rem',
-                    fontWeight: 700,
+                    fontSize: '1rem',
+                    fontWeight: 800,
                     color: '#0F172A',
                     marginBottom: '0.75rem',
                   }}
                 >
-                  <span>📚</span>
                   <span>Môn học</span>
                 </label>
 
@@ -627,14 +654,13 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '0.45rem',
-                          padding: '0.65rem 0.5rem',
+                          padding: '0.75rem 0.5rem',
                           borderRadius: '12px',
                           border: isSelected ? '1.5px solid #8B5CF6' : '1.5px solid #E2E8F0',
                           backgroundColor: isSelected ? '#F5F3FF' : '#FFFFFF',
                           color: isSelected ? '#6D28D9' : '#475569',
-                          fontWeight: isSelected ? 700 : 500,
-                          fontSize: '0.9rem',
+                          fontWeight: isSelected ? 800 : 600,
+                          fontSize: '0.925rem',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
                           boxShadow: isSelected
@@ -642,7 +668,6 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                             : 'none',
                         }}
                       >
-                        <span style={{ fontSize: '1.1rem' }}>{subj.icon}</span>
                         <span>{subj.label}</span>
                       </button>
                     );
@@ -658,21 +683,20 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   alignSelf: 'flex-end',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.85rem 2rem',
+                  justifyContent: 'center',
+                  padding: '0.85rem 2.2rem',
                   borderRadius: '14px',
                   background: 'linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #9333EA 100%)',
                   color: '#FFFFFF',
                   fontSize: '1rem',
-                  fontWeight: 700,
+                  fontWeight: 800,
                   border: 'none',
                   cursor: busy ? 'not-allowed' : 'pointer',
                   boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.4)',
                   transition: 'all 0.2s ease',
                 }}
               >
-                <span>{busy ? '⏳' : '✨'}</span>
-                <span>{busy ? 'Đang tạo kịch bản...' : 'Tiếp tục ➔'}</span>
+                <span>{busy ? 'Đang tạo kịch bản...' : 'Tiếp tục'}</span>
               </button>
             </form>
           )}
@@ -680,48 +704,21 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
           {/* ===================== BƯỚC 2: AI TẠO NỘI DUNG (HIỂN THỊ KỊCH BẢN & CHO PHÉP SỬA) ===================== */}
           {activeStep === 2 && draft && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {/* Banner thông báo quyền chỉnh sửa */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '0.85rem 1.25rem',
-                  backgroundColor: '#F5F3FF',
-                  borderRadius: '16px',
-                  border: '1.5px solid #DDD6FE',
-                  flexWrap: 'wrap',
-                  gap: '0.75rem',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span style={{ fontSize: '1.25rem' }}>📝</span>
-                  <div>
-                    <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#5B21B6' }}>
-                      Kịch bản bài giảng do AI khởi tạo
-                    </h3>
-                    <p style={{ fontSize: '0.8rem', color: '#6D28D9' }}>
-                      Bạn có toàn quyền chỉnh sửa tiêu đề bài học và lời thoại thuyết minh trước khi xuất video.
-                    </p>
-                  </div>
+              {saveSuccessNotice && (
+                <div
+                  style={{
+                    padding: '0.65rem 1rem',
+                    backgroundColor: '#ECFDF5',
+                    borderRadius: '12px',
+                    border: '1px solid #A7F3D0',
+                    color: '#059669',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓ Đã lưu thay đổi kịch bản!
                 </div>
-
-                {saveSuccessNotice && (
-                  <span
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 700,
-                      color: '#059669',
-                      backgroundColor: '#ECFDF5',
-                      padding: '0.25rem 0.75rem',
-                      borderRadius: '9999px',
-                      border: '1px solid #A7F3D0',
-                    }}
-                  >
-                    ✓ Đã lưu thay đổi kịch bản!
-                  </span>
-                )}
-              </div>
+              )}
 
               {/* Tiêu đề bài giảng (Editable) */}
               <div>
@@ -765,8 +762,8 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   border: '1px solid #E2E8F0',
                 }}
               >
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>
-                  🎯 Mục tiêu sư phạm:
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>
+                  Mục tiêu sư phạm:
                 </span>
                 <ul
                   style={{
@@ -792,11 +789,11 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     marginBottom: '0.75rem',
                   }}
                 >
-                  <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1E293B' }}>
+                  <label style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1E293B' }}>
                     Phân cảnh bài giảng ({draft.scenes.length} cảnh · {draft.totalDurationSeconds}s):
                   </label>
-                  <span style={{ fontSize: '0.78rem', color: '#6366F1', fontWeight: 600 }}>
-                    🎙️ Giọng đọc: DUTAI TTS (Bảo Trang)
+                  <span style={{ fontSize: '0.8rem', color: '#6366F1', fontWeight: 700 }}>
+                    Giọng đọc: Bảo Trang
                   </span>
                 </div>
 
@@ -858,19 +855,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                           />
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              color: '#059669',
-                              backgroundColor: '#ECFDF5',
-                              padding: '0.15rem 0.5rem',
-                              borderRadius: '6px',
-                              fontWeight: 600,
-                            }}
-                          >
-                            ✓ SymPy Verified
-                          </span>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
                           <span
                             style={{
                               fontSize: '0.75rem',
@@ -881,7 +866,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                               fontWeight: 600,
                             }}
                           >
-                            ⏱ {scene.durationSeconds}s
+                            {scene.durationSeconds}s
                           </span>
                         </div>
                       </div>
@@ -946,12 +931,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     backgroundColor: '#F1F5F9',
                     border: '1px solid #CBD5E1',
                     color: '#475569',
-                    fontWeight: 600,
+                    fontWeight: 700,
                     fontSize: '0.9rem',
                     cursor: 'pointer',
                   }}
                 >
-                  ← Đổi chủ đề khác
+                  Đổi chủ đề khác
                 </button>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -970,7 +955,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                       cursor: busy ? 'not-allowed' : 'pointer',
                     }}
                   >
-                    💾 Lưu chỉnh sửa
+                    Lưu chỉnh sửa
                   </button>
 
                   <button
@@ -980,20 +965,19 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.75rem 1.75rem',
+                      justifyContent: 'center',
+                      padding: '0.75rem 1.85rem',
                       borderRadius: '12px',
                       background: 'linear-gradient(135deg, #6366F1 0%, #7C3AED 50%, #9333EA 100%)',
                       color: '#FFFFFF',
-                      fontWeight: 700,
+                      fontWeight: 800,
                       fontSize: '0.95rem',
                       border: 'none',
                       cursor: busy ? 'not-allowed' : 'pointer',
                       boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.4)',
                     }}
                   >
-                    <span>{busy ? '⏳' : '✓'}</span>
-                    <span>{busy ? 'Đang chuẩn bị...' : 'Phê duyệt & Xuất video ➔'}</span>
+                    <span>{busy ? 'Đang chuẩn bị...' : 'Phê duyệt & Xuất video'}</span>
                   </button>
                 </div>
               </div>
@@ -1027,11 +1011,11 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   />
 
                   <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.4rem' }}>
-                    Đang kết xuất video Remotion & DUTAI TTS
+                    Đang tạo video bài giảng
                   </h3>
 
                   <p style={{ fontSize: '0.925rem', color: '#64748B', maxWidth: '460px', marginBottom: '1.5rem' }}>
-                    {statusMessage || 'Hệ thống đang tổng hợp giọng đọc chuẩn Bảo Trang và kết xuất khung hình...'}
+                    {statusMessage || 'Hệ thống đang xử lý hình ảnh và thuyết minh giọng đọc...'}
                   </p>
 
                   {job && (
@@ -1081,8 +1065,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '1.1rem' }}>🎉</span>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#065F46' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#065F46' }}>
                         Video bài giảng đã được tạo thành công!
                       </span>
                     </div>
@@ -1186,7 +1169,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                           boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
                         }}
                       >
-                        <span>▶ Xem trong Album video</span>
+                        <span>Xem trong Album video</span>
                       </button>
                     )}
                   </div>

@@ -58,32 +58,30 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
         />
 
         {/* 1. LEFT COLUMN: Hero Title & CTA */}
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Small pill tag */}
           <div
             style={{
               alignSelf: 'flex-start',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.35rem 0.95rem',
+              padding: '0.35rem 1rem',
               borderRadius: '9999px',
               backgroundColor: '#EDE9FE',
               border: '1px solid #DDD6FE',
               color: '#7C3AED',
               fontSize: '0.85rem',
-              fontWeight: 700,
+              fontWeight: 800,
               boxShadow: '0 2px 8px rgba(124, 58, 237, 0.08)',
             }}
           >
-            <span>✨</span>
-            <span>LuminaLearn</span>
+            LuminaLearn
           </div>
 
           {/* Heading */}
           <h1
             style={{
-              fontSize: 'clamp(2rem, 3.2vw, 2.65rem)',
+              fontSize: 'clamp(2rem, 3.2vw, 2.75rem)',
               fontWeight: 850,
               color: '#0F172A',
               lineHeight: 1.25,
@@ -92,21 +90,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             }}
           >
             Tạo video bài giảng <br />
-            cùng AI <span style={{ color: '#F59E0B' }}>✨</span>
+            cùng AI
           </h1>
-
-          {/* Subtitle */}
-          <p
-            style={{
-              fontSize: '1rem',
-              color: '#475569',
-              lineHeight: 1.6,
-              margin: 0,
-              maxWidth: '380px',
-            }}
-          >
-            Biến ý tưởng thành video học tập sinh động, trực quan và dễ hiểu chỉ trong vài phút.
-          </p>
 
           {/* CTA Button */}
           <div style={{ paddingTop: '0.35rem' }}>
@@ -116,13 +101,13 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.85rem 1.85rem',
+                justifyContent: 'center',
+                padding: '0.85rem 2.2rem',
                 borderRadius: '9999px',
                 background: 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)',
                 color: '#FFFFFF',
                 fontSize: '1rem',
-                fontWeight: 700,
+                fontWeight: 800,
                 border: 'none',
                 cursor: 'pointer',
                 boxShadow: '0 10px 25px -4px rgba(124, 58, 237, 0.45)',
@@ -137,9 +122,7 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                 e.currentTarget.style.boxShadow = '0 10px 25px -4px rgba(124, 58, 237, 0.45)';
               }}
             >
-              <span>✨</span>
-              <span>Thử tạo video ngay</span>
-              <span>➔</span>
+              Thử tạo video ngay
             </button>
           </div>
         </div>
@@ -218,7 +201,7 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             zIndex: 2,
             display: 'flex',
             flexDirection: 'column',
-            gap: '0.95rem',
+            gap: '1rem',
             justifyContent: 'center',
           }}
         >
@@ -227,49 +210,26 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '1rem',
-              padding: '0.95rem 1.15rem',
-              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              padding: '1.1rem 1.6rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
               backdropFilter: 'blur(10px)',
-              borderRadius: '20px',
+              borderRadius: '18px',
               border: '1px solid rgba(226, 232, 240, 0.95)',
-              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.06)',
+              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.08)',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.12)';
+              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.14)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.06)';
+              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.08)';
             }}
           >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '14px',
-                backgroundColor: '#F5F3FF',
-                border: '1.5px solid #DDD6FE',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#7C3AED',
-                fontSize: '1.25rem',
-                flexShrink: 0,
-              }}
-            >
-              ⚡
-            </div>
-            <div>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.15rem 0' }}>
-                Tạo nội dung tự động
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Từ chủ đề đến kịch bản chi tiết
-              </p>
-            </div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
+              Tạo nội dung tự động
+            </h3>
           </div>
 
           {/* Feature Card 2 */}
@@ -277,49 +237,26 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '1rem',
-              padding: '0.95rem 1.15rem',
-              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              padding: '1.1rem 1.6rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
               backdropFilter: 'blur(10px)',
-              borderRadius: '20px',
+              borderRadius: '18px',
               border: '1px solid rgba(226, 232, 240, 0.95)',
-              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.06)',
+              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.08)',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.12)';
+              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.14)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.06)';
+              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.08)';
             }}
           >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '14px',
-                backgroundColor: '#EFF6FF',
-                border: '1.5px solid #BFDBFE',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#2563EB',
-                fontSize: '1.25rem',
-                flexShrink: 0,
-              }}
-            >
-              📹
-            </div>
-            <div>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.15rem 0' }}>
-                Video trực quan, sinh động
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Hình ảnh, hoạt hình và thuyết minh AI
-              </p>
-            </div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
+              Video trực quan, sinh động
+            </h3>
           </div>
 
           {/* Feature Card 3 */}
@@ -327,49 +264,26 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '1rem',
-              padding: '0.95rem 1.15rem',
-              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              padding: '1.1rem 1.6rem',
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
               backdropFilter: 'blur(10px)',
-              borderRadius: '20px',
+              borderRadius: '18px',
               border: '1px solid rgba(226, 232, 240, 0.95)',
-              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.06)',
+              boxShadow: '0 6px 18px -4px rgba(99, 102, 241, 0.08)',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.12)';
+              e.currentTarget.style.boxShadow = '0 10px 22px -4px rgba(99, 102, 241, 0.14)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.06)';
+              e.currentTarget.style.boxShadow = '0 6px 18px -4px rgba(99, 102, 241, 0.08)';
             }}
           >
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '14px',
-                backgroundColor: '#FAF5FF',
-                border: '1.5px solid #E9D5FF',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#9333EA',
-                fontSize: '1.25rem',
-                flexShrink: 0,
-              }}
-            >
-              📚
-            </div>
-            <div>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.15rem 0' }}>
-                Phù hợp nhiều môn học
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Vật lý, Toán, Hóa, Sinh và nhiều hơn nữa
-              </p>
-            </div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
+              Phù hợp nhiều môn học
+            </h3>
           </div>
         </div>
       </div>
@@ -396,11 +310,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                 margin: 0,
               }}
             >
-              Kho video bài giảng tiêu biểu ✨
+              Kho video bài giảng tiêu biểu
             </h2>
-            <p style={{ fontSize: '0.875rem', color: '#64748B', margin: '0.25rem 0 0 0' }}>
-              Các video chất lượng cao được kết hợp giữa Remotion và thuyết minh giọng đọc DUTAI
-            </p>
           </div>
 
           <button
@@ -409,14 +320,13 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.55rem 1.15rem',
+              padding: '0.6rem 1.35rem',
               borderRadius: '9999px',
               backgroundColor: '#FFFFFF',
               border: '1.5px solid #CBD5E1',
               color: '#4F46E5',
               fontSize: '0.875rem',
-              fontWeight: 700,
+              fontWeight: 800,
               cursor: 'pointer',
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
               transition: 'all 0.15s ease',
@@ -431,19 +341,85 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             }}
           >
             <span>Xem toàn bộ Album ({albumCount} video)</span>
-            <span>➔</span>
           </button>
         </div>
 
-        {/* 3 Featured Preview Cards */}
+        {/* 4 Featured Preview Cards */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
             gap: '1.5rem',
           }}
         >
-          {/* Card 1: Rainbow */}
+          {/* Card 1: Earth Seasons Clone */}
+          <div
+            onClick={onGoToAlbum}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              border: '2px solid #F59E0B',
+              boxShadow: '0 4px 18px rgba(245, 158, 11, 0.15)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-3px)';
+              e.currentTarget.style.boxShadow = '0 12px 28px -6px rgba(245, 158, 11, 0.25)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0px)';
+              e.currentTarget.style.boxShadow = '0 4px 18px rgba(245, 158, 11, 0.15)';
+            }}
+          >
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', backgroundColor: '#0F172A' }}>
+              <Image
+                src="/demo/thumb-seasons-frame.png"
+                alt="Bốn mùa Trái Đất"
+                fill
+                style={{ objectFit: 'cover' }}
+              />
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  backgroundColor: 'rgba(245, 158, 11, 0.85)',
+                  backdropFilter: 'blur(6px)',
+                  color: '#FFFFFF',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '9999px',
+                }}
+              >
+                Vật lý
+              </span>
+              <span
+                style={{
+                  position: 'absolute',
+                  bottom: '8px',
+                  right: '8px',
+                  backgroundColor: 'rgba(0,0,0,0.85)',
+                  color: '#FFFFFF',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '0.2rem 0.55rem',
+                  borderRadius: '6px',
+                }}
+              >
+                ▶ 00:56
+              </span>
+            </div>
+            <div style={{ padding: '1rem 1.15rem' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
+                Vì sao mùa hè thì nóng, còn mùa đông lại lạnh? (Trục nghiêng 23.5°)
+              </h3>
+            </div>
+          </div>
+
+          {/* Card 2: Rainbow */}
           <div
             onClick={onGoToAlbum}
             style={{
@@ -504,12 +480,9 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
               </span>
             </div>
             <div style={{ padding: '1rem 1.15rem' }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.4rem 0' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
                 Vì sao sau cơn mưa xuất hiện cầu vồng?
               </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Tán sắc ánh sáng và hiện tượng phản xạ toàn phần qua giọt mưa.
-              </p>
             </div>
           </div>
 
@@ -574,12 +547,9 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
               </span>
             </div>
             <div style={{ padding: '1rem 1.15rem' }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.4rem 0' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
                 Thuật toán Gradient Descent & Tối ưu hóa hàm mất mát
               </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Mô hình hóa 3D tìm cực tiểu hàm mất mát trong huấn luyện AI.
-              </p>
             </div>
           </div>
 
@@ -644,12 +614,9 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
               </span>
             </div>
             <div style={{ padding: '1rem 1.15rem' }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.4rem 0' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
                 Bản chất hình học của đạo hàm: Cát tuyến đến tiếp tuyến
               </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748B', margin: 0 }}>
-                Giới hạn tiếp tuyến và ý nghĩa hình học của đạo hàm.
-              </p>
             </div>
           </div>
         </div>

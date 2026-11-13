@@ -13,6 +13,7 @@ import {
   VisualDslSceneV3,
   FormulaSequenceSceneV3,
   PhysicsOpticsScene,
+  CinematicPhysicsExplainerScene,
   supportedSubtitleMathLatex,
   adaptScalarFunctionGraphV3,
   adaptGeometry2dV3,
@@ -216,6 +217,8 @@ export const SceneDispatcherV3: React.FC<{
       );
     case 'physics_optics':
       return <PhysicsOpticsScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
+    case 'physics_explainer':
+      return <CinematicPhysicsExplainerScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'summary':
       return <SummaryScene title={scene.title} payload={payload} subtitleText={subtitle} durationInFrames={sceneDurationFrames} />;
     case 'formula_derivation':
@@ -257,7 +260,7 @@ export const LuminaSceneV3: React.FC<LuminaSceneV3Props> = ({
 }) => {
   const { fps } = useVideoConfig();
   const hasAuthoritativeCues = Array.isArray(subtitleCues) && subtitleCues.length > 0;
-  const isPhysicsOptics = storyboard.scenes.some((scene) => scene.sceneType === 'physics_optics');
+  const isPhysicsOptics = storyboard.scenes.some((scene) => scene.sceneType === 'physics_optics' || scene.sceneType === 'physics_explainer');
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#070B14' }}>

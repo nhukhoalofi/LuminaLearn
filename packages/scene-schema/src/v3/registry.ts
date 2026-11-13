@@ -7,6 +7,7 @@ import {
   SummaryVisualPayloadSchema,
   AlgebraIdentityVisualPayloadSchema,
   PhysicsOpticsVisualPayloadSchema,
+  PhysicsExplainerVisualPayloadSchema,
   GenericSceneVisualPayloadSchema,
   VisualLayoutPresetV3,
   VisualStylePresetV3
@@ -217,6 +218,19 @@ export class EducationalVisualRegistryV3 {
       defaultLayout: 'centered_focus',
       defaultStyle: 'clean_educational_infographic',
       requiresMathVerification: true
+    });
+
+    this.register({
+      componentId: 'physics_explainer',
+      name: 'Cinematic Physics Explainer',
+      description: 'Format 6 beat tái sử dụng cho chuỗi quá trình, trạng thái hạt, sóng, lực và năng lượng.',
+      category: 'physics',
+      supportedTopics: ['physics.electromagnetism.telecom', 'physics.thermodynamics.condensation', 'physics'],
+      supportedBackends: ['remotion', 'hybrid'],
+      payloadSchema: PhysicsExplainerVisualPayloadSchema,
+      defaultLayout: 'centered_focus',
+      defaultStyle: 'clean_educational_infographic',
+      requiresMathVerification: false
     });
 
     this.register({

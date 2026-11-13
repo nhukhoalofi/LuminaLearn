@@ -1,0 +1,50 @@
+{
+  "$schema": "https://antigravity.google/schemas/agents.v1.json",
+  "system": "LuminaLearn Antigravity Multi-Agent Network",
+  "version": "3.0.0",
+  "agents": [
+    {
+      "id": "educational-supervisor",
+      "role": "supervisor",
+      "displayName": "Antigravity Multi-Agent Supervisor",
+      "configPath": ".agents/agents/educational-supervisor.agent.md",
+      "capabilities": ["coordination", "cross_agent_validation", "draft_assembly"]
+    },
+    {
+      "id": "curriculum-planner",
+      "role": "curriculum_planner",
+      "displayName": "Antigravity Curriculum Planner",
+      "configPath": ".agents/agents/curriculum-planner.agent.md",
+      "capabilities": ["blooms_taxonomy", "chapter_breakdown", "pedagogical_beats"]
+    },
+    {
+      "id": "math-specialist",
+      "role": "math_specialist",
+      "displayName": "Antigravity Math & Science Specialist",
+      "configPath": ".agents/agents/math-specialist.agent.md",
+      "capabilities": ["formal_mathematics", "sympy_verification", "boundary_conditions"]
+    },
+    {
+      "id": "visual-director",
+      "role": "visual_director",
+      "displayName": "Antigravity Visual Director",
+      "configPath": ".agents/agents/visual-director.agent.md",
+      "capabilities": ["remotion_dsl", "physics_canvas", "safe_zones"]
+    },
+    {
+      "id": "narration-director",
+      "role": "narration_director",
+      "displayName": "Antigravity Narration Director",
+      "configPath": ".agents/agents/narration-director.agent.md",
+      "capabilities": ["vietnamese_tts", "wpm_pacing", "subtitle_sync"]
+    },
+    {
+      "id": "pedagogical-reviewer",
+      "role": "pedagogical_reviewer",
+      "displayName": "Antigravity Pedagogical Reviewer",
+      "configPath": ".agents/agents/pedagogical-reviewer.agent.md",
+      "capabilities": ["misconception_detection", "clarity_scoring", "textbook_grounding"]
+    }
+  ]
+}
+

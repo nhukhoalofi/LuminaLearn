@@ -482,6 +482,7 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
                   src={video.thumbnailUrl}
                   alt={video.title}
                   fill
+                  unoptimized
                   sizes="(max-width: 768px) 100vw, 33vw"
                   style={{
                     objectFit: 'cover',
@@ -587,21 +588,16 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
                   >
                     {video.title}
                   </h3>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      fontSize: '0.8rem',
-                      color: '#94A3B8',
-                    }}
-                  >
-                    <span>📅</span>
-                    <span>{video.formattedDate}</span>
-                    {video.isSaved && (
+                  {video.isSaved && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: '0.8rem',
+                      }}
+                    >
                       <span
                         style={{
-                          marginLeft: 'auto',
                           fontSize: '0.72rem',
                           color: '#B45309',
                           backgroundColor: '#FEF3C7',
@@ -612,8 +608,8 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
                       >
                         Trình chiếu
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Bottom Action Buttons (Play & Download) */}
@@ -759,6 +755,7 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
                   src={video.thumbnailUrl}
                   alt={video.title}
                   fill
+                  unoptimized
                   style={{ objectFit: 'cover' }}
                 />
                 <span
@@ -799,9 +796,6 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
                     }}
                   >
                     {video.subject}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>
-                    📅 {video.formattedDate}
                   </span>
                   {video.isSaved && (
                     <span
@@ -1062,8 +1056,7 @@ export function AlbumVideoView({ onGoToCreate }: AlbumVideoViewProps) {
             >
               <div>
                 <p style={{ fontSize: '0.85rem', color: '#64748B' }}>
-                  Thời lượng: <strong>{playingVideo.duration}</strong> • Ngày tạo:{' '}
-                  <strong>{playingVideo.formattedDate}</strong>
+                  Thời lượng: <strong>{playingVideo.duration}</strong>
                 </p>
                 {playingVideo.description && (
                   <p

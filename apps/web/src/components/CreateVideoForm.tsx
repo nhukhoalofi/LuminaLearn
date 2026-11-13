@@ -700,8 +700,21 @@ export function CreateVideoForm({
           </div>
           <div className="quick-topics" style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span className="quick-topics-label" style={{ fontWeight: 600, color: '#38BDF8' }}>🌈 Vật lý & Quang học 2D (Physics & Optics):</span>
+              <span className="quick-topics-label" style={{ fontWeight: 600, color: '#38BDF8' }}>🌈 Vật lý & Thiên văn học (Physics & Astronomy):</span>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  style={{ borderColor: '#F59E0B', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#FDE047', fontWeight: 700 }}
+                  onClick={() => {
+                    setTopic('Vì sao mùa hè thì nóng, còn mùa đông lại lạnh? (Trục Trái Đất nghiêng 23.5°)');
+                    setVoiceoverMode('dutai_tts');
+                    setConfirmExternalApi(true);
+                  }}
+                >
+                  🌍 Demo Các Mùa: Mùa hè nóng, mùa đông lạnh 56s (DUTAI TTS Bảo Trang + BGM)
+                </button>
                 <button
                   type="button"
                   className="quick-chip"
@@ -714,6 +727,32 @@ export function CreateVideoForm({
                   }}
                 >
                   🔘 Demo Vòng Tròn: Cầu vồng sau cơn mưa 60s (DUTAI TTS Bảo Trang + BGM)
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  style={{ borderColor: '#06B6D4', backgroundColor: 'rgba(6, 182, 212, 0.15)', color: '#F8FAFC', fontWeight: 700 }}
+                  onClick={() => {
+                    setTopic('Vì sao điện thoại nghe gọi được với nhau? (Sóng điện từ & Viễn thông)');
+                    setVoiceoverMode('dutai_tts');
+                    setConfirmExternalApi(true);
+                  }}
+                >
+                  📱 Demo Viễn Thông: Sóng điện thoại 89s (DUTAI TTS Bảo Trang + BGM)
+                </button>
+                <button
+                  type="button"
+                  className="quick-chip"
+                  disabled={busy}
+                  style={{ borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#F8FAFC', fontWeight: 700 }}
+                  onClick={() => {
+                    setTopic('Vì sao ngoài lon nước lạnh xuất hiện giọt sương? (Nhiệt độ điểm sương)');
+                    setVoiceoverMode('dutai_tts');
+                    setConfirmExternalApi(true);
+                  }}
+                >
+                  ❄️ Demo Nhiệt Học: Lon nước đọng sương 64s (DUTAI TTS Bảo Trang + BGM)
                 </button>
               </div>
             </div>

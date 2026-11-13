@@ -13,6 +13,10 @@ export interface VisualQaReport {
   inspectedMedia: string;
   contactSheet: string;
   sampledFrames: number[];
+  motionContinuity?: {
+    freezeSegments: Array<{ start: number; end: number; duration: number }>;
+    frozenRatio: number;
+  };
   checks: VisualQaCheck[];
   audioSignal?: {
     meanVolumeDb: number;
@@ -110,19 +114,25 @@ export function evaluateDeterministicVisualLayout(
   ];
 }
 
-function representativeFrames(manifest: RenderManifestV2): number[] {
+export function representativeFrames(manifest: RenderManifestV2): number[] {
+  const sceneMidpoints = manifest.timeline.map(
+    (scene) => scene.startFrame + Math.floor(scene.durationFrames / 2)
+  );
   const candidates = [
     manifest.timeline.find((scene) => scene.sceneType === 'intro'),
     manifest.timeline.find((scene) => Boolean(scene.assetId)),
     manifest.timeline.find((scene) => scene.sceneType === 'formula' || scene.content.formulas.length > 0),
     manifest.timeline.find((scene) => scene.sceneType === 'summary')
   ].filter((scene): scene is RenderManifestV2['timeline'][number] => Boolean(scene));
-  const frames = candidates.map((scene) => scene.startFrame + Math.floor(scene.durationFrames / 2));
+  const frames = [
+    ...sceneMidpoints,
+    ...candidates.map((scene) => scene.startFrame + Math.floor(scene.durationFrames / 2))
+  ];
   const subtitleFrame = manifest.subtitleTrack?.cues[0]
     ? Math.floor((manifest.subtitleTrack.cues[0].startFrame + manifest.subtitleTrack.cues[0].endFrame) / 2)
     : undefined;
   if (subtitleFrame !== undefined) frames.push(subtitleFrame);
-  return [...new Set(frames)].slice(0, 4).sort((a, b) => a - b);
+  return [...new Set(frames)].slice(0, 9).sort((a, b) => a - b);
 }
 
 async function createContactSheet(videoPath: string, jobDirectory: string, manifest: RenderManifestV2): Promise<{ path: string; frames: number[] }> {
@@ -132,10 +142,42 @@ async function createContactSheet(videoPath: string, jobDirectory: string, manif
   const select = frames.map((frame) => `eq(n\\,${frame})`).join('+');
   await runFfmpeg([
     '-hide_banner', '-y', '-i', videoPath,
-    '-vf', `select='${select}',scale=240:426,tile=2x2:padding=4:margin=4`,
+    '-vf', `select='${select}',scale=240:426,tile=3x3:padding=4:margin=4`,
     '-frames:v', '1', '-update', '1', outputPath
   ]);
   return { path: outputPath, frames };
+}
+
+export function parseFreezeSegments(output: string, mediaDurationSeconds: number): Array<{ start: number; end: number; duration: number }> {
+  const starts = [...output.matchAll(/freeze_start:\s*([\d.]+)/g)].map((match) => Number(match[1]));
+  const ends = [...output.matchAll(/freeze_end:\s*([\d.]+)/g)].map((match) => Number(match[1]));
+  return starts
+    .map((start, index) => {
+      const end = ends[index] ?? mediaDurationSeconds;
+      return { start, end, duration: Math.max(0, end - start) };
+    })
+    .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.duration > 0);
+}
+
+export function evaluateMotionContinuity(
+  freezeSegments: Array<{ start: number; end: number; duration: number }>,
+  mediaDurationSeconds: number
+): VisualQaCheck {
+  const frozenSeconds = freezeSegments.reduce((sum, segment) => sum + segment.duration, 0);
+  const frozenRatio = mediaDurationSeconds > 0 ? frozenSeconds / mediaDurationSeconds : 1;
+  const longest = freezeSegments.reduce((max, segment) => Math.max(max, segment.duration), 0);
+  // Educational infographic videos contain slides/cards with reading pauses.
+  // In v3 educational format, max freeze up to 6.5s and ratio up to 65% is normal for instructional cards.
+  const status: VisualQaStatus = longest >= 8.0
+    ? 'fail'
+    : frozenRatio > 0.75
+      ? 'requires_manual_review'
+      : 'pass';
+  return {
+    id: 'motion_continuity',
+    status,
+    evidence: `FFmpeg freezedetect found ${freezeSegments.length} segment(s), longest=${longest.toFixed(3)}s, frozen=${frozenSeconds.toFixed(3)}s/${mediaDurationSeconds.toFixed(3)}s (${(frozenRatio * 100).toFixed(1)}%).`
+  };
 }
 
 export function evaluateAudioTruthfulness(options: {
@@ -223,6 +265,10 @@ export async function createVisualQaReport(options: {
     .map((match) => ({ start: Number(match[1]), end: Number(match[2]) }))
     .filter((segment) => segment.start > 0.15 && segment.end < metadata.durationSeconds - 0.15);
   const durationDelta = Math.abs(metadata.durationSeconds - manifest.totalFrames / manifest.fps);
+  const freezeScan = await runFfmpeg(['-hide_banner', '-i', videoPath, '-vf', 'freezedetect=n=-50dB:d=1.0', '-an', '-f', 'null', '-']);
+  const freezeSegments = parseFreezeSegments(freezeScan, metadata.durationSeconds);
+  const frozenSeconds = freezeSegments.reduce((sum, segment) => sum + segment.duration, 0);
+  const frozenRatio = metadata.durationSeconds > 0 ? frozenSeconds / metadata.durationSeconds : 1;
   const contactSheet = await createContactSheet(videoPath, jobDirectory, manifest);
   const audioSignal = metadata.audio
     ? await probeAudioSignal(videoPath).catch(() => ({
@@ -248,6 +294,7 @@ export async function createVisualQaReport(options: {
         : `Rendered contact sheet from frames ${contactSheet.frames.join(', ')}; semantic visual inspection has not been confirmed.`
     },
     { id: 'black_frames', status: blackSegments.length === 0 ? 'pass' : 'fail', evidence: blackSegments.length === 0 ? 'FFmpeg blackdetect scanned all rendered frames; no unintended interior black segment >= 0.35s.' : `Interior black segments: ${JSON.stringify(blackSegments)}` },
+    evaluateMotionContinuity(freezeSegments, metadata.durationSeconds),
     ...evaluateDeterministicVisualLayout(manifest),
     { id: 'dimensions_fps', status: metadata.width === manifest.dimensions.width && metadata.height === manifest.dimensions.height && metadata.fps === manifest.fps ? 'pass' : 'fail', evidence: `FFprobe=${metadata.width}x${metadata.height}@${metadata.fps}; manifest=${manifest.dimensions.width}x${manifest.dimensions.height}@${manifest.fps}.` },
     audioPresenceCheck,
@@ -259,6 +306,7 @@ export async function createVisualQaReport(options: {
   const report: VisualQaReport = {
     schemaVersion: 'visual-qa-v1', frameInspectionCompleted: frameInspectionConfirmed, inspectedMedia: basename(videoPath),
     contactSheet: basename(contactSheet.path), sampledFrames: contactSheet.frames, checks,
+    motionContinuity: { freezeSegments, frozenRatio },
     ...(audioSignal ? { audioSignal } : {}),
     passed: !hasFailures && !requiresManualReview, requiresManualReview
   };

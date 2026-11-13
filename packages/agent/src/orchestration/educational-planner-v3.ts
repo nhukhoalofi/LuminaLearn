@@ -16,6 +16,7 @@ import type { DocumentAnalysisResult } from './types';
 import { KnowledgeValidationServiceV3, validateAlgebraSceneMath } from './knowledge-validation-v3';
 import { normalizeStoryboardTimelineV3, buildChaptersForScenes } from './timeline-normalizer-v3';
 import { directEducationalLessonV3 } from './universal-educational-director-v3';
+import { reviewPhysicsStoryboard } from './physics-storyboard-quality-loop';
 export { buildChaptersForScenes };
 
 export interface EducationalPlannerV3Options {
@@ -167,7 +168,7 @@ export class EducationalPlannerV3 {
         rawScenes: candidatePlan.storyboard.scenes,
         targetDurationSeconds: targetSec,
         capability: capabilityReport,
-        fps: 24,
+        fps: capabilityReport.domain === 'physics' ? 30 : 24,
         maxSceneDurationSeconds: 120
       });
       candidatePlan.storyboard.scenes = normalized.scenes;
@@ -180,7 +181,15 @@ export class EducationalPlannerV3 {
       targetLearners: audience,
       targetDurationSeconds
     });
-    return EducationalLessonPlanV3Schema.parse(directedPlan);
+    const parsedPlan = EducationalLessonPlanV3Schema.parse(directedPlan);
+    const physicsQuality = reviewPhysicsStoryboard(parsedPlan);
+    if (!physicsQuality.passed) {
+      throw new EducationalGenerationError(Object.assign(
+        new Error(`physics_storyboard_quality_failed: ${physicsQuality.findings.filter((finding) => finding.severity === 'blocking').map((finding) => finding.code).join(', ')}`),
+        { code: 'physics_storyboard_quality_failed', report: physicsQuality }
+      ));
+    }
+    return parsedPlan;
   }
 
   /**
@@ -215,21 +224,26 @@ export class EducationalPlannerV3 {
 
     const budget = this.requestBudget ?? new GeminiRequestBudget();
     const targetDuration = input.targetDurationSeconds ?? 40;
-    const targetScenes = targetDuration <= 60 ? '2-3' : targetDuration <= 180 ? '4-5' : targetDuration <= 300 ? '5-7' : '8-12';
+    const targetScenes = capability.domain === 'physics' && targetDuration <= 60
+      ? '6'
+      : targetDuration <= 60 ? '2-3' : targetDuration <= 180 ? '4-5' : targetDuration <= 300 ? '5-7' : '8-12';
+    const sceneDurationRule = capability.domain === 'physics' && targetDuration <= 60
+      ? 'Mỗi phân cảnh phải có durationSeconds từ 5 đến 20 giây.'
+      : 'Mỗi phân cảnh phải có durationSeconds từ 15 đến 90 giây.';
 
     const systemPrompt = `Bạn là Chuyên gia Thiết kế Giáo trình Toán học & AI LuminaLearn V3.
 Nhiệm vụ: Lập kế hoạch bài học sư phạm video (${targetScenes} phân cảnh) cho chủ đề: "${input.topic}".
 Lĩnh vực: ${capability.domain}. Ngôn ngữ: ${input.language === 'en' ? 'en' : 'vi'}.
 Quy tắc toàn vẹn tri thức & Thời lượng bắt buộc:
 - Thời lượng mục tiêu tổng thể: ${targetDuration} giây.
-- QUY TẮC BẮT BUỘC VỀ THỜI LƯỢNG MỖI CẢNH: Mỗi phân cảnh phải có durationSeconds từ 15 đến 90 giây (TUYỆT ĐỐI KHÔNG vượt quá 120 giây).
+- QUY TẮC BẮT BUỘC VỀ THỜI LƯỢNG MỖI CẢNH: ${sceneDurationRule} TUYỆT ĐỐI KHÔNG vượt quá 120 giây.
 - Tổng durationSeconds của tất cả phân cảnh phải đúng bằng ${targetDuration} giây.
 - KHÔNG tự nhận định bất kỳ mệnh đề nào là "formally_verified".
 - Mọi mệnh đề toán học phải nêu rõ biểu thức formalExpression và validatorKey thích hợp nếu có.
 - Trả về JSON theo đúng định dạng cấu trúc bài học sư phạm V3.`;
 
     const userPrompt = `Hãy tạo kế hoạch bài học cho chủ đề "${input.topic}" (ID: ${capability.topicId}).
-Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phân cảnh, mỗi cảnh 15-90 giây, tối đa 120 giây).`;
+Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phân cảnh; ${sceneDurationRule.toLowerCase()}; tối đa 120 giây).`;
 
     const response = await this.aiProvider.generateStructured<EducationalLessonPlanV3>({
       purpose: 'curriculum_planning',
@@ -262,7 +276,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
           rawScenes: candidateScenes,
           targetDurationSeconds: targetDuration,
           capability,
-          fps: 24,
+          fps: capability.domain === 'physics' ? 30 : 24,
           maxSceneDurationSeconds: 120
         });
 
@@ -363,9 +377,8 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         },
         {
           id: 'claim_rainbow_angles',
-          claimType: 'formal_mathematics' as const,
+          claimType: 'ai_concept' as const,
           statement: 'Góc cầu vồng chính lệch 42.37° (đỏ) và 40.51° (tím) theo định luật Snell.',
-          formalExpression: 'theta_red=42.37, theta_violet=40.51',
           verificationStatus: 'unverified' as const
         }
       ];
@@ -378,7 +391,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
       };
 
       const beats = [
-        ['hook', 'Một giọt mưa có thể tách ánh sáng?', 'Theo dấu một tia sáng', 'push_in', false, 5, 'Ngay sau cơn mưa, hàng triệu giọt nước còn lơ lửng. Chỉ một tia sáng Mặt Trời đi qua đúng đường đã đủ tạo nên một mảnh cầu vồng.'],
+        ['hook', 'Một giọt mưa có thể tách ánh sáng?', 'Theo dấu một tia sáng', 'push_in', false, 5, 'Sau cơn mưa, một tia sáng đi đúng đường qua giọt nước có thể tạo thành nhiều màu.'],
         ['white_light_spectrum', 'Ánh sáng trắng chứa một phổ liên tục', 'Mỗi bước sóng bị bẻ cong khác nhau', 'track_ray', false, 9, 'Ánh sáng trắng không phải đúng bảy màu rời rạc. Nó là một phổ liên tục; trong nước, mỗi bước sóng có chiết suất hơi khác nhau.'],
         ['entry_refraction', 'Lần 1: khúc xạ khi đi vào', 'Tia đổi hướng tại mặt giọt nước', 'push_in', true, 11, 'Khi đi từ không khí vào nước, tia sáng chậm lại và khúc xạ về phía pháp tuyến. Tia tím bị bẻ cong mạnh hơn tia đỏ.'],
         ['internal_reflection', 'Lần 2: phản xạ ở mặt sau', 'Một lần phản xạ tạo cầu vồng chính', 'orbit_drop', true, 10, 'Các tia chạm mặt sau của giọt và phản xạ trở lại. Với cầu vồng chính, đường đi quan trọng có đúng một lần phản xạ bên trong.'],
@@ -397,6 +410,338 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         narration: { vietnamese: narration, subtitleVietnamese: narration },
         visualPayload: { sceneType: 'physics_optics' as const, stage, headline, focusLabel, ...optics, showNormals, cameraMove } as any
       }));
+    } else if (capability.topicId === 'physics.electromagnetism.telecom') {
+      summary = 'Theo dấu giọng nói qua sáu trạm: micro, số hóa, sóng vô tuyến, trạm gốc, giải mã và loa.';
+      learningObjectives = [
+        'Phân biệt sóng âm mang giọng nói với sóng điện từ truyền tín hiệu vô tuyến',
+        'Mô tả đúng chuỗi biến đổi từ âm thanh đến tín hiệu số và trở lại âm thanh',
+        'Không nhầm điện thoại truyền trực tiếp giọng nói trong không khí đến người nghe'
+      ];
+      keyConcepts = ['Sóng âm', 'Tín hiệu điện', 'Số hóa', 'Sóng điện từ', 'Giải mã'];
+      claims = [
+        { id: 'claim_phone_microphone', claimType: 'empirical_observation', statement: 'Micro biến dao động áp suất âm thành tín hiệu điện.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn kỹ thuật và giáo viên duyệt.' },
+        { id: 'claim_phone_radio', claimType: 'algorithmic_property', statement: 'Thông tin giọng nói đã mã hóa được mang qua liên kết vô tuyến bằng sóng điện từ.', verificationStatus: 'unverified', humanReviewComment: 'Mô hình khái quát, không mô tả giao thức mạng cụ thể.' },
+        { id: 'claim_phone_speaker', claimType: 'empirical_observation', statement: 'Loa biến tín hiệu điện đã giải mã thành dao động không khí mà tai nghe được.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn kỹ thuật và giáo viên duyệt.' }
+      ];
+      const nodes = ['Micro', 'ADC', 'Sóng', 'BTS', 'DAC', 'Loa'];
+      const chain = (activeNodeIndex: number, carrierLabel: string) => ({ kind: 'process_chain' as const, nodes, activeNodeIndex, carrierLabel });
+      const beats = [
+        { beat: 'hook', headline: 'Giọng nói đi đâu sau khi vào điện thoại?', focus: 'Một hành trình qua 6 trạm', insight: 'Giọng nói không bay nguyên vẹn đến máy bên kia.', duration: 6, claimId: 'claim_phone_microphone', narration: 'Bạn nói ở đây, người ở rất xa vẫn nghe gần như tức thì. Giọng nói đã đi qua sáu lần biến đổi.', family: 'process_chain', camera: 'push_in', simulation: chain(0, 'GIỌNG NÓI') },
+        { beat: 'system_model', headline: 'Micro: âm thanh thành tín hiệu điện', focus: 'Màng rung chuyển dao động áp suất', insight: 'Sóng âm làm màng micro rung theo giọng nói.', duration: 9, claimId: 'claim_phone_microphone', narration: 'Sóng âm làm màng micro rung. Chuyển động này được biến thành tín hiệu điện thay đổi theo giọng nói.', family: 'process_chain', camera: 'macro', simulation: chain(0, 'SÓNG ÂM') },
+        { beat: 'mechanism_a', headline: 'Tín hiệu được lấy mẫu và mã hóa', focus: 'Từ tín hiệu liên tục thành dữ liệu số', insight: 'Điện thoại truyền dữ liệu biểu diễn giọng nói.', duration: 11, claimId: 'claim_phone_radio', narration: 'Bộ chuyển đổi lấy mẫu tín hiệu, lượng tử hóa và mã hóa nó thành dữ liệu số để xử lý và truyền đi.', family: 'process_chain', camera: 'track', simulation: chain(1, 'BIT SỐ') },
+        { beat: 'mechanism_b', headline: 'Sóng vô tuyến mang thông tin', focus: 'Điện trường và từ trường lan truyền', insight: 'Sóng điện từ là phương tiện mang dữ liệu, không phải chính âm thanh.', duration: 10, claimId: 'claim_phone_radio', narration: 'Dữ liệu điều khiển sóng mang vô tuyến. Sóng điện từ lan đến trạm gốc rồi được mạng chuyển tiếp.', family: 'wave_propagation', camera: 'track', simulation: { kind: 'wave' as const, amplitude: 74, spatialFrequency: 3.2, propagationSpeed: 4.5, wavelengthLabel: 'Bước sóng λ', relationLabel: 'λ = v / f' } },
+        { beat: 'evidence', headline: 'Máy nhận dựng lại tín hiệu', focus: 'Giải mã và chuyển về dạng điện', insight: 'Chuỗi xử lý được đảo ngược ở đầu nhận.', duration: 10, claimId: 'claim_phone_radio', narration: 'Điện thoại bên kia nhận dữ liệu, kiểm tra, giải mã và dựng lại tín hiệu điện tương ứng với giọng nói.', family: 'process_chain', camera: 'track', simulation: chain(4, 'TÍN HIỆU') },
+        { beat: 'takeaway', headline: 'Loa biến tín hiệu thành âm thanh', focus: 'Màng loa rung · không khí rung · tai nghe', insight: 'Âm → điện → số → sóng → số → điện → âm.', duration: 14, claimId: 'claim_phone_speaker', narration: 'Cuối cùng, dòng điện làm màng loa rung và tạo sóng âm mới. Vì thế người nghe nhận được bản tái tạo của giọng nói ban đầu.', family: 'process_chain', camera: 'pull_out', simulation: chain(5, 'ÂM THANH') }
+      ] as const;
+      scenes = beats.map((item, index) => ({
+        sceneId: `sc_phone_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: item.headline,
+        pedagogicalGoal: item.focus,
+        durationSeconds: item.duration,
+        boundClaimIds: [item.claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: item.narration, subtitleVietnamese: item.narration },
+        visualPayload: { sceneType: 'physics_explainer' as const, family: item.family, beat: item.beat, headline: item.headline, focusLabel: item.focus, insight: item.insight, simulation: item.simulation, cameraMove: item.camera, accentColor: '#38BDF8' }
+      }));
+    } else if (capability.topicId === 'physics.thermodynamics.condensation') {
+      summary = 'Theo dõi hơi nước trong không khí bị làm lạnh sát bề mặt lon và ngưng tụ thành giọt khi nhiệt độ xuống dưới điểm sương.';
+      learningObjectives = [
+        'Nhận biết nước bên ngoài lon đến từ hơi nước trong không khí, không thấm xuyên qua vỏ lon',
+        'Giải thích vai trò của nhiệt độ bề mặt và điểm sương',
+        'Mô tả chuyển động hạt trước và trong quá trình ngưng tụ'
+      ];
+      keyConcepts = ['Hơi nước', 'Trao đổi nhiệt', 'Điểm sương', 'Ngưng tụ'];
+      claims = [
+        { id: 'claim_condensation_vapor', claimType: 'empirical_observation', statement: 'Không khí xung quanh luôn có một lượng hơi nước.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn khí tượng hoặc nhiệt học và giáo viên duyệt.' },
+        { id: 'claim_condensation_dewpoint', claimType: 'algorithmic_property', statement: 'Khi không khí sát bề mặt nguội đến điểm sương, hơi nước có thể ngưng tụ.', verificationStatus: 'unverified', humanReviewComment: 'Điều kiện nhiệt độ trong payload được kiểm tra số; phát biểu vẫn cần nguồn.' },
+        { id: 'claim_condensation_origin', claimType: 'empirical_observation', statement: 'Giọt nước ngoài lon hình thành từ hơi nước không khí, không phải nước xuyên qua thành lon.', verificationStatus: 'unverified', humanReviewComment: 'Cần giáo viên xác nhận diễn giải sư phạm.' }
+      ];
+      const particle = (temperature: 'low' | 'medium' | 'high', phase: 'gas' | 'liquid' | 'condensing') => ({
+        kind: 'particle_state' as const,
+        particleCount: 34,
+        temperature,
+        phase,
+        ...(phase === 'condensing' ? { surfaceTemperatureC: 8, dewPointC: 14 } : {})
+      });
+      const beats = [
+        { beat: 'hook', headline: 'Nước bên ngoài lon đến từ đâu?', focus: 'Không có lỗ thủng nào trên vỏ lon', insight: 'Nguồn nước nằm trong không khí xung quanh.', duration: 6, claimId: 'claim_condensation_origin', narration: 'Một lon nước lạnh nhanh chóng phủ đầy giọt nước. Nhưng nước không xuyên qua lớp kim loại kín.', temp: 'medium', phase: 'gas', camera: 'push_in' },
+        { beat: 'system_model', headline: 'Không khí luôn chứa hơi nước', focus: 'Các phân tử nước chuyển động hỗn loạn', insight: 'Hơi nước vô hình vẫn hiện diện quanh chiếc lon.', duration: 9, claimId: 'claim_condensation_vapor', narration: 'Trong không khí luôn có các phân tử nước ở thể hơi, chuyển động và va chạm liên tục.', temp: 'medium', phase: 'gas', camera: 'track' },
+        { beat: 'mechanism_a', headline: 'Bề mặt lạnh lấy bớt năng lượng', focus: 'Lớp không khí sát lon nguội đi', insight: 'Nhiệt độ giảm làm chuyển động phân tử chậm lại.', duration: 11, claimId: 'claim_condensation_dewpoint', narration: 'Bề mặt lon lạnh nhận nhiệt từ lớp không khí sát nó. Các phân tử nước mất bớt động năng và chuyển động chậm hơn.', temp: 'low', phase: 'gas', camera: 'macro' },
+        { beat: 'mechanism_b', headline: 'Chạm điểm sương: bắt đầu ngưng tụ', focus: 'Bề mặt 8°C · điểm sương minh họa 14°C', insight: 'Bề mặt lạnh hơn điểm sương tạo điều kiện ngưng tụ.', duration: 10, claimId: 'claim_condensation_dewpoint', narration: 'Trong ví dụ này, bề mặt tám độ thấp hơn điểm sương mười bốn độ. Hơi nước bắt đầu tụ lại trên bề mặt.', temp: 'low', phase: 'condensing', camera: 'macro' },
+        { beat: 'evidence', headline: 'Các cụm nhỏ lớn dần thành giọt', focus: 'Phân tử bám vào mầm ngưng tụ', insight: 'Nhiều phân tử hợp lại thành giọt nhìn thấy được.', duration: 10, claimId: 'claim_condensation_dewpoint', narration: 'Những cụm phân tử nhỏ tiếp tục nhận thêm hơi nước, lớn dần và trở thành các giọt mà mắt ta nhìn thấy.', temp: 'low', phase: 'condensing', camera: 'track' },
+        { beat: 'takeaway', headline: 'Giọt nước đến từ không khí', focus: 'Lạnh bề mặt → dưới điểm sương → ngưng tụ', insight: 'Không khí ẩm gặp bề mặt đủ lạnh sẽ tạo giọt nước.', duration: 14, claimId: 'claim_condensation_origin', narration: 'Vậy nước ngoài lon đến từ hơi nước trong không khí. Bề mặt đủ lạnh đưa lớp khí sát nó xuống điểm sương và gây ngưng tụ.', temp: 'low', phase: 'condensing', camera: 'pull_out' }
+      ] as const;
+      scenes = beats.map((item, index) => ({
+        sceneId: `sc_condensation_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: item.headline,
+        pedagogicalGoal: item.focus,
+        durationSeconds: item.duration,
+        boundClaimIds: [item.claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: item.narration, subtitleVietnamese: item.narration },
+        visualPayload: { sceneType: 'physics_explainer' as const, family: 'particle_state' as const, beat: item.beat, headline: item.headline, focusLabel: item.focus, insight: item.insight, simulation: particle(item.temp, item.phase), cameraMove: item.camera, accentColor: '#38BDF8' }
+      }));
+    } else if (capability.topicId === 'physics.waves.sound') {
+      summary = 'Mô tả sóng âm như sự lan truyền dao động áp suất qua môi trường, với tần số, bước sóng và vận tốc liên hệ bởi v = fλ.';
+      learningObjectives = ['Phân biệt chuyển động của phần tử môi trường với hướng truyền năng lượng', 'Kiểm tra quan hệ v = fλ bằng dữ liệu số', 'Liên hệ tần số với độ cao của âm'];
+      keyConcepts = ['Dao động áp suất', 'Tần số', 'Bước sóng', 'Vận tốc truyền âm'];
+      claims = [
+        { id: 'claim_sound_medium', claimType: 'empirical_observation', statement: 'Âm truyền qua môi trường nhờ dao động cục bộ của các phần tử môi trường.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn vật lý và giáo viên duyệt.' },
+        { id: 'claim_sound_relation', claimType: 'algorithmic_property', statement: 'Trong mô hình sóng điều hòa, vận tốc truyền thỏa v = fλ.', verificationStatus: 'unverified', humanReviewComment: 'Payload số được kiểm tra bằng quan hệ v = fλ.' },
+        { id: 'claim_sound_frequency', claimType: 'empirical_observation', statement: 'Tần số lớn hơn tương ứng âm cao hơn khi các điều kiện nghe khác giữ nguyên.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn âm học và giới hạn phạm vi.' }
+      ];
+      const wave = (amplitude: number, spatialFrequency: number) => ({ kind: 'wave' as const, amplitude, spatialFrequency, propagationSpeed: 4, wavelengthLabel: 'λ = 0,50 m', relationLabel: '340 = 680 × 0,50', frequencyHz: 680, wavelengthMeters: 0.5, physicalSpeedMps: 340 });
+      const beats = [
+        ['hook', 'Âm thanh đi đến tai bằng cách nào?', 'Không khí không bay từ loa đến tai', 'Năng lượng lan đi; phần tử khí chỉ dao động quanh vị trí cân bằng.', 6, 'claim_sound_medium', 'Loa rung nhưng không đẩy cả khối không khí đến tai. Nó tạo một nhiễu loạn áp suất lan qua môi trường.', 78, 2.2, 'push_in'],
+        ['system_model', 'Nén và giãn truyền nối tiếp', 'Mỗi lớp khí tác động lên lớp kế bên', 'Vùng nén và vùng giãn dịch chuyển theo thời gian.', 9, 'claim_sound_medium', 'Màng loa nén lớp không khí trước mặt. Lớp này truyền tác động sang lớp kế tiếp, tạo sóng âm lan ra xa.', 72, 2.7, 'track'],
+        ['mechanism_a', 'Phần tử khí dao động cục bộ', 'Chuyển động qua lại quanh cân bằng', 'Hạt không đi cùng sóng trên toàn quãng đường.', 10, 'claim_sound_medium', 'Từng phần tử khí chỉ dao động qua lại quanh vị trí cân bằng, trong khi năng lượng của nhiễu loạn tiếp tục truyền đi.', 64, 3.1, 'macro'],
+        ['mechanism_b', 'Tần số quyết định độ cao của âm', '680 dao động mỗi giây trong ví dụ', 'Tần số cao tạo cảm giác âm cao hơn.', 10, 'claim_sound_frequency', 'Tần số cho biết số dao động trong một giây. Ở đây ta minh họa sáu trăm tám mươi héc.', 58, 4.1, 'track'],
+        ['evidence', 'Kiểm tra v = fλ', '680 Hz × 0,50 m = 340 m/s', 'Ba đại lượng phải nhất quán trong cùng môi trường.', 11, 'claim_sound_relation', 'Với tần số sáu trăm tám mươi héc và bước sóng không phẩy năm mét, tích của chúng là ba trăm bốn mươi mét trên giây.', 68, 3.4, 'macro'],
+        ['takeaway', 'Âm là sóng cơ mang năng lượng', 'Cần nguồn dao động và một môi trường', 'Không có môi trường vật chất thì sóng âm không truyền.', 14, 'claim_sound_medium', 'Âm là sóng cơ. Nguồn làm môi trường dao động, dao động truyền năng lượng, còn các phần tử chỉ rung quanh vị trí của chúng.', 76, 2.5, 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, amplitude, frequency, camera], index) => ({ sceneId: `sc_sound_${index + 1}`, sceneType: 'physics_explainer' as const, title: headline, pedagogicalGoal: focus, durationSeconds: duration, boundClaimIds: [claimId], rendererTarget: 'remotion_infographic' as const, narration: { vietnamese: narration, subtitleVietnamese: narration }, visualPayload: { sceneType: 'physics_explainer' as const, family: 'wave_propagation' as const, beat, headline, focusLabel: focus, insight, simulation: wave(amplitude, frequency), cameraMove: camera, accentColor: '#38BDF8' } }));
+    } else if (capability.topicId === 'physics.waves.lightning_thunder') {
+      summary = 'Giải thích hiện tượng quang - âm: Ta thấy tia chớp trước rồi mới nghe sấm vì ánh sáng truyền nhanh gấp gần một triệu lần âm thanh trong không khí.';
+      learningObjectives = [
+        'Hiểu bản chất của sấm sét: nguồn phát đồng thời cả ánh sáng và âm thanh',
+        'So sánh vận tốc ánh sáng (c ≈ 300.000 km/s) và vận tốc âm thanh (v ≈ 340 m/s)',
+        'Ứng dụng công thức tính khoảng cách cơn dông: d = v_âm · Δt'
+      ];
+      keyConcepts = ['Tia sét', 'Vận tốc ánh sáng', 'Vận tốc âm thanh', 'Độ trễ thời gian', 'Khoảng cách cơn dông'];
+      claims = [
+        { id: 'claim_simultaneous_emission', claimType: 'empirical_observation', statement: 'Tia sét phát ra ánh sáng và sóng âm thanh đồng thời tại cùng một vị trí.', verificationStatus: 'unverified', humanReviewComment: 'Hiện tượng phóng điện khí quyển.' },
+        { id: 'claim_speed_difference', claimType: 'algorithmic_property', statement: 'Vận tốc ánh sáng trong khí quyển xấp xỉ 300.000 km/s, nhanh gấp khoảng một triệu lần so với âm thanh 340 m/s.', verificationStatus: 'unverified', humanReviewComment: 'So sánh tốc độ lan truyền sóng.' }
+      ];
+      const lightningChain = (stage: number) => ({
+        kind: 'process_chain' as const,
+        nodes: ['Sét đánh', 'Quang: 300.000 km/s', 'Mắt thấy chớp', 'Âm: 340 m/s', 'Tai nghe sấm'],
+        activeNodeIndex: Math.min(stage, 4),
+        carrierLabel: stage <= 2 ? 'ÁNH SÁNG (TỨC THỜI)' : 'SÓNG ÂM (ĐỘ TRỄ)'
+      });
+      const beats = [
+        ['hook', 'Vì sao thấy chớp trước rồi mới nghe sấm?', 'Mắt thấy ánh chớp lóe lên trước tiếng nổ đì đùng', 'Hiện tượng diễn ra đồng thời tại nguồn nhưng đến mắt và tai vào hai thời điểm khác nhau.', 6, 'claim_simultaneous_emission', 'Vì sao trong cơn dông, ta luôn thấy tia chớp lóe sáng trước rồi một lúc sau mới nghe thấy tiếng sấm?', 'push_in'],
+        ['system_model', 'Nguồn phát: Tia sét tạo ra cả quang và âm', 'Tia chớp phát ra ánh sáng và sóng âm đồng thời', 'Sự phóng điện giữa các đám mây sinh ra ánh sáng chói lòa và sóng âm cùng lúc.', 9, 'claim_simultaneous_emission', 'Tia sét là sự phóng điện cực lớn giữa các đám mây, sinh ra cả ánh sáng rực rỡ và sóng âm thanh cực mạnh đồng thời.', 'macro'],
+        ['mechanism_a', 'Tốc độ ánh sáng: 300.000 km/s', 'Ánh sáng truyền tới mắt ta gần như tức thời', 'Với c xấp xỉ 300.000 km/s, ánh sáng chỉ mất vài phần triệu giây để đến mắt ta.', 10, 'claim_speed_difference', 'Ánh sáng di chuyển với vận tốc ba trăm nghìn cây số trong một giây, truyền tới mắt ta gần như ngay tức khắc.', 'track'],
+        ['mechanism_b', 'Tốc độ âm thanh: Chỉ 340 m/s', 'Sóng âm truyền trong không khí chậm hơn nhiều', 'Âm thanh truyền với vận tốc 340 m/s, mất gần ba giây cho mỗi kilômét.', 10, 'claim_speed_difference', 'Trong khi đó, âm thanh truyền trong không khí chỉ với tốc độ ba trăm bốn mươi mét trên giây, chậm hơn gần một triệu lần.', 'track'],
+        ['evidence', 'Độ trễ thời gian: Δt = d / v_âm', 'Quy tắc đếm giây ước lượng cự ly cơn dông', 'Mỗi 3 giây độ trễ tương ứng khoảng cách xấp xỉ 1 kilômét.', 11, 'claim_speed_difference', 'Sự chênh lệch vận tốc này tạo ra độ trễ. Cứ ba giây sau chớp mới nghe sấm thì tia sét cách ta khoảng một kilômét.', 'macro'],
+        ['takeaway', 'Bản chất: Tốc độ lan truyền sóng', 'Ánh sáng là sóng điện từ · Sấm là sóng cơ', 'Sóng điện từ lan truyền với tốc độ ánh sáng, vượt trội sóng cơ học.', 14, 'claim_speed_difference', 'Tóm lại, chớp đến trước vì ánh sáng truyền nhanh gấp triệu lần âm thanh. Một quy luật vật lý thật thú vị và hữu ích!', 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({
+        sceneId: `sc_lightning_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: headline,
+        pedagogicalGoal: focus,
+        durationSeconds: duration,
+        boundClaimIds: [claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: narration, subtitleVietnamese: narration },
+        visualPayload: {
+          sceneType: 'physics_explainer' as const,
+          family: 'process_chain' as const,
+          beat,
+          headline,
+          focusLabel: focus,
+          insight,
+          simulation: lightningChain(index),
+          cameraMove: camera,
+          accentColor: '#F59E0B'
+        }
+      }));
+    } else if (capability.topicId === 'physics.mechanics.inertia_braking') {
+      summary = 'Giải thích hiện tượng quán tính theo định luật I Newton: Khi xe phanh gấp, lực hãm làm xe giảm tốc nhưng người vẫn tiếp tục chuyển động với vận tốc cũ.';
+      learningObjectives = [
+        'Hiểu bản chất của quán tính: xu hướng bảo toàn vận tốc của vật',
+        'Phân biệt chuyển động của xe (có lực phanh) và người trên xe (chưa kịp nhận lực)',
+        'Ứng dụng an toàn giao thông: vì sao phải thắt dây an toàn'
+      ];
+      keyConcepts = ['Quán tính', 'Định luật I Newton', 'Lực hãm phanh', 'Hệ quy chiếu', 'Dây an toàn'];
+      claims = [
+        { id: 'claim_inertia_definition', claimType: 'empirical_observation', statement: 'Mọi vật đều có xu hướng bảo toàn trạng thái đứng yên hoặc chuyển động thẳng đều.', verificationStatus: 'unverified', humanReviewComment: 'Định luật I Newton.' },
+        { id: 'claim_braking_force', claimType: 'algorithmic_property', statement: 'Lực phanh tác dụng lên xe làm xe giảm tốc độ, nhưng không tác dụng trực tiếp tức thời lên phần trên cơ thể.', verificationStatus: 'unverified', humanReviewComment: 'Sự chênh lệch gia tốc giữa xe và hành khách.' }
+      ];
+      const inertiaForce = (stage: number) => ({
+        kind: 'force_motion' as const,
+        objectType: 'box' as const,
+        motionModel: 'static' as const,
+        formula: stage >= 3 ? 'v = const (khi ΣF = 0)' : 'Định luật I Newton (Quán tính)',
+        forces: stage === 0
+          ? [{ label: 'v = 50 km/h', color: '#38BDF8', angleDeg: 0, magnitude: 140 }]
+          : stage === 1 || stage === 2
+            ? [{ label: 'F hãm phanh', color: '#EF4444', angleDeg: 180, magnitude: 160 }, { label: 'v người', color: '#38BDF8', angleDeg: 0, magnitude: 130 }, { label: 'N', color: '#FBBF24', angleDeg: 270, magnitude: 100 }, { label: 'P = mg', color: '#A78BFA', angleDeg: 90, magnitude: 100 }]
+            : stage === 3
+              ? [{ label: 'F dây an toàn', color: '#10B981', angleDeg: 180, magnitude: 150 }, { label: 'Quán tính', color: '#38BDF8', angleDeg: 0, magnitude: 120 }]
+              : [{ label: 'Bảo toàn vận tốc', color: '#38BDF8', angleDeg: 0, magnitude: 130 }],
+        massKg: 60,
+        accelerationMps2: -4,
+        netForceN: -240
+      });
+      const beats = [
+        ['hook', 'Vì sao khi phanh gấp ta bị chúi tới?', 'Dù không ai đẩy, cơ thể vẫn lao về phía trước', 'Cơ thể đang tiếp tục chuyển động theo vận tốc trước đó của xe.', 6, 'claim_inertia_definition', 'Khi bạn đang ngồi trên xe chạy nhanh và tài xế đạp phanh gấp, cơ thể bạn lập tức bị chúi mạnh về phía trước.', 'push_in'],
+        ['system_model', 'Xe và người trước khi phanh', 'Cả hai cùng chuyển động với vận tốc v', 'Người và xe di chuyển cùng một tốc độ trước thời điểm phanh.', 9, 'claim_inertia_definition', 'Trước khi phanh, cả xe và người đều cùng chuyển động về phía trước với cùng vận tốc năm mươi cây số một giờ.', 'macro'],
+        ['mechanism_a', 'Khoảnh khắc đạp phanh', 'Lực phanh hãm bánh xe · Thân xe chậm lại', 'Lực ma sát phanh tác dụng lên xe, làm xe giảm tốc nhanh chóng.', 10, 'claim_braking_force', 'Khi đạp phanh, lực hãm của mặt đường tác dụng lên bánh xe khiến chiếc xe đột ngột giảm tốc độ.', 'track'],
+        ['mechanism_b', 'Quán tính giữ nguyên vận tốc', 'Cơ thể tiếp tục lao đi theo vận tốc cũ', 'Do quán tính, phần trên cơ thể chưa nhận lực hãm nên vẫn bảo toàn chuyển động.', 10, 'claim_inertia_definition', 'Tuy nhiên, phần trên cơ thể bạn không dính chặt vào xe. Theo quán tính, bạn vẫn tiếp tục lao về phía trước với tốc độ cũ.', 'track'],
+        ['evidence', 'Định luật I Newton: Giữ nguyên trạng thái', 'Không có ngoại lực kéo lại thì vật giữ vận tốc', 'Cơ thể chỉ dừng lại khi có ngoại lực như dây an toàn tác dụng.', 11, 'claim_inertia_definition', 'Định luật một Newton chỉ ra: Một vật sẽ giữ nguyên trạng thái chuyển động nếu không có ngoại lực tác dụng ép nó dừng lại.', 'macro'],
+        ['takeaway', 'Bản chất của Quán tính & Dây an toàn', 'Quán tính là thuộc tính của mọi vật có khối lượng', 'Luôn thắt dây an toàn để dây tạo lực hãm giữ cơ thể an toàn.', 14, 'claim_braking_force', 'Đó chính là quán tính. Hãy luôn thắt dây an toàn để dây tạo lực hãm giữ bạn lại kịp thời khi xe phanh gấp!', 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({
+        sceneId: `sc_inertia_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: headline,
+        pedagogicalGoal: focus,
+        durationSeconds: duration,
+        boundClaimIds: [claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: narration, subtitleVietnamese: narration },
+        visualPayload: {
+          sceneType: 'physics_explainer' as const,
+          family: 'force_motion' as const,
+          beat,
+          headline,
+          focusLabel: focus,
+          insight,
+          simulation: inertiaForce(index),
+          cameraMove: camera,
+          accentColor: '#38BDF8'
+        }
+      }));
+    } else if (capability.topicId === 'physics.mechanics.newton_forces') {
+      summary = 'Dùng sơ đồ lực và dữ liệu số để nối hợp lực với gia tốc theo định luật II Newton.';
+      learningObjectives = ['Vẽ đúng các lực tác dụng lên một vật', 'Phân biệt từng lực với hợp lực', 'Kiểm tra định lượng F = ma'];
+      keyConcepts = ['Sơ đồ vật tự do', 'Hợp lực', 'Khối lượng', 'Gia tốc', 'F = ma'];
+      claims = [
+        { id: 'claim_newton_freebody', claimType: 'empirical_observation', statement: 'Sơ đồ vật tự do chỉ biểu diễn các lực tác dụng lên vật đang xét.', verificationStatus: 'unverified', humanReviewComment: 'Cần giáo viên duyệt cách chọn hệ.' },
+        { id: 'claim_newton_second', claimType: 'algorithmic_property', statement: 'Trong hệ quy chiếu quán tính, hợp lực bằng khối lượng nhân gia tốc.', verificationStatus: 'unverified', humanReviewComment: 'Payload số phải thỏa F = ma.' }
+      ];
+      const forceStates = [
+        [{ label: 'ΣF', color: '#38BDF8', angleDeg: 0, magnitude: 110 }],
+        [{ label: 'F kéo', color: '#38BDF8', angleDeg: 0, magnitude: 150 }, { label: 'F cản', color: '#EF4444', angleDeg: 180, magnitude: 80 }, { label: 'N', color: '#FBBF24', angleDeg: 270, magnitude: 105 }, { label: 'P = mg', color: '#A78BFA', angleDeg: 90, magnitude: 105 }],
+        [{ label: 'N', color: '#FBBF24', angleDeg: 270, magnitude: 105 }, { label: 'P = mg', color: '#A78BFA', angleDeg: 90, magnitude: 105 }],
+        [{ label: 'F kéo', color: '#38BDF8', angleDeg: 0, magnitude: 150 }, { label: 'F cản', color: '#EF4444', angleDeg: 180, magnitude: 80 }]
+      ] as const;
+      const force = (stage: number) => ({ kind: 'force_motion' as const, objectType: 'box' as const, motionModel: 'static' as const, formula: stage === 4 ? '6 N = 2 kg × 3 m/s²' : 'ΣF = ma', forces: [...forceStates[Math.min(stage, forceStates.length - 1)]], massKg: 2, accelerationMps2: 3, netForceN: 6 });
+      const beats = [
+        ['hook', 'Vì sao vật bắt đầu tăng tốc?', 'Không phải cứ có lực là vật đi theo lực lớn nhất', 'Gia tốc do hợp lực của tất cả lực quyết định.', 6, 'claim_newton_second', 'Một vật có thể chịu nhiều lực cùng lúc. Điều quyết định gia tốc là tổng có hướng của chúng.', 'push_in'],
+        ['system_model', 'Tách vật khỏi môi trường', 'Vẽ sơ đồ vật tự do', 'Chỉ giữ các lực tác dụng lên chính vật đang xét.', 9, 'claim_newton_freebody', 'Ta cô lập vật và vẽ từng lực từ tâm vật: trọng lực, phản lực, lực kéo và lực cản.', 'macro'],
+        ['mechanism_a', 'Hai lực đứng cân bằng', 'Phản lực và trọng lực triệt tiêu theo phương đứng', 'Không có gia tốc đứng khi tổng lực đứng bằng không.', 10, 'claim_newton_freebody', 'Theo phương đứng, phản lực của mặt bàn cân bằng trọng lực nên vật không gia tốc lên hoặc xuống.', 'track'],
+        ['mechanism_b', 'Lực ngang không cân bằng', 'Lực kéo lớn hơn lực cản', 'Hợp lực ngang hướng sang phải.', 10, 'claim_newton_second', 'Theo phương ngang, lực kéo lớn hơn lực cản. Phần chênh lệch tạo thành hợp lực hướng sang phải.', 'track'],
+        ['evidence', 'Kiểm tra định lượng F = ma', 'Vật 2 kg · gia tốc 3 m/s² · hợp lực 6 N', '6 N = 2 kg × 3 m/s².', 11, 'claim_newton_second', 'Với khối lượng hai ki lô gam và gia tốc ba mét trên giây bình phương, hợp lực phải bằng sáu niu tơn.', 'macro'],
+        ['takeaway', 'Hợp lực quyết định gia tốc', 'Cùng hợp lực, vật nặng hơn tăng tốc ít hơn', 'Luôn cộng lực theo vector trước khi dùng F = ma.', 14, 'claim_newton_second', 'Hãy cộng các lực theo vector để tìm hợp lực, rồi mới dùng định luật hai Newton để suy ra gia tốc.', 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({ sceneId: `sc_newton_${index + 1}`, sceneType: 'physics_explainer' as const, title: headline, pedagogicalGoal: focus, durationSeconds: duration, boundClaimIds: [claimId], rendererTarget: 'remotion_infographic' as const, narration: { vietnamese: narration, subtitleVietnamese: narration }, visualPayload: { sceneType: 'physics_explainer' as const, family: 'force_motion' as const, beat, headline, focusLabel: focus, insight, simulation: force(index === 5 ? 0 : index), cameraMove: camera, accentColor: '#38BDF8' } }));
+    } else if (capability.topicId === 'physics.astronomy.earth_seasons') {
+      summary = 'Giải thích vì sao mùa hè nóng mùa đông lạnh: Do trục Trái Đất nghiêng 23.5° tạo nên sự thay đổi góc chiếu bức xạ Lambert và độ dài ngày đêm.';
+      learningObjectives = [
+        'Bác bỏ ngộ nhận mùa do khoảng cách Trái Đất - Mặt Trời (tháng 1 gần nhất nhưng là mùa đông)',
+        'Hiểu bản chất trục nghiêng 23.5° không đổi phương trong không gian khi quay trên quỹ đạo',
+        'Nắm vững định luật góc chiếu Lambert: Góc chiếu dốc tập trung năng lượng, góc xiên làm năng lượng phân tán',
+        'Liên hệ thời lượng chiếu sáng thực tế (Hà Nội: 13.5h mùa hè vs 11h mùa đông)'
+      ];
+      keyConcepts = ['Trục nghiêng 23.5°', 'Điểm cận nhật / viễn nhật', 'Định luật Lambert', 'Góc tới bức xạ', 'Thời lượng ngày đêm'];
+      claims = [
+        { id: 'claim_seasons_misconception', claimType: 'empirical_observation', statement: 'Khoảng cách không quyết định mùa: Điểm cận nhật 147 triệu km rơi vào tháng 1 khi Bắc bán cầu là mùa đông.', verificationStatus: 'unverified', humanReviewComment: 'Dữ liệu thiên văn quỹ đạo elip của Trái Đất.' },
+        { id: 'claim_seasons_axial_tilt', claimType: 'algorithmic_property', statement: 'Trục Trái Đất nghiêng 23.5 độ so với pháp tuyến mặt phẳng quỹ đạo và giữ nguyên phương trong không gian.', verificationStatus: 'unverified', humanReviewComment: 'Góc nghiêng hoàng đạo 23.44 độ xấp xỉ 23.5 độ.' },
+        { id: 'claim_seasons_lambert_flux', claimType: 'algorithmic_property', statement: 'Mật độ năng lượng tỷ lệ thuận với sin góc chiếu bức xạ theo định luật cosin Lambert.', verificationStatus: 'unverified', humanReviewComment: 'Định luật Lambert về thông lượng bức xạ quang năng.' }
+      ];
+      const seasonsChain = (stage: number) => ({
+        kind: 'process_chain' as const,
+        nodes: ['Trục nghiêng 23.5°', 'Góc chiếu Lambert', 'Mật độ quang năng', 'Thời lượng ngày đêm', 'Chu kỳ 4 mùa'],
+        activeNodeIndex: Math.min(stage, 4),
+        carrierLabel: stage <= 1 ? 'QUỸ ĐẠO & TRỤC NGHIÊNG' : stage <= 3 ? 'GÓC CHIẾU BỨC XẠ' : 'CHU KỲ THỜI TIẾT'
+      });
+      const beats = [
+        ['hook', 'Vì sao mùa hè nóng, còn mùa đông lạnh?', '38°C gay gắt đối lập với 10°C giá rét', 'Nhiệt độ thay đổi lớn giữa hai mùa do yếu tố thiên văn nào?', 6, 'claim_seasons_misconception', 'Vì sao mùa hè thì nóng như đổ lửa ba mươi tám độ xê, còn mùa đông lại lạnh buốt chỉ mười độ xê?', 'push_in'],
+        ['system_model', 'Ngộ nhận: Do khoảng cách tới Mặt Trời?', 'Tháng 1 gần nhất (147 triệu km) lại là mùa đông!', 'Quỹ đạo elip biến thiên khoảng cách không tạo ra mùa của bán cầu.', 9, 'claim_seasons_misconception', 'Nhiều người nghĩ mùa hè Trái Đất ở gần Mặt Trời hơn, còn mùa đông ở xa hơn. Nhưng sự thật hoàn toàn ngược lại!', 'macro'],
+        ['mechanism_a', 'Bí mật nằm ở: Trục Trái Đất nghiêng 23.5°', 'Trục nghiêng không đổi hướng trong không gian', 'Khi chuyển động quanh Mặt Trời, nửa cầu nghiêng về phía Mặt Trời nhận nhiều nhiệt hơn.', 10, 'claim_seasons_axial_tilt', 'Bí mật nằm ở trục Trái Đất nghiêng hai mươi ba phẩy năm độ. Khi quay quanh Mặt Trời, trục này không đổi hướng trong không gian.', 'track'],
+        ['mechanism_b', 'Định luật góc chiếu: Góc dốc tập trung năng lượng', 'Cùng một chùm sáng: chiếu thẳng hẹp và nóng, chiếu xiên phân tán', 'Mật độ thông lượng I = I₀ · sin(θ) quyết định nhiệt độ bề mặt.', 10, 'claim_seasons_lambert_flux', 'Mùa hè, tia nắng chiếu gần như thẳng đứng, năng lượng tập trung làm mặt đất nóng ran. Mùa đông tia nắng chiếu xiên, năng lượng bị phân tán trên diện tích gấp đôi.', 'track'],
+        ['evidence', 'Thời lượng ngày đêm: 13.5h hè vs 11h đông', 'Hà Nội đón ngày dài đêm ngắn vào mùa hè', 'Chiếu sáng dài hơn và góc chiếu dốc hơn cùng tích lũy nhiệt lượng cực đại.', 10, 'claim_seasons_axial_tilt', 'Thêm vào đó, mùa hè ngày dài hơn đêm. Tại Hà Nội, mùa hè nhận tới mười ba phẩy năm giờ chiếu sáng, trong khi mùa đông chỉ có mười một giờ.', 'macro'],
+        ['takeaway', 'Chu kỳ 4 mùa: Tuyệt tác của trục nghiêng 23.5°', 'Trục nghiêng + Quỹ đạo = Nhịp điệu sự sống Trái Đất', 'Hai yếu tố kết hợp: Góc chiếu thẳng hơn và thời gian chiếu sáng dài hơn tạo nên mùa hè.', 11, 'claim_seasons_lambert_flux', 'Tóm lại, mùa hè nóng vì hai yếu tố: tia nắng chiếu dốc hơn và thời gian chiếu sáng dài hơn, tất cả nhờ độ nghiêng kỳ diệu của Trục Trái Đất!', 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({
+        sceneId: `sc_seasons_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: headline,
+        pedagogicalGoal: focus,
+        durationSeconds: duration,
+        boundClaimIds: [claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: narration, subtitleVietnamese: narration },
+        visualPayload: {
+          sceneType: 'physics_explainer' as const,
+          family: 'process_chain' as const,
+          beat,
+          headline,
+          focusLabel: focus,
+          insight,
+          simulation: seasonsChain(index),
+          cameraMove: camera,
+          accentColor: '#F59E0B'
+        }
+      }));
+    } else if (capability.topicId === 'physics.mechanics.projectile') {
+      summary = 'Tách chuyển động ném xiên thành chuyển động ngang đều và rơi tự do theo phương đứng để giải thích quỹ đạo parabol.';
+      learningObjectives = ['Phân tích vận tốc đầu thành hai thành phần', 'Giải thích vì sao quỹ đạo là parabol trong mô hình lý tưởng', 'Nhận biết trọng lực là gia tốc duy nhất sau khi rời tay'];
+      keyConcepts = ['Vận tốc đầu', 'Thành phần ngang', 'Rơi tự do', 'Quỹ đạo parabol'];
+      claims = [
+        { id: 'claim_projectile_components', claimType: 'algorithmic_property', statement: 'Vận tốc đầu có thể phân tích thành hai thành phần vuông góc.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn cơ học và giáo viên duyệt.' },
+        { id: 'claim_projectile_gravity', claimType: 'algorithmic_property', statement: 'Khi bỏ qua cản không khí, vật ném chỉ chịu gia tốc trọng trường sau khi rời tay.', verificationStatus: 'unverified', humanReviewComment: 'Mô hình giới hạn đã ghi rõ.' },
+        { id: 'claim_projectile_path', claimType: 'algorithmic_property', statement: 'Kết hợp chuyển động ngang đều và chuyển động đứng biến đổi đều tạo quỹ đạo parabol.', verificationStatus: 'unverified', humanReviewComment: 'Cần kiểm tra số từ tham số hiện tại.' }
+      ];
+      const projectile = (stage: number) => ({
+        kind: 'force_motion' as const, objectType: 'projectile' as const, motionModel: 'projectile' as const,
+        formula: stage === 2 ? 'v₀x=v₀cosθ; v₀y=v₀sinθ' : stage === 3 ? 'aₓ=0; aᵧ=−g' : 'x=v₀cosθ·t; y=v₀sinθ·t−gt²/2',
+        forces: [{ label: 'P = mg', color: '#FBBF24', angleDeg: 90, magnitude: 100 }],
+        gravityMps2: 9.8, initialSpeedMps: 20, launchAngleDeg: 45
+      });
+      const beats = [
+        ['hook', 'Vì sao quả bóng vẽ một đường cong?', 'Sau khi rời tay, chỉ còn trọng lực kéo xuống', 'Chuyển động ngang và đứng diễn ra đồng thời.', 6, 'claim_projectile_path', 'Một quả bóng được phóng chéo vừa tiến về trước vừa rơi xuống. Hai chuyển động kết hợp tạo thành đường cong.', 'push_in'],
+        ['system_model', 'Chọn mô hình lý tưởng', 'Bỏ qua lực cản · g = 9,8 m/s²', 'Giới hạn mô hình phải được nói rõ trước khi kết luận.', 9, 'claim_projectile_gravity', 'Ta bỏ qua lực cản không khí, coi mặt đất phẳng và gia tốc trọng trường không đổi.', 'pull_out'],
+        ['mechanism_a', 'Tách vận tốc đầu thành hai phần', 'v₀x = v₀cosθ · v₀y = v₀sinθ', 'Hai thành phần vuông góc có thể xét độc lập.', 10, 'claim_projectile_components', 'Vận tốc đầu hai mươi mét trên giây ở góc bốn mươi lăm độ được tách thành thành phần ngang và đứng.', 'macro'],
+        ['mechanism_b', 'Ngang đều, đứng rơi tự do', 'vx không đổi · vy giảm theo thời gian', 'Trọng lực chỉ làm đổi thành phần vận tốc đứng.', 10, 'claim_projectile_gravity', 'Theo phương ngang vận tốc giữ nguyên. Theo phương đứng, trọng lực làm vận tốc giảm, bằng không ở đỉnh rồi hướng xuống.', 'track'],
+        ['evidence', 'Quỹ đạo tính từ từng thời điểm', 'x tăng đều · y tăng rồi giảm', 'Loại thời gian khỏi hai phương trình cho một parabol.', 11, 'claim_projectile_path', 'Mỗi thời điểm cho một cặp tọa độ x và y. Nối các điểm đó tạo đúng quỹ đạo parabol của mô hình.', 'track'],
+        ['takeaway', 'Một chuyển động, hai phương độc lập', 'Ngang đều + đứng biến đổi đều = parabol', 'Đây là kết quả của mô hình không có cản không khí.', 14, 'claim_projectile_path', 'Ném xiên trở nên dễ hiểu khi tách thành chuyển động ngang đều và rơi tự do theo phương đứng.', 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({ sceneId: `sc_projectile_${index + 1}`, sceneType: 'physics_explainer' as const, title: headline, pedagogicalGoal: focus, durationSeconds: duration, boundClaimIds: [claimId], rendererTarget: 'remotion_infographic' as const, narration: { vietnamese: narration, subtitleVietnamese: narration }, visualPayload: { sceneType: 'physics_explainer' as const, family: 'force_motion' as const, beat, headline, focusLabel: focus, insight, simulation: projectile(index), cameraMove: camera, accentColor: '#38BDF8' } }));
+    } else if (capability.topicId === 'physics.mechanics.pendulum') {
+      summary = 'Giải thích con lắc đơn bằng lực kéo về, chuyển hóa cơ năng và công thức chu kỳ góc nhỏ.';
+      learningObjectives = ['Nhận biết thành phần trọng lực kéo vật về vị trí cân bằng', 'Theo dõi chuyển hóa thế năng và động năng', 'Kiểm tra chu kỳ T = 2π√(L/g) trong giới hạn góc nhỏ'];
+      keyConcepts = ['Lực kéo về', 'Vị trí cân bằng', 'Chu kỳ', 'Bảo toàn cơ năng'];
+      claims = [
+        { id: 'claim_pendulum_restoring', claimType: 'algorithmic_property', statement: 'Thành phần tiếp tuyến của trọng lực hướng con lắc về vị trí cân bằng.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn cơ học và teacher review.' },
+        { id: 'claim_pendulum_period', claimType: 'algorithmic_property', statement: 'Với góc nhỏ, chu kỳ con lắc đơn xấp xỉ T = 2π√(L/g).', verificationStatus: 'unverified', humanReviewComment: 'Payload số được ràng buộc theo công thức góc nhỏ.' },
+        { id: 'claim_pendulum_energy', claimType: 'algorithmic_property', statement: 'Trong mô hình không ma sát, động năng và thế năng chuyển hóa nhưng tổng cơ năng không đổi.', verificationStatus: 'unverified', humanReviewComment: 'Chỉ đúng trong mô hình lý tưởng.' }
+      ];
+      const period = 2 * Math.PI * Math.sqrt(1 / 9.8);
+      const pendulum = () => ({ kind: 'force_motion' as const, objectType: 'pendulum' as const, motionModel: 'oscillatory' as const, formula: 'T = 2π√(L/g) ≈ 2,01 s', forces: [{ label: 'P = mg', color: '#FBBF24', angleDeg: 90, magnitude: 115 }, { label: 'T dây', color: '#38BDF8', angleDeg: 270, magnitude: 100 }], gravityMps2: 9.8, pendulumLengthM: 1, periodSeconds: period });
+      const energy = (kineticFraction: number) => ({ kind: 'energy_transfer' as const, kineticFraction, potentialFraction: 1 - kineticFraction, totalEnergyLabel: 'E = K + U = không đổi' });
+      const beats = [
+        ['hook', 'Điều gì kéo con lắc quay trở lại?', 'Nó không tự đổi hướng ở hai biên', 'Trọng lực tạo thành phần kéo về vị trí cân bằng.', 6, 'claim_pendulum_restoring', 'Kéo quả nặng lệch khỏi phương thẳng đứng rồi thả. Một thành phần của trọng lực luôn kéo nó về giữa.', 'force_motion', pendulum(), 'push_in'],
+        ['system_model', 'Con lắc đơn lý tưởng', 'Dây nhẹ · góc nhỏ · bỏ qua cản', 'Công thức chu kỳ chỉ đúng trong giới hạn mô hình.', 9, 'claim_pendulum_period', 'Ta xét vật nặng nhỏ, dây nhẹ không dãn, góc dao động nhỏ và bỏ qua lực cản không khí.', 'force_motion', pendulum(), 'pull_out'],
+        ['mechanism_a', 'Ở biên: thế năng lớn nhất', 'Vận tốc tức thời bằng không', 'Năng lượng đang ở dạng thế năng trọng trường.', 10, 'claim_pendulum_energy', 'Tại vị trí biên, con lắc dừng tức thời. Động năng bằng không còn thế năng đạt cực đại.', 'energy_transfer', energy(0), 'macro'],
+        ['mechanism_b', 'Ở giữa: động năng lớn nhất', 'Tốc độ đạt cực đại tại vị trí cân bằng', 'Thế năng đã chuyển thành động năng.', 10, 'claim_pendulum_energy', 'Khi qua vị trí cân bằng, độ cao nhỏ nhất và tốc độ lớn nhất. Phần lớn cơ năng ở dạng động năng.', 'energy_transfer', energy(1), 'track'],
+        ['evidence', 'Chu kỳ phụ thuộc chiều dài', 'L = 1 m · g = 9,8 m/s² · T ≈ 2,01 s', 'Payload được kiểm tra bằng T = 2π√(L/g).', 11, 'claim_pendulum_period', 'Với dây dài một mét và g bằng chín phẩy tám, công thức góc nhỏ cho chu kỳ xấp xỉ hai phẩy không một giây.', 'force_motion', pendulum(), 'macro'],
+        ['takeaway', 'Lực đổi hướng, năng lượng đổi dạng', 'Chu kỳ tăng khi dây dài hơn', 'Kết luận chỉ áp dụng cho con lắc đơn góc nhỏ.', 14, 'claim_pendulum_period', 'Con lắc lặp lại nhờ lực kéo về và chuyển hóa cơ năng. Dây càng dài thì chu kỳ càng lớn.', 'force_motion', pendulum(), 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, family, simulation, camera], index) => ({ sceneId: `sc_pendulum_${index + 1}`, sceneType: 'physics_explainer' as const, title: headline, pedagogicalGoal: focus, durationSeconds: duration, boundClaimIds: [claimId], rendererTarget: 'remotion_infographic' as const, narration: { vietnamese: narration, subtitleVietnamese: narration }, visualPayload: { sceneType: 'physics_explainer' as const, family, beat, headline, focusLabel: focus, insight, simulation, cameraMove: camera, accentColor: '#38BDF8' } as any }));
+    } else if (capability.topicId === 'physics.mechanics.energy_conservation') {
+      summary = 'Theo dõi động năng và thế năng chuyển hóa trong một hệ lý tưởng trong khi tổng cơ năng được bảo toàn.';
+      learningObjectives = ['Phân biệt động năng và thế năng', 'Kiểm tra tổng các phần năng lượng luôn bằng một', 'Nêu đúng điều kiện để cơ năng được bảo toàn'];
+      keyConcepts = ['Động năng', 'Thế năng', 'Cơ năng', 'Lực không bảo toàn'];
+      claims = [
+        { id: 'claim_energy_forms', claimType: 'algorithmic_property', statement: 'Động năng phụ thuộc chuyển động còn thế năng phụ thuộc cấu hình của hệ.', verificationStatus: 'unverified', humanReviewComment: 'Cần nguồn và giáo viên duyệt.' },
+        { id: 'claim_energy_conservation', claimType: 'algorithmic_property', statement: 'Khi không có công của lực không bảo toàn, tổng động năng và thế năng không đổi.', verificationStatus: 'unverified', humanReviewComment: 'Payload bắt buộc bảo toàn tổng bằng một.' }
+      ];
+      const energy = (kineticFraction: number) => ({ kind: 'energy_transfer' as const, kineticFraction, potentialFraction: 1 - kineticFraction, totalEnergyLabel: 'E = K + U = 100%' });
+      const beats = [
+        ['hook', 'Năng lượng biến mất khi vật chậm lại?', 'Không mất đi; nó chuyển sang dạng khác', 'Theo dõi cả động năng và thế năng cùng lúc.', 6, 'claim_energy_conservation', 'Khi một vật đi lên và chậm lại, động năng giảm. Phần giảm đó chưa biến mất mà chuyển thành thế năng.', 0.8, 'push_in'],
+        ['system_model', 'Chọn hệ lý tưởng không ma sát', 'Không có năng lượng truyền ra môi trường', 'Chỉ trong điều kiện này cơ năng mới được bảo toàn.', 9, 'claim_energy_conservation', 'Ta xét hệ lý tưởng không có ma sát và lực cản, nên không có cơ năng truyền thành nhiệt ra ngoài.', 0.65, 'pull_out'],
+        ['mechanism_a', 'Đi lên: K giảm, U tăng', 'Tốc độ giảm khi độ cao tăng', 'Hai phần thay đổi ngược chiều.', 10, 'claim_energy_forms', 'Khi vật đi lên, tốc độ giảm nên động năng giảm; đồng thời độ cao tăng nên thế năng tăng.', 0.35, 'track'],
+        ['mechanism_b', 'Ở cao nhất: U cực đại', 'Vật có thể dừng tức thời', 'Cơ năng vẫn còn trong cấu hình của hệ.', 10, 'claim_energy_forms', 'Ở điểm cao nhất, động năng có thể bằng không nhưng thế năng đạt cực đại. Tổng vẫn giữ nguyên.', 0, 'macro'],
+        ['evidence', 'Mỗi thời điểm đều tổng bằng 100%', 'K + U = E', 'Schema từ chối payload nếu hai phần không cộng thành một.', 11, 'claim_energy_conservation', 'Dù tỉ lệ thay đổi, động năng cộng thế năng luôn bằng toàn bộ cơ năng của mô hình lý tưởng.', 0.5, 'track'],
+        ['takeaway', 'Bảo toàn không có nghĩa từng dạng giữ nguyên', 'Năng lượng chuyển dạng nhưng tổng không đổi', 'Có ma sát thì phải tính cả nhiệt và năng lượng môi trường.', 14, 'claim_energy_conservation', 'Cơ năng được bảo toàn khi không có lực không bảo toàn sinh công. Nếu có ma sát, phải mở rộng hệ để theo dõi nhiệt.', 0.75, 'pull_out']
+      ] as const;
+      scenes = beats.map(([beat, headline, focus, insight, duration, claimId, narration, kinetic, camera], index) => ({ sceneId: `sc_energy_${index + 1}`, sceneType: 'physics_explainer' as const, title: headline, pedagogicalGoal: focus, durationSeconds: duration, boundClaimIds: [claimId], rendererTarget: 'remotion_infographic' as const, narration: { vietnamese: narration, subtitleVietnamese: narration }, visualPayload: { sceneType: 'physics_explainer' as const, family: 'energy_transfer' as const, beat, headline, focusLabel: focus, insight, simulation: energy(kinetic), cameraMove: camera, accentColor: '#38BDF8' } }));
     } else if (capability.topicId === 'algebra.identities.seven') {
       const identities = [
         ['square_sum', '(a+b)^2', 'a^2+2*a*b+b^2', 'Bình phương của một tổng'],
@@ -2396,6 +2741,176 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         }
       ];
       scenes = this.expandScenesForDuration(scenes, targetDurationSeconds, 'Không gian Vector nhúng Embeddings', 'claim_vector_similarity');
+    } else if (capability.domain === 'physics') {
+      // DYNAMIC UNIVERSAL PHYSICS ENGINE: Tự động phân tích chủ đề bất kỳ và sinh 6 nhịp sư phạm bám sát chủ đề
+      const norm = topic.toLowerCase();
+      const isWave = /sóng|âm thanh|dao động|tần số|bước sóng|lan truyền|tiếng/i.test(norm);
+      const isThermo = /nhiệt|nóng|lạnh|ngưng tụ|bay hơi|đông|sôi|áp suất|chất khí|phân tử|nước đá/i.test(norm);
+      const isOptics = /quang|sáng|màu|gương|kính|khúc xạ|phản xạ|tán sắc|hình ảnh|mắt|cầu vồng/i.test(norm);
+      const isEnergy = /năng lượng|cơ năng|động năng|thế năng|bảo toàn|chuyển hóa|công/i.test(norm);
+
+      const family: 'force_motion' | 'wave_propagation' | 'particle_state' | 'process_chain' | 'energy_transfer' =
+        isWave ? 'wave_propagation'
+        : isThermo ? 'particle_state'
+        : isOptics ? 'process_chain'
+        : isEnergy ? 'energy_transfer'
+        : 'force_motion';
+
+      summary = `Giải mã bản chất vật lý của hiện tượng: ${topic}`;
+      learningObjectives = [
+        `Hiểu rõ nguyên nhân và cơ chế cốt lõi của ${topic}`,
+        'Phân biệt các yếu tố tác động và chiều chuyển hóa năng lượng/lực',
+        'Vận dụng định luật vật lý để giải thích các hiện tượng tương tự'
+      ];
+      keyConcepts = [topic, 'Nguyên nhân vật lý', 'Cơ chế tương tác', 'Định luật chi phối'];
+      claims = [
+        {
+          id: 'claim_phys_core',
+          claimType: 'empirical_observation',
+          statement: `Hiện tượng "${topic}" diễn ra hoàn toàn tuân theo các định luật vật lý thực nghiệm.`,
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Kiểm định hiện tượng vật lý tự nhiên.'
+        },
+        {
+          id: 'claim_phys_mechanism',
+          claimType: 'algorithmic_property',
+          statement: `Cơ chế của "${topic}" được xác định bởi sự cân bằng hoặc biến thiên của các đại lượng vật lý đặc trưng.`,
+          verificationStatus: 'unverified',
+          humanReviewComment: 'Mô hình diễn giải định tính và định lượng.'
+        }
+      ];
+
+      // Dynamic Simulation Generator based on Family
+      const buildDynamicSim = (stage: number) => {
+        if (family === 'wave_propagation') {
+          return {
+            kind: 'wave' as const,
+            amplitude: 65 + stage * 4,
+            spatialFrequency: 3.2,
+            propagationSpeed: 4.0,
+            wavelengthLabel: 'Bước sóng λ',
+            relationLabel: 'v = f · λ',
+            frequencyHz: 400,
+            wavelengthMeters: 0.85,
+            physicalSpeedMps: 340
+          };
+        }
+        if (family === 'particle_state') {
+          return {
+            kind: 'particle_state' as const,
+            particleCount: 36,
+            temperature: stage <= 2 ? 'medium' as const : stage === 3 ? 'low' as const : 'high' as const,
+            phase: stage >= 3 ? 'condensing' as const : 'gas' as const,
+            surfaceTemperatureC: 10,
+            dewPointC: 15
+          };
+        }
+        if (family === 'energy_transfer') {
+          const kFraction = stage === 0 ? 0.8 : stage === 1 ? 0.5 : stage === 2 ? 0.2 : stage === 3 ? 0.9 : 0.6;
+          return {
+            kind: 'energy_transfer' as const,
+            kineticFraction: kFraction,
+            potentialFraction: 1 - kFraction,
+            totalEnergyLabel: 'E = Động năng + Thế năng = const'
+          };
+        }
+        if (family === 'process_chain') {
+          return {
+            kind: 'process_chain' as const,
+            nodes: ['Nguồn sáng', 'Môi trường 1', 'Mặt phân cách', 'Khúc xạ/Phản xạ', 'Mắt người quan sát'],
+            activeNodeIndex: Math.min(stage, 4),
+            carrierLabel: 'TIA SÁNG'
+          };
+        }
+        // Default: force_motion with context-aware real-world elements
+        const isAppleTopic = /táo|apple|rơi.*đất|trọng lực/i.test(norm);
+        const isSubTopic = /tàu|sub|ác-si-mét|chìm|nổi/i.test(norm);
+        const isSkateTopic = /trượt|băng|ma sát|ngã/i.test(norm);
+        const isCarTopic = /xe|phanh|ô tô|chạy|va chạm/i.test(norm);
+
+        const dynObjectType = isAppleTopic ? 'apple' as const
+          : isSubTopic ? 'submarine' as const
+          : isSkateTopic ? 'skater' as const
+          : isCarTopic ? 'car' as const
+          : 'box' as const;
+
+        const dynFormula = isAppleTopic ? 'P = m · g (Trọng lực Newton)'
+          : isSubTopic ? 'F_A = d · V (Định luật Ác-si-mét)'
+          : isSkateTopic ? 'F_ms = μ · N (Lực ma sát trượt)'
+          : isCarTopic ? 'v = const khi ΣF = 0 (Quán tính)'
+          : stage >= 4 ? 'ΣF = ma (Định luật Newton)' : 'Cân bằng & Biến thiên lực';
+
+        const dynForces = isAppleTopic
+          ? (stage === 0
+              ? [{ label: 'Vận tốc đầu v₀ = 0', color: '#38BDF8', angleDeg: 90, magnitude: 110 }]
+              : stage === 1 || stage === 2
+                ? [{ label: 'Trọng lực P = mg', color: '#EF4444', angleDeg: 90, magnitude: 150 }, { label: 'Lực cản khí', color: '#38BDF8', angleDeg: 270, magnitude: 70 }, { label: 'Gia tốc g', color: '#FBBF24', angleDeg: 90, magnitude: 120 }]
+                : [{ label: 'Trọng lực P = mg', color: '#EF4444', angleDeg: 90, magnitude: 160 }, { label: 'Rơi thẳng đứng', color: '#10B981', angleDeg: 90, magnitude: 110 }])
+          : isSubTopic
+            ? (stage <= 1
+                ? [{ label: 'Lực đẩy F_A', color: '#38BDF8', angleDeg: 270, magnitude: 140 }, { label: 'Trọng lực P', color: '#EF4444', angleDeg: 90, magnitude: 140 }]
+                : [{ label: 'Lực đẩy F_A > P', color: '#10B981', angleDeg: 270, magnitude: 160 }, { label: 'Trọng lượng P', color: '#EF4444', angleDeg: 90, magnitude: 120 }])
+            : isSkateTopic
+              ? (stage <= 1
+                  ? [{ label: 'Áp lực N', color: '#FBBF24', angleDeg: 270, magnitude: 110 }, { label: 'Trọng lực P', color: '#A78BFA', angleDeg: 90, magnitude: 110 }, { label: 'Vận tốc v', color: '#38BDF8', angleDeg: 0, magnitude: 130 }]
+                  : [{ label: 'Lực ma sát trượt F_ms', color: '#EF4444', angleDeg: 180, magnitude: 150 }, { label: 'Mất cân bằng', color: '#38BDF8', angleDeg: 0, magnitude: 110 }])
+              : isCarTopic
+                ? (stage === 0
+                    ? [{ label: 'Vận tốc v', color: '#38BDF8', angleDeg: 0, magnitude: 130 }]
+                    : stage === 1 || stage === 2
+                      ? [{ label: 'Lực hãm phanh', color: '#EF4444', angleDeg: 180, magnitude: 150 }, { label: 'Quán tính', color: '#38BDF8', angleDeg: 0, magnitude: 120 }, { label: 'N', color: '#FBBF24', angleDeg: 270, magnitude: 100 }, { label: 'P = mg', color: '#A78BFA', angleDeg: 90, magnitude: 100 }]
+                      : [{ label: 'Hợp lực ΣF', color: '#38BDF8', angleDeg: 0, magnitude: 140 }, { label: 'F phản lực', color: '#10B981', angleDeg: 180, magnitude: 110 }])
+                : (stage === 0
+                    ? [{ label: 'Vận tốc v', color: '#38BDF8', angleDeg: 0, magnitude: 130 }]
+                    : stage === 1 || stage === 2
+                      ? [{ label: 'Lực tác dụng F', color: '#EF4444', angleDeg: 0, magnitude: 140 }, { label: 'Lực cản', color: '#38BDF8', angleDeg: 180, magnitude: 90 }, { label: 'N', color: '#FBBF24', angleDeg: 270, magnitude: 100 }, { label: 'P = mg', color: '#A78BFA', angleDeg: 90, magnitude: 100 }]
+                      : [{ label: 'Hợp lực ΣF = ma', color: '#38BDF8', angleDeg: 0, magnitude: 140 }, { label: 'Phản lực', color: '#10B981', angleDeg: 180, magnitude: 110 }]);
+
+        return {
+          kind: 'force_motion' as const,
+          objectType: dynObjectType,
+          motionModel: 'static' as const,
+          formula: dynFormula,
+          forces: dynForces,
+          massKg: isAppleTopic ? 0.2 : 50,
+          accelerationMps2: isAppleTopic ? 9.8 : -3.5,
+          netForceN: isAppleTopic ? 1.96 : -175
+        };
+      };
+
+      const teaserTopic = topic.length > 25
+        ? 'hiện tượng kỳ thú này'
+        : topic.toLowerCase().replace(/^(tại sao|vì sao|làm sao)\s*/i, '');
+      const dynamicBeats = [
+        ['hook', `Bí ẩn: ${topic}`, `Đặt vấn đề trực quan`, `Quan sát thực tế kích thích tư duy`, 7, 'claim_phys_core', `Bạn có bao giờ tự hỏi về ${teaserTopic}? Hãy cùng LuminaLearn khám phá và giải mã ngay nhé!`, 'push_in'],
+        ['system_model', `Mô hình hóa hệ vật lý`, `Xác định các yếu tố tham gia`, `Khảo sát điều kiện ban đầu`, 9, 'claim_phys_core', `Trước hết, ta cùng xem xét mô hình vật lý với các yếu tố và điều kiện ban đầu của nó.`, 'macro'],
+        ['mechanism_a', `Tác động và tương tác`, `Phân tích lực và năng lượng`, `Sự thay đổi trạng thái kích hoạt quá trình`, 10, 'claim_phys_mechanism', `Khi điều kiện kích hoạt thay đổi, lực và năng lượng bắt đầu tương tác trực tiếp lên toàn hệ.`, 'track'],
+        ['mechanism_b', `Bản chất của quá trình`, `Cơ chế biến đổi cốt lõi`, `Định luật vật lý chi phối quá trình`, 10, 'claim_phys_mechanism', `Chính sự chuyển hóa và chênh lệch năng lượng này giải thích rõ ràng nguyên nhân hiện tượng.`, 'track'],
+        ['evidence', `Kiểm chứng bằng định luật`, `Nguyên lý khoa học thực nghiệm`, `Quy luật được kiểm chứng thực tế`, 11, 'claim_phys_mechanism', `Quy luật này được đúc kết thành định luật chính xác để chúng ta tính toán và dự đoán.`, 'macro'],
+        ['takeaway', `Quy tắc cốt lõi cần nhớ`, `Ghi nhớ nguyên tắc thực tiễn`, `Kết nối tri thức với đời sống`, 13, 'claim_phys_core', `Tóm lại, hiện tượng này minh chứng cho quy luật vật lý tự nhiên kỳ diệu và ứng dụng hữu ích trong đời sống.`, 'pull_out']
+      ] as const;
+
+      scenes = dynamicBeats.map(([beat, headline, focus, insight, duration, claimId, narration, camera], index) => ({
+        sceneId: `sc_dyn_phys_${index + 1}`,
+        sceneType: 'physics_explainer' as const,
+        title: headline,
+        pedagogicalGoal: focus,
+        durationSeconds: duration,
+        boundClaimIds: [claimId],
+        rendererTarget: 'remotion_infographic' as const,
+        narration: { vietnamese: narration, subtitleVietnamese: narration },
+        visualPayload: {
+          sceneType: 'physics_explainer' as const,
+          family,
+          beat: beat as any,
+          headline,
+          focusLabel: focus,
+          insight,
+          simulation: buildDynamicSim(index),
+          cameraMove: camera as any,
+          accentColor: '#38BDF8'
+        }
+      }));
     } else {
       // Fallback tổng quát cho chủ đề hợp lệ
       summary = `Kế hoạch bài học tổng quát về chủ đề ${topic}.`;
@@ -2404,10 +2919,9 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
       claims = [
         {
           id: 'claim_general_1',
-          claimType: isMath ? 'formal_mathematics' : 'ai_concept',
+          claimType: 'ai_concept',
           statement: `Nội dung cốt lõi của chủ đề ${topic} được diễn giải theo chuẩn sư phạm.`,
           verificationStatus: 'unverified',
-          formalExpression: isMath ? 'f(x) = x' : undefined,
           humanReviewComment: 'Nội dung khái niệm cần giáo viên đối chiếu sư phạm.'
         }
       ];
@@ -2430,7 +2944,11 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
       title,
       summary,
       learningObjectives,
-      prerequisites: isMath ? ['Đại số và giải tích cơ bản'] : ['Khái niệm đại số tuyến tính hoặc lập trình cơ bản'],
+      prerequisites: isMath
+        ? ['Đại số và giải tích cơ bản']
+        : capability.domain === 'physics'
+          ? ['Khái niệm quan sát, hệ vật lý và năng lượng']
+          : ['Khái niệm đại số tuyến tính hoặc lập trình cơ bản'],
       keyConcepts,
       educationalClaims: claims,
       capabilityReport: capability,
@@ -2440,7 +2958,7 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
         lessonId,
         scenes,
         totalDurationSeconds: totalSeconds,
-        chapters: buildChaptersForScenes(scenes, totalSeconds, 24)
+        chapters: buildChaptersForScenes(scenes, totalSeconds, capability.domain === 'physics' ? 30 : 24)
       }
     };
   }

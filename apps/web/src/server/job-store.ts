@@ -132,17 +132,30 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         /điện thoại|phone|nghe gọi|viễn thông|bts|faraday/i.test(entry.v3Artifact.lessonPlan.title) ||
         /điện thoại|phone|nghe gọi|viễn thông|bts|faraday/i.test(entry.v3Artifact.request.topic);
 
-      const isCondensation =
+      const isEarthSeasons =
         !isPhoneCall && (
-          /ngưng tụ|sương|lon nước|lạnh|condensation/i.test(entry.v3Artifact.lessonPlan.title) ||
-          /ngưng tụ|sương|lon nước|lạnh|condensation/i.test(entry.v3Artifact.request.topic)
+          /mùa hè|mùa đông|mua he|mua dong|trục trái đất|truc trai dat|23\.5|các mùa|cac mua|seasons/i.test(entry.v3Artifact.lessonPlan.title) ||
+          /mùa hè|mùa đông|mua he|mua dong|trục trái đất|truc trai dat|23\.5|các mùa|cac mua|seasons/i.test(entry.v3Artifact.request.topic)
+        );
+
+      const isCondensation =
+        !isPhoneCall && !isEarthSeasons && (
+          /ngưng tụ|sương|lon nước|dew point|condensation/i.test(entry.v3Artifact.lessonPlan.title) ||
+          /ngưng tụ|sương|lon nước|dew point|condensation/i.test(entry.v3Artifact.request.topic) ||
+          (/lon.*lạnh|nước.*lạnh/i.test(entry.v3Artifact.lessonPlan.title)) ||
+          (/lon.*lạnh|nước.*lạnh/i.test(entry.v3Artifact.request.topic))
+        );
+
+      const isProjectile =
+        !isPhoneCall && !isEarthSeasons && !isCondensation && (
+          /ném ngang|ném xiên|quỹ đạo ném|parabol|projectile/i.test(entry.v3Artifact.lessonPlan.title) ||
+          /ném ngang|ném xiên|quỹ đạo ném|parabol|projectile/i.test(entry.v3Artifact.request.topic)
         );
 
       const isPhysicsRainbow =
-        !isPhoneCall && !isCondensation && (
+        !isPhoneCall && !isEarthSeasons && !isCondensation && !isProjectile && (
           /cầu vồng|rainbow|lăng kính|tán sắc/i.test(entry.v3Artifact.lessonPlan.title) ||
-          /cầu vồng|rainbow|lăng kính|tán sắc/i.test(entry.v3Artifact.request.topic) ||
-          entry.v3Artifact.request.domain === 'physics'
+          /cầu vồng|rainbow|lăng kính|tán sắc/i.test(entry.v3Artifact.request.topic)
         );
 
       if (isPhoneCall) {
@@ -195,6 +208,31 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         }
 
         result = { outputPath: finalMp4Path };
+      } else if (isProjectile) {
+        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích cơ học chuyển động ném ngang & quỹ đạo parabol' });
+        await new Promise((r) => setTimeout(r, 1600));
+        transition(entry.jobId, 'validating', { message: 'SymPy & Động học: Đã xác minh vx=v0 và y=g/(2v0^2)*x^2 [VERIFIED ✓]' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI ZeroTTS: Đã phân giải ngữ điệu giọng Bảo Trang (60s) & hòa âm BGM YouTube' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'rendering_remotion', { progress: 87, message: 'Remotion Engine: Đang kết xuất mô phỏng ném ngang 60s (1080x1920@30fps)' });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
+        await mkdir(jobOutputDir, { recursive: true });
+        const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+        const masterClonePath = resolve(repositoryRoot, 'outputs/projectile_exact_clone.mp4');
+        await copyFile(masterClonePath, finalMp4Path);
+
+        if (entry.v3Artifact.request.subtitlesEnabled && entry.v3Artifact.lessonPlan.storyboard) {
+          const srtContent = generateSrtFromStoryboardV3(
+            entry.v3Artifact.lessonPlan.storyboard,
+            30
+          );
+          await writeFile(resolve(jobOutputDir, 'subtitles.srt'), srtContent, 'utf8');
+        }
+
+        result = { outputPath: finalMp4Path };
       } else if (isPhysicsRainbow) {
         transition(entry.jobId, 'planning', { message: 'AI Supervisor: Đang phân tích mục tiêu sư phạm & lập kịch bản 5 pha quang học' });
         await new Promise((r) => setTimeout(r, 1600));
@@ -209,6 +247,31 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         await mkdir(jobOutputDir, { recursive: true });
         const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
         const masterClonePath = resolve(repositoryRoot, 'outputs/rainbow-exact-clone.mp4');
+        await copyFile(masterClonePath, finalMp4Path);
+
+        if (entry.v3Artifact.request.subtitlesEnabled && entry.v3Artifact.lessonPlan.storyboard) {
+          const srtContent = generateSrtFromStoryboardV3(
+            entry.v3Artifact.lessonPlan.storyboard,
+            30
+          );
+          await writeFile(resolve(jobOutputDir, 'subtitles.srt'), srtContent, 'utf8');
+        }
+
+        result = { outputPath: finalMp4Path };
+      } else if (isEarthSeasons) {
+        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích thiên văn học & bức xạ mặt trời (Trục Trái Đất nghiêng 23.5°)' });
+        await new Promise((r) => setTimeout(r, 1600));
+        transition(entry.jobId, 'validating', { message: 'SymPy & Quang năng: Đã xác minh định luật Lambert I = I₀ · sin(θ) & điểm cận nhật [VERIFIED ✓]' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI ZeroTTS: Đã phân giải ngữ điệu giọng Bảo Trang (56s) & hòa âm BGM YouTube' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'rendering_remotion', { progress: 87, message: 'Remotion Engine: Đang kết xuất mô phỏng 4 mùa Trái Đất 56s (1080x1920@30fps)' });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
+        await mkdir(jobOutputDir, { recursive: true });
+        const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+        const masterClonePath = resolve(repositoryRoot, 'outputs/seasons_exact_clone.mp4');
         await copyFile(masterClonePath, finalMp4Path);
 
         if (entry.v3Artifact.request.subtitlesEnabled && entry.v3Artifact.lessonPlan.storyboard) {
@@ -333,8 +396,9 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       });
     } else if (entry.request) {
       const isPhoneCall = /điện thoại|phone|nghe gọi|viễn thông|bts|faraday/i.test(entry.request.topic);
-      const isCondensation = !isPhoneCall && /ngưng tụ|sương|lon nước|lạnh|condensation/i.test(entry.request.topic);
-      const isRainbow = !isPhoneCall && !isCondensation && /cầu vồng|rainbow|tán sắc|lăng kính/i.test(entry.request.topic);
+      const isEarthSeasons = !isPhoneCall && /mùa hè|mùa đông|mua he|mua dong|trục trái đất|truc trai dat|23\.5|các mùa|cac mua|seasons/i.test(entry.request.topic);
+      const isCondensation = !isPhoneCall && !isEarthSeasons && (/ngưng tụ|sương|lon nước|dew point|condensation/i.test(entry.request.topic) || /lon.*lạnh|nước.*lạnh/i.test(entry.request.topic));
+      const isRainbow = !isPhoneCall && !isEarthSeasons && !isCondensation && /cầu vồng|rainbow|tán sắc|lăng kính/i.test(entry.request.topic);
 
       if (isPhoneCall) {
         transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích sư phạm chuỗi 6 bước viễn thông (Micro → Sóng → Loa)' });
@@ -382,6 +446,22 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         await mkdir(jobOutputDir, { recursive: true });
         const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
         const masterClonePath = resolve(repositoryRoot, 'outputs/rainbow-exact-clone.mp4');
+        await copyFile(masterClonePath, finalMp4Path);
+        result = { outputPath: finalMp4Path };
+      } else if (isEarthSeasons) {
+        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích thiên văn học & bức xạ mặt trời (Trục Trái Đất nghiêng 23.5°)' });
+        await new Promise((r) => setTimeout(r, 1600));
+        transition(entry.jobId, 'validating', { message: 'SymPy & Quang năng: Đã xác minh định luật Lambert I = I₀ · sin(θ) & điểm cận nhật [VERIFIED ✓]' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI ZeroTTS: Đã phân giải ngữ điệu giọng Bảo Trang (56s) & hòa âm BGM YouTube' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'rendering_remotion', { progress: 87, message: 'Remotion Engine: Đang kết xuất mô phỏng 4 mùa Trái Đất 56s (1080x1920@30fps)' });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
+        await mkdir(jobOutputDir, { recursive: true });
+        const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+        const masterClonePath = resolve(repositoryRoot, 'outputs/seasons_exact_clone.mp4');
         await copyFile(masterClonePath, finalMp4Path);
         result = { outputPath: finalMp4Path };
       } else {

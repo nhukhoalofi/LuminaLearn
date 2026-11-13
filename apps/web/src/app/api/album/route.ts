@@ -52,6 +52,9 @@ function loadSavedVideoIds(): Set<string> {
     'demo-math-pythagoras',
     'demo-gradient-descent',
     'demo-secant-tangent',
+    'demo-projectile',
+    'demo-earth-seasons',
+    'demo-storm-cloud',
   ]);
 }
 
@@ -183,12 +186,68 @@ export async function GET(request: Request): Promise<Response> {
         description: 'Trực quan hóa giới hạn hệ số góc của đường cát tuyến khi khoảng cách Δx tiến dần về 0 để trở thành đường tiếp tuyến và dẫn xuất công thức đạo hàm.',
         isDemo: true,
       },
+      {
+        id: 'demo-projectile',
+        title: 'Chuyển động ném ngang và phân tích quỹ đạo parabol',
+        subject: 'Vật lý',
+        duration: '01:00',
+        durationSeconds: 60,
+        createdAt: '2026-11-13T10:00:00.000Z',
+        formattedDate: '13/11/2026',
+        thumbnailUrl: '/demo/thumb-projectile-motion.png',
+        videoUrl: '/demo/projectile-motion.mp4',
+        downloadUrl: '/demo/projectile-motion.mp4',
+        isSaved: savedIds.has('demo-projectile'),
+        description: 'Phân tích chuyển động ném ngang thành hai thành phần độc lập: chuyển động thẳng đều theo trục hoành và rơi tự do theo trục tung để tạo thành đường quỹ đạo parabol.',
+        isDemo: true,
+      },
+      {
+        id: 'demo-earth-seasons',
+        title: 'Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?',
+        subject: 'Vật lý',
+        duration: '00:56',
+        durationSeconds: 56,
+        createdAt: '2026-11-14T00:30:00.000Z',
+        formattedDate: '14/11/2026',
+        thumbnailUrl: '/demo/thumb-seasons-frame.png',
+        videoUrl: '/demo/seasons-exact-clone.mp4',
+        downloadUrl: '/demo/seasons-exact-clone.mp4',
+        isSaved: savedIds.has('demo-earth-seasons'),
+        description: 'Giải mã hiện tượng các mùa do trục Trái Đất nghiêng 23,5° không đổi khi quay quanh Mặt Trời, góc chiếu thẳng vs góc chiếu xiên và sự chênh lệch thời lượng ngày đêm tại Hà Nội.',
+        isDemo: true,
+      },
+      {
+        id: 'demo-storm-cloud',
+        title: 'Vì sao mây thường màu trắng nhưng mây giông lại xám đen?',
+        subject: 'Vật lý',
+        duration: '00:46',
+        durationSeconds: 46,
+        createdAt: '2026-11-14T00:15:00.000Z',
+        formattedDate: '14/11/2026',
+        thumbnailUrl: '/demo/thumb-storm-cloud.png',
+        videoUrl: '/demo/storm-cloud.mp4',
+        downloadUrl: '/demo/storm-cloud.mp4',
+        isSaved: savedIds.has('demo-storm-cloud'),
+        description: 'Giải thích hiện tượng tán xạ Mie của hàng tỷ giọt nước li ti, độ dày quang học khổng lồ (10-15km) và cơ chế phản xạ ánh sáng nhiều lần khiến đáy mây giông tối sầm.',
+        isDemo: true,
+      },
     ];
 
     videos.push(...curatedDemos);
 
     // Chuẩn hóa từ khóa để loại trừ trùng lặp nội dung
     const seenKeywords = new Set<string>([
+      'mùa hè',
+      'mùa đông',
+      'mua he',
+      'mua dong',
+      'trục trái đất',
+      '23.5',
+      'seasons',
+      'mây',
+      'mây giông',
+      'may giong',
+      'storm cloud',
       'cầu vồng',
       'cau vong',
       'rainbow',
@@ -203,6 +262,10 @@ export async function GET(request: Request): Promise<Response> {
       'lon nước',
       'lon nuoc',
       'sương',
+      'ném ngang',
+      'nem ngang',
+      'parabol',
+      'projectile',
       'dew point',
       'pythagor',
       'hằng đẳng thức',
@@ -222,12 +285,11 @@ export async function GET(request: Request): Promise<Response> {
     // 2. Quét các video hoàn tất thật khác từ storage do người dùng tạo và KHÔNG ĐƯỢC TRÙNG LẶP
     if (existsSync(jobsDir)) {
       const files = readdirSync(jobsDir).filter((f) => f.endsWith('.json'));
-      const extraJobs: AlbumVideoItem[] = [];
+      const rawCompletedJobs: any[] = [];
 
       for (const file of files) {
         try {
           const job = JSON.parse(readFileSync(resolve(jobsDir, file), 'utf8'));
-          // Chỉ lấy các job đã render thành công và có file video thật tồn tại, bỏ qua các job mock test cũ từ CI/test suite
           if (
             job.status === 'completed' &&
             job.outputPath &&
@@ -235,74 +297,80 @@ export async function GET(request: Request): Promise<Response> {
             job.createdAt &&
             new Date(job.createdAt).getTime() >= new Date('2026-11-13T09:30:00.000Z').getTime()
           ) {
-            let title = '';
-            let domain = 'Vật lý';
-            let durationSeconds = 60;
-            let description = '';
-
-            if (job.draftId) {
-              const draftPath = resolve(draftsDir, `${job.draftId}.json`);
-              if (existsSync(draftPath)) {
-                const draft = JSON.parse(readFileSync(draftPath, 'utf8'));
-                title = draft.lessonPlan?.title || draft.request?.topic || '';
-                description = draft.lessonPlan?.summary || '';
-                durationSeconds =
-                  draft.lessonPlan?.storyboard?.totalDurationSeconds ||
-                  draft.request?.targetDurationSeconds ||
-                  60;
-                const d = draft.lessonPlan?.domain || draft.request?.domain;
-                if (d === 'mathematics') domain = 'Toán học';
-                else if (d === 'physics') domain = 'Vật lý';
-                else if (d === 'chemistry') domain = 'Hóa học';
-                else if (d === 'biology') domain = 'Sinh học';
-                else if (d === 'artificial_intelligence') domain = 'Tin học / AI';
-              }
-            }
-
-            if (!title) {
-              continue; // Bỏ qua các job không có kịch bản hoặc tên rõ ràng
-            }
-
-            // Kiểm tra trùng lặp với danh sách mẫu
-            const titleLower = title.toLowerCase().trim();
-            let isDuplicate = false;
-            for (const kw of seenKeywords) {
-              if (titleLower.includes(kw)) {
-                isDuplicate = true;
-                break;
-              }
-            }
-            if (isDuplicate) continue;
-
-            // Đánh dấu từ khóa đã xuất hiện
-            seenKeywords.add(titleLower);
-
-            // Gán thumbnail chuẩn xác theo nội dung
-            let thumb = '/demo/thumb-rainbow-frame.png';
-            if (domain === 'Toán học' || /toán|hình|tích phân|đạo hàm/i.test(title)) {
-              thumb = '/demo/thumb-algebra-frame.png';
-            } else if (/nguyên tử|hóa học|phân tử|atom/i.test(title)) {
-              thumb = '/thumb-atom.png';
-            } else if (/ném|chuyển động|vận tốc|gia tốc/i.test(title)) {
-              thumb = '/thumb-projectile.png';
-            }
-
-            extraJobs.push({
-              id: job.jobId,
-              title,
-              subject: domain,
-              duration: formatDuration(durationSeconds),
-              durationSeconds,
-              createdAt: job.createdAt || new Date().toISOString(),
-              formattedDate: formatDate(job.createdAt || new Date().toISOString()),
-              thumbnailUrl: thumb,
-              videoUrl: `/api/jobs/${job.jobId}/video`,
-              downloadUrl: `/api/jobs/${job.jobId}/video?download=1`,
-              isSaved: savedIds.has(job.jobId),
-              description,
-              isDemo: false,
-            });
+            rawCompletedJobs.push(job);
           }
+        } catch {
+          // ignore corrupted files
+        }
+      }
+
+      // Sắp xếp ưu tiên các video MỚI NHẤT lên trước
+      rawCompletedJobs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+      const extraJobs: AlbumVideoItem[] = [];
+
+      for (const job of rawCompletedJobs) {
+        try {
+          let title = '';
+          let domain = 'Vật lý';
+          let durationSeconds = 60;
+          let description = '';
+
+          if (job.draftId) {
+            const draftPath = resolve(draftsDir, `${job.draftId}.json`);
+            if (existsSync(draftPath)) {
+              const draft = JSON.parse(readFileSync(draftPath, 'utf8'));
+              title = draft.lessonPlan?.title || draft.request?.topic || '';
+              description = draft.lessonPlan?.summary || '';
+              durationSeconds =
+                draft.lessonPlan?.storyboard?.totalDurationSeconds ||
+                draft.request?.targetDurationSeconds ||
+                60;
+              const d = draft.lessonPlan?.domain || draft.request?.domain;
+              if (d === 'mathematics') domain = 'Toán học';
+              else if (d === 'physics') domain = 'Vật lý';
+              else if (d === 'chemistry') domain = 'Hóa học';
+              else if (d === 'biology') domain = 'Sinh học';
+              else if (d === 'artificial_intelligence') domain = 'Tin học / AI';
+            }
+          }
+
+          if (!title) {
+            continue; // Bỏ qua các job không có kịch bản hoặc tên rõ ràng
+          }
+
+          // Kiểm tra trùng lặp với danh sách mẫu
+          const titleLower = title.toLowerCase().trim();
+          let isDuplicate = false;
+          for (const kw of seenKeywords) {
+            if (titleLower.includes(kw)) {
+              isDuplicate = true;
+              break;
+            }
+          }
+          if (isDuplicate) continue;
+
+          // Đánh dấu từ khóa đã xuất hiện
+          seenKeywords.add(titleLower);
+
+          // Gán thumbnail là frame đầu tiên của video thực tế
+          const thumb = `/api/jobs/${job.jobId}/thumbnail`;
+
+          extraJobs.push({
+            id: job.jobId,
+            title,
+            subject: domain,
+            duration: formatDuration(durationSeconds),
+            durationSeconds,
+            createdAt: job.createdAt || new Date().toISOString(),
+            formattedDate: formatDate(job.createdAt || new Date().toISOString()),
+            thumbnailUrl: thumb,
+            videoUrl: `/api/jobs/${job.jobId}/video`,
+            downloadUrl: `/api/jobs/${job.jobId}/video?download=1`,
+            isSaved: savedIds.has(job.jobId),
+            description,
+            isDemo: false,
+          });
         } catch {
           // ignore corrupted files
         }

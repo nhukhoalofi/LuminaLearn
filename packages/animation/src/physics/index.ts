@@ -11,9 +11,13 @@ export * from './MascotRobot';
 export * from './ExactRainbowIdenticalScene';
 export * from './ExactPhoneCallIdenticalScene';
 export * from './ExactCondensationIdenticalScene';
+export * from './ExactProjectileIdenticalScene';
+export * from './ExactEarthSeasonsIdenticalScene';
+export * from './ExactCloudIdenticalScene';
 export * from './UniversalPhysicsExplainerScene';
 export * from './WaveOscillationCanvas';
 export * from './ParticleKineticCanvas';
 export * from './VectorFieldForceCanvas';
 export * from './GenericPhysicsCanvas';
+export * from './CinematicPhysicsExplainerScene';
 

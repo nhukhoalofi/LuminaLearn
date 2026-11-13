@@ -95,8 +95,8 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
     } else {
       setDurationPreset('300s');
     }
-    // Curated lesson content is deterministic and already covered by the
-    // verification pipeline.
+    // Curated content is deterministic, but still goes through capability,
+    // validation and teacher-approval gates before rendering.
     setMode('mock');
     if (options.domain === 'physics') {
       setNarrationMode('dutai_tts');
@@ -114,11 +114,13 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
 
   async function runAutoPipeline(overrideTopic?: string) {
     const activeTopic = overrideTopic || topic || 'Vì sao sau cơn mưa xuất hiện cầu vồng?';
-    const isPhone = /điện thoại|phone|nghe gọi|viễn thông|bts|faraday/i.test(activeTopic);
+    const isPhone = /điện thoại|phone|nghe gọi|viễn thông|bts/i.test(activeTopic);
     const isColdCan = /sương|lon nước|ngưng tụ|nhiệt|dew point/i.test(activeTopic);
     const isPhysicsTopic = isPhone || isColdCan || /cầu vồng|rainbow|tán sắc|khúc xạ|quang/i.test(activeTopic) || domain === 'physics';
     const activeDomain = isPhysicsTopic ? 'physics' : domain;
-    const chosenDuration = isPhone ? 90 : isColdCan ? 64 : (durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : 60);
+    const chosenDuration = isPhone || isColdCan
+      ? 60
+      : (durationPreset === '300s' ? 300 : durationPreset === '180s' ? 180 : 60);
 
     setBusy(true);
     setError('');
@@ -670,7 +672,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
               setTopic('Vì sao điện thoại nghe gọi được với nhau?');
             }}
           >
-            📱 5. Nguyên lý nghe gọi điện thoại · 89s
+            📱 5. Nguyên lý nghe gọi điện thoại · 60s
           </button>
           <button
             type="button"
@@ -690,12 +692,52 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
               setTopic('Vì sao ngoài lon nước lạnh xuất hiện giọt sương?');
             }}
           >
-            ❄️ 6. Ngưng tụ hơi nước & Điểm sương · 64s
+            ❄️ 6. Ngưng tụ hơi nước & Điểm sương · 60s
           </button>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{
+              borderColor: '#F59E0B',
+              backgroundColor: topic.includes('mùa hè') || topic.includes('mùa đông') || topic.includes('Trái Đất') ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+              color: '#FDE047',
+              fontWeight: 700
+            }}
+            onClick={() => {
+              setDomain('physics');
+              setNarrationMode('dutai_tts');
+              setConfirmExternalApi(true);
+              setDurationPreset('60s');
+              setCuratedPresetLabel('Bốn mùa Trái Đất & Trục nghiêng 23.5°');
+              setTopic('Vì sao mùa hè thì nóng, còn mùa đông lại lạnh? (Trục Trái Đất nghiêng 23.5°)');
+            }}
+          >
+            🌍 7. Bốn mùa Trái Đất & Trục nghiêng 23.5° · 56s
+          </button>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 12, fontWeight: 800, color: '#94A3B8', letterSpacing: 0.8 }}>THƯ VIỆN FORMAT VẬT LÝ MỞ RỘNG</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {[
+            ['🔊 Sóng âm', 'Sóng âm truyền trong không khí như thế nào?'],
+            ['🧱 Định luật II Newton', 'Định luật II Newton và hợp lực'],
+            ['🏀 Ném xiên', 'Chuyển động ném xiên có quỹ đạo parabol'],
+            ['🕰️ Con lắc đơn', 'Con lắc đơn có chu kỳ dao động như thế nào?'],
+            ['⚡ Bảo toàn cơ năng', 'Bảo toàn cơ năng giữa động năng và thế năng']
+          ].map(([label, presetTopic]) => (
+            <button
+              key={presetTopic}
+              type="button"
+              className="quick-chip"
+              style={{ borderColor: '#FBBF24', color: '#F8FAFC', fontWeight: 600 }}
+              onClick={() => selectCuratedPreset({ label, domain: 'physics', topic: presetTopic, duration: '60s' })}
+            >
+              {label} · 60s
+            </button>
+          ))}
         </div>
         {curatedPresetLabel && (
           <div data-testid="curated-preset-ready" style={{ marginTop: 10, color: '#A7F3D0', fontSize: 13, lineHeight: 1.5 }}>
-            ✓ Đã chọn bản chuẩn “{curatedPresetLabel}”: nội dung kiểm định 100%, phụ đề bật và {narrationMode === 'dutai_tts' ? 'DUTAI ZeroTTS (Bảo Trang)' : 'Gemini TTS'} được kích hoạt.
+            ✓ Đã chọn format “{curatedPresetLabel}”: storyboard typed 60 giây, phụ đề bật và {narrationMode === 'dutai_tts' ? 'DUTAI ZeroTTS (Bảo Trang)' : 'Gemini TTS'} được kích hoạt. Nội dung khoa học vẫn phải qua bước kiểm định và giáo viên duyệt trước khi render.
           </div>
         )}
       </div>
@@ -708,7 +750,7 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
         {(domain === 'mathematics'
           ? [['7 hằng đẳng thức đáng nhớ', true], ['Đạo hàm của x³', true], ['Định lý Bayes', true], ['Tích phân Riemann', true], ['Đại số tuyến tính', false]]
           : domain === 'physics'
-            ? [['Vì sao sau cơn mưa xuất hiện cầu vồng?', true], ['Vì sao điện thoại nghe gọi được với nhau?', true], ['Vì sao ngoài lon nước lạnh xuất hiện giọt sương?', true], ['Khúc xạ ánh sáng', true], ['Định luật Newton', false], ['Cơ năng', false]]
+            ? [['Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?', true], ['Vì sao sau cơn mưa xuất hiện cầu vồng?', true], ['Vì sao điện thoại nghe gọi được với nhau?', true], ['Vì sao ngoài lon nước lạnh xuất hiện giọt sương?', true], ['Sóng âm truyền trong không khí như thế nào?', true], ['Định luật II Newton và hợp lực', true], ['Chuyển động ném xiên', true], ['Con lắc đơn', true], ['Bảo toàn cơ năng', true], ['Lực Lorentz', false]]
             : [['Perceptron', true], ['Gradient Descent', true], ['Self-Attention', true], ['Neural Networks', false], ['Backpropagation', false]]
         ).map(([example, ready]) => <button type="button" className="quick-chip" key={String(example)} onClick={() => {
           setCuratedPresetLabel('');
