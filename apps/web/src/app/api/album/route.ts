@@ -376,14 +376,19 @@ export async function GET(request: Request): Promise<Response> {
         }
       }
 
-      extraJobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      videos.push(...extraJobs);
+      // Chỉ lấy thêm các job do người dùng đánh dấu Trình chiếu
+      const savedExtraJobs = extraJobs.filter((job) => job.isSaved);
+      savedExtraJobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      videos.push(...savedExtraJobs);
     }
+
+    // Album video chỉ gồm những video Trình chiếu chất lượng cao
+    const presentationVideos = videos.filter((v) => v.isSaved);
 
     return Response.json({
       success: true,
-      total: videos.length,
-      videos,
+      total: presentationVideos.length,
+      videos: presentationVideos,
     });
   } catch (error) {
     if (error instanceof SecurityError) {
