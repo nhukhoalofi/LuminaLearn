@@ -1,0 +1,33 @@
+# Dependency & Git
+node_modules
+.git
+.github
+.gitignore
+.agents
+.claude
+
+# Secrets & Local environments
+.env
+.env.local
+.env*.local
+
+# Media outputs & test artifacts
+outputs/
+artifacts/
+public/videos/
+*.mp4
+*.wav
+*.aac
+*.png
+*.jpg
+*.jpeg
+*.docx
+*.log
+
+# Build artifacts
+apps/web/.next
+apps/web/out
+dist/
+build/
+*.tsbuildinfo
+
