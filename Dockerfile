@@ -16,9 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Cài đặt sympy cho python & pnpm toàn cục
+# Cài đặt sympy và pnpm v9 (chuẩn với lockfileVersion 9.0)
 RUN pip install --no-cache-dir --break-system-packages sympy
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@9
 
 # Thiết lập đường dẫn Chromium cho Remotion và Puppeteer trong container Linux
 ENV REMOTION_BROWSER_EXECUTABLE=/usr/bin/chromium
@@ -28,7 +28,7 @@ ENV PYTHON_EXECUTABLE=python3
 
 WORKDIR /app
 
-# Stage 1: Cài đặt dependencies với pnpm
+# Stage 1: Cài đặt dependencies với pnpm 9
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/
