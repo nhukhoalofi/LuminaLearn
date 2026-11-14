@@ -583,6 +583,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                 src="/demo/thumb-projectile-motion.png"
                 alt="Chuyển động ném ngang"
                 fill
+                sizes="(max-width: 768px) 100vw, 33vw"
+                unoptimized
                 style={{ objectFit: 'cover' }}
               />
               <span
