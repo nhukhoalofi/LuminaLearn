@@ -68,8 +68,9 @@ EXPOSE 8080
 # Copy toàn bộ workspace đã build và node_modules từ builder
 COPY --from=builder /app /app
 
-# Tạo thư mục outputs để lưu trữ state tạm thời
-RUN mkdir -p /app/outputs/.drafts-v3 /app/outputs/.jobs /app/outputs/videos
+# Tạo thư mục outputs và nạp sẵn các video demo vào outputs để job kết xuất luôn tìm thấy
+RUN mkdir -p /app/outputs/.drafts-v3 /app/outputs/.jobs /app/outputs/videos && \
+    (cp -f /app/apps/web/public/demo/*.mp4 /app/outputs/ 2>/dev/null || true)
 
 # Chạy Next.js app lắng nghe tất cả interface (0.0.0.0) trên cổng $PORT của Cloud Run
 CMD ["sh", "-c", "pnpm --filter @luminalearn/web exec next start -H 0.0.0.0 -p ${PORT:-8080}"]
