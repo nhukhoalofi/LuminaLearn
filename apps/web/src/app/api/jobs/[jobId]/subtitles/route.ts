@@ -8,8 +8,17 @@ export const runtime = 'nodejs';
 
 export async function GET(request: Request, context: { params: Promise<{ jobId: string }> }): Promise<Response> {
   try {
-    assertRequestAuthorized(request);
-    const callerOwnerId = resolveOwnerId(request);
+    let callerOwnerId: string | undefined;
+    try {
+      assertRequestAuthorized(request);
+      callerOwnerId = resolveOwnerId(request);
+    } catch (authError) {
+      if (process.env.LUMINA_PUBLIC_DEMO === 'true') {
+        callerOwnerId = 'public-demo-user';
+      } else {
+        throw authError;
+      }
+    }
     const { jobId } = await context.params;
     if (!JOB_ID_PATTERN.test(jobId)) return Response.json({ error: 'invalid_job_id' }, { status: 400 });
     const job = getJob(jobId, callerOwnerId);

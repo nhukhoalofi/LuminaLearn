@@ -80,6 +80,10 @@ media/
 *.mp4
 *.wav
 *.mp3
+!apps/web/public/demo/*.mp4
+!apps/web/public/demo/*.png
+!apps/web/public/demo/*.jpg
+!apps/web/public/demo/*.jpeg
 
 # Generated assets
 apps/worker/public/generated/
