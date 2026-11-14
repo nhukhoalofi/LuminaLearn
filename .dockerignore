@@ -11,18 +11,19 @@ node_modules
 .env.local
 .env*.local
 
-# Media outputs & test artifacts
+# Media outputs & root test artifacts
 outputs/
 artifacts/
-public/videos/
-*.mp4
-*.wav
-*.aac
-*.png
-*.jpg
-*.jpeg
-*.docx
 *.log
+*.docx
+
+# Root media files only (DO NOT ignore apps/web/public/ assets!)
+/*.mp4
+/*.wav
+/*.aac
+/*.png
+/*.jpg
+/*.jpeg
 
 # Build artifacts
 apps/web/.next
@@ -30,4 +31,3 @@ apps/web/out
 dist/
 build/
 *.tsbuildinfo
-

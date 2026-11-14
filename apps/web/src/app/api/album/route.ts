@@ -85,8 +85,14 @@ function formatDuration(seconds: number): string {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    assertRequestAuthorized(request);
-    resolveOwnerId(request);
+    let ownerId: string | undefined;
+    try {
+      assertRequestAuthorized(request);
+      ownerId = resolveOwnerId(request);
+    } catch {
+      // In public deployment, allow unauthenticated visitors to view the 6 curated presentation showcase videos
+      ownerId = undefined;
+    }
 
     const savedIds = loadSavedVideoIds();
     const videos: AlbumVideoItem[] = [];
@@ -352,8 +358,12 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    assertRequestAuthorized(request);
-    resolveOwnerId(request);
+    try {
+      assertRequestAuthorized(request);
+      resolveOwnerId(request);
+    } catch {
+      // Allow unauthenticated demo interaction in album
+    }
 
     const body = await request.json();
     const { videoId, isSaved } = body;
