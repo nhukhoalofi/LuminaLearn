@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "luminalearn": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--filter", "@luminalearn/mcp-server", "start"]
+    }
+  }
+}

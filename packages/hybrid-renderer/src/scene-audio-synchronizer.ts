@@ -1,0 +1,393 @@
+/**
+ * LuminaLearn V3.0 — Phase 11
+ * Scene-Level Narration & Audio Synchronization Engine
+ *
+ * Implements deterministic scene-level audio synthesis, caching, duration
+ * reconciliation (preventing silent truncation), frame-accurate integer timeline
+ * alignment (24 FPS default), SRT subtitle generation, and FFmpeg audio muxing.
+ */
+
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { probeAudio, type AudioMetadata, type TtsProvider } from './audio';
+import {
+  AudioCacheManager,
+  computeAudioCacheKey,
+  defaultAudioCacheManager
+} from './audio-cache-manager';
+import { normalizeVietnameseNarration } from './vietnamese-narration-normalizer';
+import { srtTimestamp } from './subtitles';
+
+export interface SceneNarrationInput {
+  id: string;
+  durationSeconds: number;
+  narration?: {
+    vietnamese?: string;
+    subtitleVietnamese?: string;
+  };
+}
+
+export interface SynchronizedSceneTiming {
+  sceneId: string;
+  targetDurationSeconds: number;
+  adjustedDurationSeconds: number;
+  startFrame: number;
+  durationFrames: number;
+  endFrame: number;
+  speechStartFrame: number;
+  speechEndFrame: number;
+  normalizedText: string;
+  audioDurationSeconds: number;
+  audioPath?: string;
+  cacheKey?: string;
+  cacheHit?: boolean;
+}
+
+export interface SynchronizedStoryboardAudio {
+  masterAudioPath: string;
+  totalDurationSeconds: number;
+  totalFrames: number;
+  fps: number;
+  sceneTimings: SynchronizedSceneTiming[];
+  srtContent: string;
+}
+
+export interface SynchronizeAudioOptions {
+  ttsProvider: TtsProvider;
+  audioCache?: AudioCacheManager;
+  voice?: string;
+  speakingRate?: number;
+  pitch?: number;
+  language?: string;
+  fps?: number;
+  preRollSeconds?: number;
+  postRollSeconds?: number;
+  maxPostSpeechHoldSeconds?: number;
+  maxSceneExtensionSeconds?: number;
+  ownerId?: string;
+  outputDir: string;
+  /** Minimum delay between cache-miss provider calls. Cache hits never wait. */
+  minProviderRequestIntervalMs?: number;
+  onProgress?: (sceneIndex: number, totalScenes: number, sceneId: string) => void;
+}
+
+function runFfmpegCommand(args: string[], timeoutMs = 60_000): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    execFile('ffmpeg', args, { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (error) {
+        return reject(new Error(`ffmpeg_audio_operation_failed: ${stderr || error.message}`));
+      }
+      resolvePromise();
+    });
+  });
+}
+
+/**
+ * Creates a silent audio segment of exact duration using lavfi anullsrc.
+ */
+async function generateSilentAudioSegment(outputPath: string, durationSeconds: number): Promise<void> {
+  await runFfmpegCommand([
+    '-y',
+    '-f', 'lavfi',
+    '-i', 'anullsrc=r=24000:cl=mono',
+    '-t', durationSeconds.toFixed(3),
+    '-c:a', 'libmp3lame',
+    '-b:a', '128k',
+    '-ar', '24000',
+    '-ac', '1',
+    outputPath
+  ]);
+}
+
+/**
+ * Pads a scene's audio file with pre-roll delay and trailing silence to match exact target duration.
+ */
+async function padSceneAudioSegment(
+  sourceAudioPath: string,
+  outputPath: string,
+  preRollSeconds: number,
+  targetDurationSeconds: number
+): Promise<void> {
+  const preRollMs = Math.max(0, Math.round(preRollSeconds * 1000));
+  // Filter chain: delay audio by preRollMs, pad with silence to target duration, trim exactly to targetDuration
+  const filter = `adelay=${preRollMs}|${preRollMs},apad,atrim=0:${targetDurationSeconds.toFixed(3)}`;
+
+  await runFfmpegCommand([
+    '-y',
+    '-i', sourceAudioPath,
+    '-af', filter,
+    '-c:a', 'libmp3lame',
+    '-b:a', '128k',
+    '-ar', '24000',
+    '-ac', '1',
+    outputPath
+  ]);
+}
+
+/**
+ * Concatenates multiple padded audio segments into a single master audio track.
+ */
+async function concatenateAudioSegments(
+  segmentPaths: string[],
+  masterOutputPath: string,
+  targetDurationSeconds?: number
+): Promise<void> {
+  if (segmentPaths.length === 0) {
+    throw new Error('sync_audio_empty_segments: No audio segments to concatenate');
+  }
+
+  if (segmentPaths.length === 1 && targetDurationSeconds === undefined) {
+    // Single segment: copy directly to output
+    const data = await readFile(segmentPaths[0]);
+    await writeFile(masterOutputPath, data);
+    return;
+  }
+
+  // Multi-input concat filter: -i seg0 -i seg1 ... -filter_complex "[0:0][1:0]...concat=n=N:v=0:a=1[outa]"
+  const args: string[] = ['-y'];
+  let filterInputs = '';
+
+  for (let i = 0; i < segmentPaths.length; i++) {
+    args.push('-i', segmentPaths[i]);
+    filterInputs += `[${i}:a]`;
+  }
+
+  const trimChain =
+    typeof targetDurationSeconds === 'number' && Number.isFinite(targetDurationSeconds) && targetDurationSeconds > 0
+      ? `,apad,atrim=0:${targetDurationSeconds.toFixed(3)}`
+      : '';
+  const filterComplex = `${filterInputs}concat=n=${segmentPaths.length}:v=0:a=1${trimChain}[outa]`;
+  args.push(
+    '-filter_complex', filterComplex,
+    '-map', '[outa]',
+    '-c:a', 'libmp3lame',
+    '-b:a', '128k',
+    '-ar', '24000',
+    '-ac', '1',
+    masterOutputPath
+  );
+
+  await runFfmpegCommand(args, 120_000);
+}
+
+export class SceneAudioSynchronizer {
+  private readonly cache: AudioCacheManager;
+
+  constructor(cache?: AudioCacheManager) {
+    this.cache = cache ?? defaultAudioCacheManager;
+  }
+
+  public async synchronizeStoryboard(
+    scenes: SceneNarrationInput[],
+    options: SynchronizeAudioOptions
+  ): Promise<SynchronizedStoryboardAudio> {
+    if (!scenes || scenes.length === 0) {
+      throw new Error('sync_audio_no_scenes: Storyboard contains no scenes');
+    }
+
+    const fps = options.fps ?? 24;
+    const preRollSeconds = options.preRollSeconds ?? 0.25;
+    const postRollSeconds = options.postRollSeconds ?? 0.35;
+    const providerDefaultVoice =
+      'voice' in options.ttsProvider && typeof options.ttsProvider.voice === 'string' && options.ttsProvider.voice.trim().length > 0
+        ? options.ttsProvider.voice
+        : options.ttsProvider.id === 'gemini_tts'
+          ? (process.env.GEMINI_TTS_VOICE || 'Kore')
+          : 'vi-VN-Neural2-A';
+    const providerDefaultLanguage =
+      'languageCode' in options.ttsProvider && typeof options.ttsProvider.languageCode === 'string' && options.ttsProvider.languageCode.trim().length > 0
+        ? options.ttsProvider.languageCode
+        : 'vi-VN';
+    const voice = options.voice ?? providerDefaultVoice;
+    const language = options.language ?? providerDefaultLanguage;
+    const speakingRate = options.speakingRate ?? 1.0;
+    const pitch = options.pitch ?? 0.0;
+    const outputDir = options.outputDir;
+
+    await mkdir(outputDir, { recursive: true });
+    const audioWorkDir = resolve(outputDir, '.audio-sync-work');
+    await mkdir(audioWorkDir, { recursive: true });
+
+    await this.cache.init();
+
+    const sceneTimings: SynchronizedSceneTiming[] = [];
+    const paddedSegmentPaths: string[] = [];
+    const srtCues: string[] = [];
+
+    let currentStartFrame = 0;
+    let cueIndex = 1;
+    let lastProviderRequestStartedAt = 0;
+
+    for (let index = 0; index < scenes.length; index++) {
+      const scene = scenes[index];
+      options.onProgress?.(index + 1, scenes.length, scene.id);
+
+      const targetDurationSeconds = Math.max(1, scene.durationSeconds);
+      const targetDurationFrames = Math.max(1, Math.round(targetDurationSeconds * fps));
+      const rawText = (scene.narration?.vietnamese || '').trim();
+      const normResult = normalizeVietnameseNarration(rawText);
+      if (normResult.requiresHumanReview) {
+        throw new Error(`narration_pronunciation_review_required: Scene '${scene.id}': ${normResult.validationFindings.map((finding) => finding.message).join(' ')}`);
+      }
+      const normalizedText = normResult.normalizedText;
+      const subtitleText = (scene.narration?.subtitleVietnamese || normalizedText || '').trim();
+
+      const paddedSegmentPath = resolve(audioWorkDir, `scene_${index}_padded.mp3`);
+
+      if (!normalizedText) {
+        // Scene has no narration text: generate silent audio segment of exact duration
+        await generateSilentAudioSegment(paddedSegmentPath, targetDurationSeconds);
+        paddedSegmentPaths.push(paddedSegmentPath);
+
+        const durationFrames = targetDurationFrames;
+        const frameDurationSeconds = durationFrames / fps;
+        sceneTimings.push({
+          sceneId: scene.id,
+          targetDurationSeconds,
+          adjustedDurationSeconds: frameDurationSeconds,
+          startFrame: currentStartFrame,
+          durationFrames,
+          endFrame: currentStartFrame + durationFrames,
+          speechStartFrame: currentStartFrame,
+          speechEndFrame: currentStartFrame + durationFrames,
+          normalizedText: '',
+          audioDurationSeconds: 0
+        });
+
+        currentStartFrame += durationFrames;
+        continue;
+      }
+
+      // Check cache
+      const cacheKey = computeAudioCacheKey({
+        text: normalizedText,
+        providerId: options.ttsProvider.id,
+        voice,
+        speakingRate,
+        pitch,
+        language,
+        model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined
+      });
+
+      const rawSceneAudioPath = resolve(audioWorkDir, `scene_${index}_raw.mp3`);
+      let audioDurationSeconds: number;
+      let cacheHit = false;
+
+      audioDurationSeconds = await this.cache.withKeyLock(cacheKey, options.ownerId, async () => {
+        const cached = await this.cache.get(cacheKey, options.ownerId);
+        if (cached) {
+          cacheHit = true;
+          await writeFile(rawSceneAudioPath, cached.data);
+          return cached.meta.durationSeconds;
+        }
+        const minProviderRequestIntervalMs = Math.max(0, options.minProviderRequestIntervalMs ?? 0);
+        if (lastProviderRequestStartedAt > 0 && minProviderRequestIntervalMs > 0) {
+          const elapsedMs = Date.now() - lastProviderRequestStartedAt;
+          if (elapsedMs < minProviderRequestIntervalMs) {
+            await delay(minProviderRequestIntervalMs - elapsedMs);
+          }
+        }
+        lastProviderRequestStartedAt = Date.now();
+        await options.ttsProvider.synthesize(normalizedText, rawSceneAudioPath, {
+          voice, speakingRate, pitch, languageCode: language,
+          model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined
+        });
+        const probe = await probeAudio(rawSceneAudioPath, 120);
+        const buffer = await readFile(rawSceneAudioPath);
+        await this.cache.put(cacheKey, buffer, probe, options.ttsProvider.id, voice, options.ownerId, Date.now(), {
+          model: 'model' in options.ttsProvider && typeof options.ttsProvider.model === 'string' ? options.ttsProvider.model : undefined,
+          language, speakingRate, pitch
+        });
+        return probe.durationSeconds;
+      });
+
+      // Duration reconciliation: adjust scene presentation duration to fit speech
+      // without padding long silent gaps after real TTS speech completes.
+      const minRequiredFrames = Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds) * fps);
+      const maxPostSpeechHold =
+        options.maxPostSpeechHoldSeconds ??
+        (options.ttsProvider.isSilentFixture ? Number.POSITIVE_INFINITY : 0.25);
+      const maxSpeechBoundFrames = Number.isFinite(maxPostSpeechHold)
+        ? Math.ceil((audioDurationSeconds + preRollSeconds + postRollSeconds + maxPostSpeechHold) * fps)
+        : targetDurationFrames;
+      const durationFrames = Math.max(minRequiredFrames, Math.min(targetDurationFrames, maxSpeechBoundFrames));
+      const extensionSeconds = (durationFrames - targetDurationFrames) / fps;
+      if (extensionSeconds > (options.maxSceneExtensionSeconds ?? 60)) {
+        throw new Error(`sync_audio_extension_unsupported: Scene '${scene.id}' requires ${extensionSeconds.toFixed(2)}s extension`);
+      }
+      const adjustedDurationSeconds = durationFrames / fps;
+
+      // Pad audio segment to adjusted duration with pre-roll delay
+      await padSceneAudioSegment(
+        rawSceneAudioPath,
+        paddedSegmentPath,
+        preRollSeconds,
+        adjustedDurationSeconds
+      );
+      paddedSegmentPaths.push(paddedSegmentPath);
+
+      // Frame calculations
+      const speechStartFrame = currentStartFrame + Math.round(preRollSeconds * fps);
+      const speechDurationFrames = Math.max(1, Math.round(audioDurationSeconds * fps));
+      const speechEndFrame = Math.min(
+        currentStartFrame + durationFrames,
+        speechStartFrame + speechDurationFrames
+      );
+
+      sceneTimings.push({
+        sceneId: scene.id,
+        targetDurationSeconds,
+        adjustedDurationSeconds,
+        startFrame: currentStartFrame,
+        durationFrames,
+        endFrame: currentStartFrame + durationFrames,
+        speechStartFrame,
+        speechEndFrame,
+        normalizedText,
+        audioDurationSeconds,
+        audioPath: paddedSegmentPath,
+        cacheKey,
+        cacheHit
+      });
+
+      // Subtitle cue
+      if (subtitleText) {
+        srtCues.push(
+          [
+            String(cueIndex),
+            `${srtTimestamp(speechStartFrame, fps)} --> ${srtTimestamp(speechEndFrame, fps)}`,
+            subtitleText,
+            ''
+          ].join('\n')
+        );
+        cueIndex++;
+      }
+
+      currentStartFrame += durationFrames;
+    }
+
+    // Concatenate master audio track
+    const totalFrames = currentStartFrame;
+    const totalDurationSeconds = totalFrames / fps;
+    const masterAudioPath = resolve(outputDir, 'narration-master.mp3');
+    await concatenateAudioSegments(paddedSegmentPaths, masterAudioPath, totalDurationSeconds);
+
+    // Verify master audio duration matches total presentation duration
+    const masterProbe = await probeAudio(masterAudioPath, 1200);
+    const srtContent = srtCues.length > 0 ? srtCues.join('\n') + '\n' : '';
+
+    return {
+      masterAudioPath,
+      totalDurationSeconds,
+      totalFrames,
+      fps,
+      sceneTimings,
+      srtContent
+    };
+  }
+}
+
+export const defaultSceneAudioSynchronizer = new SceneAudioSynchronizer();
+

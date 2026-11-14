@@ -1,0 +1,80 @@
+name: LuminaLearn Heavy Render Acceptance (E2E)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Render scenario to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - D1_math_60s
+          - D2_ai_180s
+
+jobs:
+  heavy-render:
+    name: Remotion + FFmpeg Heavy Render Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      NODE_ENV: test
+      LUMINA_LOCAL_DEMO: 'true'
+      CI: 'true'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install FFmpeg & System Libraries for Manim
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libcairo2-dev libpango1.0-dev pkg-config
+
+      - name: Setup Python for SymPy & Manim
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Math Engine & Manim Rendering
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "services/math-engine[all]"
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        run: pnpm --filter @luminalearn/web exec playwright install chromium --with-deps
+
+      - name: Run Hybrid Renderer Acceptance
+        run: pnpm --filter @luminalearn/hybrid-renderer test
+
+      - name: Run Real Browser E2E Render Tests (D1 & D2)
+        run: pnpm --filter @luminalearn/web test:e2e:real
+
+      - name: Upload Generated Video Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luminalearn-rendered-videos
+          path: |
+            outputs/job-*/final.mp4
+            outputs/job-*/subtitles.srt
+            outputs/job-*/media-report.json
+            outputs/devfest-demo/
+          retention-days: 7
+

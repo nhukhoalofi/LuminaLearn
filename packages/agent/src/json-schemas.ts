@@ -32,3 +32,103 @@ export const mathSceneJsonSchema = {
   required: ['schemaVersion', 'topicId', 'visualization', 'function', 'pointX', 'hStart', 'hEnd', 'durationSeconds', 'fps', 'width', 'height']
 } as const;
 
+export const lessonPlanV2JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    schemaVersion: { type: 'string', enum: ['lesson-v2'] },
+    lessonId: { type: 'string' },
+    topicId: { type: 'string' },
+    title: { type: 'string' },
+    learningObjectives: { type: 'array', minItems: 1, maxItems: 6, items: { type: 'string' } },
+    prerequisites: { type: 'array', maxItems: 6, items: { type: 'string' } },
+    keyConcepts: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string' } },
+    mathematicalClaims: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 12,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' },
+          statement: { type: 'string' },
+          canonicalStatement: { type: 'string' },
+          validatorKey: { type: 'string' },
+          expectedExpression: { type: 'string' },
+          verificationStatus: { type: 'string', enum: ['unverified'] }
+        },
+        required: ['id', 'statement', 'validatorKey', 'expectedExpression', 'verificationStatus']
+      }
+    },
+    pedagogicalSequence: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 10,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          stepNumber: { type: 'integer', minimum: 1 },
+          pedagogicalGoal: { type: 'string' },
+          intuitiveConcept: { type: 'string' },
+          formalFormula: { type: 'string' },
+          targetDurationSeconds: { type: 'number', minimum: 1, maximum: 60 }
+        },
+        required: ['stepNumber', 'pedagogicalGoal', 'intuitiveConcept', 'targetDurationSeconds']
+      }
+    },
+    summary: { type: 'string' }
+  },
+  required: [
+    'schemaVersion',
+    'lessonId',
+    'topicId',
+    'title',
+    'learningObjectives',
+    'keyConcepts',
+    'mathematicalClaims',
+    'pedagogicalSequence',
+    'summary'
+  ]
+} as const;
+
+export const narrationPlanV2JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    planId: { type: 'string' },
+    storyboardId: { type: 'string' },
+    language: { type: 'string', enum: ['vi', 'en'] },
+    segments: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 15,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          segmentId: { type: 'string' },
+          sceneId: { type: 'string' },
+          text: { type: 'string' },
+          subtitleText: { type: 'string' },
+          targetDurationSeconds: { type: 'number', minimum: 1, maximum: 120 }
+        },
+        required: ['segmentId', 'sceneId', 'text', 'subtitleText', 'targetDurationSeconds']
+      }
+    },
+    totalWords: { type: 'integer', minimum: 1 },
+    estimatedDurationSeconds: { type: 'number', minimum: 1 },
+    mathematicalReview: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        status: { type: 'string', enum: ['verified', 'unverified'] },
+        verifiedClaimIds: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['status', 'verifiedClaimIds']
+    }
+  },
+  required: ['planId', 'storyboardId', 'language', 'segments', 'totalWords', 'estimatedDurationSeconds', 'mathematicalReview']
+} as const;
+

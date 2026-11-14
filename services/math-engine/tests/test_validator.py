@@ -4,6 +4,8 @@ import pytest
 
 from luminalearn_math_engine.schemas.math_scene import MathSceneValidationError, validate_math_scene
 from luminalearn_math_engine.validators.derivative import verify_derivative_scene
+from luminalearn_math_engine.validators.algebra_identity import verify_algebra_identity
+from luminalearn_math_engine.validators.safe_expression import UnsafeExpressionError
 
 
 SCENE = {
@@ -47,6 +49,25 @@ def test_function_graph_contract_does_not_require_secant_parameters() -> None:
     graph = {key: value for key, value in SCENE.items() if key not in {"hStart", "hEnd"}}
     graph["visualization"] = "function_graph"
     assert validate_math_scene(graph)["visualization"] == "function_graph"
+
+
+@pytest.mark.parametrize(("left", "right"), [
+    ("(a+b)^2", "a^2+2*a*b+b^2"),
+    ("(a-b)^2", "a^2-2*a*b+b^2"),
+    ("a^2-b^2", "(a-b)*(a+b)"),
+    ("(a+b)^3", "a^3+3*a^2*b+3*a*b^2+b^3"),
+    ("(a-b)^3", "a^3-3*a^2*b+3*a*b^2-b^3"),
+    ("a^3+b^3", "(a+b)*(a^2-a*b+b^2)"),
+    ("a^3-b^3", "(a-b)*(a^2+a*b+b^2)"),
+])
+def test_seven_algebraic_identities_are_verified(left: str, right: str) -> None:
+    assert verify_algebra_identity(left, right)["status"] == "verified"
+
+
+def test_algebra_identity_rejects_wrong_or_executable_input() -> None:
+    assert verify_algebra_identity("(a+b)^2", "a^2+b^2")["status"] == "incorrect"
+    with pytest.raises(UnsafeExpressionError):
+        verify_algebra_identity("__import__('os')", "a")
 
 
 @pytest.mark.parametrize("change", [

@@ -1,0 +1,451 @@
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, extname, resolve } from 'node:path';
+import { GoogleGenAI } from '@google/genai';
+import {
+  GeminiRequestBudget,
+  type GeminiRequestBudgetSummary,
+  classifyGeminiError as classifySharedGeminiError,
+  computeBackoffWithJitterMs,
+  type ExternalApiConsentRecordV3,
+  verifyExternalApiConsentV3
+} from '@luminalearn/scene-schema';
+import type { TtsProvider, TtsSynthesisSettings } from './audio';
+
+export interface GeminiSpeechRequest {
+  model: string;
+  text: string;
+  voice: string;
+  languageCode: string;
+  styleInstruction?: string;
+  signal: AbortSignal;
+}
+
+export interface GeminiSpeechResponse {
+  data: string | Uint8Array;
+  mimeType?: string;
+  modelVersion?: string;
+  sampleRate?: number;
+  channels?: number;
+}
+
+export interface GeminiAudioClient {
+  assertModelAvailable(model: string, signal: AbortSignal): Promise<void>;
+  generateSpeech(request: GeminiSpeechRequest): Promise<GeminiSpeechResponse>;
+}
+
+export interface GoogleGenAiAudioClientOptions {
+  fetchImpl?: typeof fetch;
+  interactionsEndpoint?: string;
+  modelsEndpoint?: string;
+}
+
+export class GoogleGenAiAudioClient implements GeminiAudioClient {
+  private readonly ai: GoogleGenAI;
+  private readonly apiKey: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly interactionsEndpoint: string;
+  private readonly modelsEndpoint: string;
+
+  constructor(apiKey: string, options: GoogleGenAiAudioClientOptions = {}) {
+    this.apiKey = apiKey;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.interactionsEndpoint = options.interactionsEndpoint ?? 'https://generativelanguage.googleapis.com/v1beta/interactions';
+    this.modelsEndpoint = options.modelsEndpoint ?? 'https://generativelanguage.googleapis.com/v1beta/models';
+    this.ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta' } });
+  }
+
+  async assertModelAvailable(model: string, signal: AbortSignal): Promise<void> {
+    if (model === 'gemini-3.8-flash-tts' || model === 'gemini-3.8-flash-lite-tts') {
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.modelsEndpoint}/${encodeURIComponent(model)}`, {
+          method: 'GET',
+          headers: { 'x-goog-api-key': this.apiKey },
+          signal
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`tts_network_error: Gemini model lookup failed (${message})`, { cause: error });
+      }
+      const responseText = await response.text();
+      let payload: { name?: string; error?: { status?: string; message?: string } } = {};
+      try {
+        payload = responseText ? JSON.parse(responseText) as typeof payload : {};
+      } catch (error) {
+        throw Object.assign(new Error('tts_invalid_response: Gemini model lookup returned non-JSON data', { cause: error }), {
+          status: response.status
+        });
+      }
+      if (!response.ok || !payload.name) {
+        if (response.status === 404) {
+          throw Object.assign(
+            new Error(`tts_model_unavailable: Gemini TTS model '${model}' is not available on this API key or endpoint`),
+            { status: 404 }
+          );
+        }
+        throw Object.assign(
+          new Error(`Gemini HTTP ${response.status}${payload.error?.status ? ` ${payload.error.status}` : ''}: ${payload.error?.message ?? 'Model lookup failed'}`),
+          { status: response.status, code: payload.error?.status }
+        );
+      }
+      return;
+    }
+    try {
+      const metadata = await this.ai.models.get({ model, config: { abortSignal: signal } });
+      if (!metadata.name) throw new Error(`tts_model_unavailable: Model '${model}' was not returned by the Gemini API`);
+    } catch (err) {
+      if (err instanceof Error && /404|not_found|unsupported/i.test(err.message)) {
+        throw new Error(`tts_model_unavailable: Gemini TTS model '${model}' is not available on this API key or endpoint`);
+      }
+      throw err;
+    }
+  }
+
+  private async generateInteractionSpeech(request: GeminiSpeechRequest): Promise<GeminiSpeechResponse> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.interactionsEndpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': this.apiKey
+        },
+        body: JSON.stringify({
+          model: request.model,
+          input: [{
+            type: 'user_input',
+            content: [{
+              type: 'text',
+              text: request.text,
+              annotations: request.styleInstruction
+                ? [{ type: 'speech_metadata', style: request.styleInstruction }]
+                : []
+            }]
+          }],
+          response_format: { type: 'audio' },
+          generation_config: { speech_config: [{ voice: request.voice }] }
+        }),
+        signal: request.signal
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`tts_network_error: Gemini Interactions request failed (${message})`, { cause: error });
+    }
+
+    const responseText = await response.text();
+    let payload: unknown;
+    try {
+      payload = responseText ? JSON.parse(responseText) : {};
+    } catch (error) {
+      throw Object.assign(new Error('tts_invalid_response: Gemini Interactions returned non-JSON data', { cause: error }), {
+        status: response.status
+      });
+    }
+
+    if (!response.ok) {
+      const errorPayload = payload as { error?: { status?: string; message?: string; code?: number } };
+      const apiError = errorPayload.error;
+      throw Object.assign(
+        new Error(`Gemini HTTP ${response.status}${apiError?.status ? ` ${apiError.status}` : ''}: ${apiError?.message ?? 'Interactions request failed'}`),
+        { status: response.status, code: apiError?.status }
+      );
+    }
+
+    type AudioBlock = {
+      type?: string;
+      data?: string;
+      mime_type?: string;
+      sample_rate?: number;
+      channels?: number;
+    };
+    const interaction = payload as {
+      output_audio?: AudioBlock;
+      steps?: Array<{ content?: AudioBlock[] }>;
+      model_version?: string;
+    };
+    const stepAudio = interaction.steps
+      ?.flatMap((step) => step.content ?? [])
+      .filter((block) => block.type === 'audio' && typeof block.data === 'string')
+      .at(-1);
+    const audio = interaction.output_audio?.data ? interaction.output_audio : stepAudio;
+    if (!audio?.data) throw new Error('tts_empty_audio: Gemini returned no interaction audio payload');
+    return {
+      data: audio.data,
+      mimeType: audio.mime_type,
+      modelVersion: interaction.model_version ?? request.model,
+      sampleRate: audio.sample_rate,
+      channels: audio.channels
+    };
+  }
+
+  async generateSpeech(request: GeminiSpeechRequest): Promise<GeminiSpeechResponse> {
+    if (request.model === 'gemini-3.8-flash-tts' || request.model === 'gemini-3.8-flash-lite-tts') {
+      try {
+        return await this.generateInteractionSpeech(request);
+      } catch (err) {
+        if (/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
+          throw new Error(`tts_model_unavailable: Gemini TTS model '${request.model}' is not available on this API key or endpoint`);
+        }
+        throw err;
+      }
+    }
+
+    // Preview Gemini TTS models use generateContent with exact requested model (no silent model switching)
+    try {
+      const response = await this.ai.models.generateContent({
+        model: request.model,
+        contents: [{ parts: [{ text: request.text }] }],
+        config: {
+          abortSignal: request.signal,
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            languageCode: request.languageCode,
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: request.voice } }
+          },
+          systemInstruction: request.styleInstruction
+        }
+      });
+      const inlineData = response.candidates?.[0]?.content?.parts?.find((part) => part.inlineData)?.inlineData;
+      if (!inlineData?.data) throw new Error('tts_empty_audio: Gemini returned no inline audio payload');
+      return { data: inlineData.data, mimeType: inlineData.mimeType, modelVersion: response.modelVersion };
+    } catch (err) {
+      if (/404|not_found|unsupported/i.test(err instanceof Error ? err.message : String(err))) {
+        throw new Error(`tts_model_unavailable: Gemini TTS model '${request.model}' is not available on this API key or endpoint`);
+      }
+      throw err;
+    }
+  }
+}
+
+export interface GeminiTtsProviderOptions {
+  apiKey?: string;
+  model?: string;
+  voice?: string;
+  language?: string;
+  client?: GeminiAudioClient;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  retryBaseDelayMs?: number;
+  requestBudget?: GeminiRequestBudget;
+  randomFn?: () => number;
+  consentRecord?: ExternalApiConsentRecordV3;
+}
+
+const SUPPORTED_GEMINI_TTS_MODELS = new Set([
+  'gemini-3.8-flash-tts',
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.5-pro-preview-tts'
+]);
+
+export function isSupportedGeminiTtsModel(model: string): boolean {
+  return SUPPORTED_GEMINI_TTS_MODELS.has(model);
+}
+
+/**
+ * Ensures Google Cloud TTS voice IDs (e.g. 'vi-VN-Neural2-A') are never sent to Gemini TTS speaker configs.
+ */
+export function resolveGeminiVoiceName(candidate: string | undefined, fallback = 'Kore'): string {
+  const trimmed = candidate?.trim();
+  if (!trimmed || /^[a-z]{2,3}-[A-Z]{2}-/i.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    execFile('ffmpeg', args, { windowsHide: true, timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, _stdout, stderr) => {
+      if (error) return reject(new Error(`tts_audio_conversion_failed: ${stderr || error.message}`));
+      resolvePromise();
+    });
+  });
+}
+
+function classifyGeminiError(error: unknown, apiKey?: string): Error {
+  return classifySharedGeminiError(error, 'tts', apiKey).error;
+}
+
+function decodeAudioPayload(data: string | Uint8Array): Buffer {
+  const bytes = typeof data === 'string' ? Buffer.from(data, 'base64') : Buffer.from(data);
+  if (bytes.length === 0) throw new Error('tts_empty_audio: Gemini returned an empty audio payload');
+  return bytes;
+}
+
+function parseAudioFormat(response: GeminiSpeechResponse, bytes: Buffer): {
+  extension: '.wav' | '.pcm' | '.mp3';
+  inputArgs: string[];
+} {
+  const normalized = response.mimeType?.toLowerCase().split(';', 1)[0].trim();
+  if (normalized === 'audio/wav' || normalized === 'audio/x-wav') {
+    if (bytes.length < 12 || bytes.subarray(0, 4).toString('ascii') !== 'RIFF' || bytes.subarray(8, 12).toString('ascii') !== 'WAVE') {
+      throw new Error('tts_invalid_audio_format: Gemini declared WAV but returned no RIFF/WAVE header');
+    }
+    return { extension: '.wav', inputArgs: [] };
+  }
+  if (normalized === 'audio/l16' || normalized === 'audio/pcm' || normalized === 'audio/raw') {
+    const sampleRate = response.sampleRate ?? 24_000;
+    const channels = response.channels ?? 1;
+    if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 96_000 || channels !== 1) {
+      throw new Error('tts_invalid_audio_format: Raw PCM sample rate or channel count is unsupported');
+    }
+    if (bytes.length < 480 || bytes.length % 2 !== 0) {
+      throw new Error('tts_invalid_audio_format: Raw PCM payload is empty, truncated, or not 16-bit aligned');
+    }
+    return { extension: '.pcm', inputArgs: ['-f', 's16le', '-ar', String(sampleRate), '-ac', String(channels)] };
+  }
+  if (normalized === 'audio/mpeg' || normalized === 'audio/mp3') {
+    if (bytes.length < 4 || !(bytes.subarray(0, 3).toString('ascii') === 'ID3' || bytes[0] === 0xff)) {
+      throw new Error('tts_invalid_audio_format: Gemini declared MP3 but returned an invalid payload');
+    }
+    return { extension: '.mp3', inputArgs: [] };
+  }
+  throw new Error(`tts_invalid_audio_format: Unsupported Gemini audio MIME type '${response.mimeType ?? 'missing'}'`);
+}
+
+export class GeminiTtsProvider implements TtsProvider {
+  readonly id = 'gemini_tts';
+  readonly requiresExternalConsent = true;
+  readonly model: string;
+  readonly voice: string;
+  readonly languageCode: string;
+  private readonly apiKey?: string;
+  private readonly client: GeminiAudioClient;
+  private readonly timeoutMs: number;
+  private readonly maxAttempts: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly budget: GeminiRequestBudget;
+  private readonly randomFn: () => number;
+  private readonly consentRecord?: ExternalApiConsentRecordV3;
+  private modelAvailability?: Promise<void>;
+
+  constructor(options: GeminiTtsProviderOptions = {}) {
+    this.apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
+    this.consentRecord = options.consentRecord;
+    this.model = options.model ?? process.env.GEMINI_TTS_MODEL ?? 'gemini-3.8-flash-lite-tts';
+    const defaultEnvVoice = resolveGeminiVoiceName(process.env.GEMINI_TTS_VOICE, 'Kore');
+    this.voice = resolveGeminiVoiceName(options.voice, defaultEnvVoice);
+    const configuredLanguage = options.language ?? process.env.GEMINI_TTS_LANGUAGE ?? 'vi';
+    this.languageCode = configuredLanguage === 'vi' ? 'vi-VN' : configuredLanguage;
+    this.timeoutMs = options.timeoutMs ?? 45_000;
+    this.maxAttempts = options.maxAttempts ?? 2;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 300;
+    this.budget = options.requestBudget ?? new GeminiRequestBudget();
+    this.randomFn = options.randomFn ?? Math.random;
+
+    if (!isSupportedGeminiTtsModel(this.model)) {
+      throw new Error(`tts_model_unsupported: '${this.model}' is not an approved Gemini TTS model`);
+    }
+    if (!options.client && !this.apiKey) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
+    this.client = options.client ?? new GoogleGenAiAudioClient(this.apiKey!);
+  }
+
+  public getBudgetSummary(): GeminiRequestBudgetSummary {
+    return this.budget.getSummary();
+  }
+
+  private async withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await operation(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private ensureModelAvailable(): Promise<void> {
+    this.modelAvailability ??= this.withTimeout((signal) => this.client.assertModelAvailable(this.model, signal));
+    return this.modelAvailability;
+  }
+
+  async synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void> {
+    const narration = text.trim();
+    if (!narration || narration.length > 5_000) throw new Error('tts_invalid_text: Narration must contain 1 to 5000 characters');
+    if (extname(outputPath).toLowerCase() !== '.mp3') throw new Error('tts_output_invalid: Gemini TTS output path must end in .mp3');
+
+    if (this.consentRecord) {
+      const check = verifyExternalApiConsentV3({
+        consent: this.consentRecord,
+        ownerId: this.consentRecord.ownerId,
+        expectedProvider: 'gemini',
+        expectedOperation: 'narration',
+        isLiveOperation: true
+      });
+      if (!check.valid) {
+        throw new Error(`tts_consent_invalid: ${check.reason || 'Invalid external API consent record for Gemini TTS'}`);
+      }
+    }
+
+    let response: GeminiSpeechResponse | undefined;
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      try {
+        await this.ensureModelAvailable();
+      } catch (error) {
+        if (attempt === this.maxAttempts) {
+          throw classifyGeminiError(error, this.apiKey);
+        }
+        this.modelAvailability = undefined;
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
+      }
+      let attemptId: number;
+      try {
+        attemptId = this.budget.consume('gemini_tts', this.model);
+      } catch (budgetErr) {
+        const msg = budgetErr instanceof Error ? budgetErr.message : String(budgetErr);
+        throw new Error(msg.replace(/^gemini_budget_exceeded/, 'tts_budget_exceeded'));
+      }
+      try {
+        response = await this.withTimeout((signal) => this.client.generateSpeech({
+          model: this.model,
+          text: narration,
+          voice: resolveGeminiVoiceName(settings?.voice, this.voice),
+          languageCode: settings?.languageCode ?? this.languageCode,
+          styleInstruction: 'Giọng giáo viên Việt Nam tự nhiên, rõ ràng, tốc độ vừa phải. Đọc nguyên văn nội dung.',
+          signal
+        }));
+        this.budget.completeAttempt(attemptId, 'succeeded');
+        break;
+      } catch (error) {
+        const classified = classifySharedGeminiError(error, 'tts', this.apiKey);
+        this.budget.completeAttempt(attemptId, 'failed', classified.code);
+        lastError = classified.error;
+        if (attempt >= this.maxAttempts || !classified.retryable || !this.budget.canConsume('gemini_tts')) break;
+        const delayMs = computeBackoffWithJitterMs(
+          attempt,
+          this.retryBaseDelayMs,
+          classified.retryAfterMs,
+          this.randomFn
+        );
+        await new Promise((done) => setTimeout(done, delayMs));
+      }
+    }
+    if (!response) throw lastError ?? classifyGeminiError(new Error('Gemini TTS returned no response'), this.apiKey);
+
+    const bytes = decodeAudioPayload(response.data);
+    const format = parseAudioFormat(response, bytes);
+    const tempPath = resolve(dirname(outputPath), `.gemini-tts-${randomUUID()}${format.extension}`);
+    await mkdir(dirname(outputPath), { recursive: true });
+    try {
+      await writeFile(tempPath, bytes, { flag: 'wx' });
+      await runFfmpeg([
+        '-y', ...format.inputArgs, '-i', tempPath,
+        '-vn', '-ac', '1', '-ar', '24000', '-c:a', 'libmp3lame', '-b:a', '96k',
+        outputPath
+      ], 60_000);
+    } finally {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
+}
+
+export function isGeminiTtsConfigured(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY);
+}

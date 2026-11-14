@@ -9,6 +9,14 @@ from typing import Any
 from .renderer import render_math_scene
 from .schemas.math_scene import validate_math_scene
 from .validators.derivative import verify_derivative_scene
+from .validators.riemann import verify_riemann_scene
+from .validators.algebra_identity import verify_algebra_identity
+
+
+def _verify_scene(scene: dict[str, Any], claims: dict[str, str] | None) -> dict[str, Any]:
+    if scene.get("visualization") == "riemann_sum" or scene.get("topicId") == "calculus.integral.riemann_sum":
+        return verify_riemann_scene(scene, claims)
+    return verify_derivative_scene(scene, claims)
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -42,14 +50,20 @@ def main() -> None:
         command.add_argument("--timeout", type=int, default=None)
         if name == "pipeline":
             command.add_argument("--claims", default=None)
+    algebra = subparsers.add_parser("verify-algebra")
+    algebra.add_argument("input", help="JSON object with left and right expressions, or - for stdin")
     args = parser.parse_args()
     try:
         scene = _read_json(args.input)
-        if args.command == "validate": result: Any = {"status": "valid", "scene": validate_math_scene(scene)}
-        elif args.command == "verify": result = verify_derivative_scene(scene, _read_claims(args.claims))
+        if args.command == "verify-algebra":
+            if set(scene) != {"left", "right"} or not isinstance(scene["left"], str) or not isinstance(scene["right"], str):
+                raise ValueError("Algebra input must contain exactly string fields left and right")
+            result = verify_algebra_identity(scene["left"], scene["right"])
+        elif args.command == "validate": result: Any = {"status": "valid", "scene": validate_math_scene(scene)}
+        elif args.command == "verify": result = _verify_scene(scene, _read_claims(args.claims))
         elif args.command == "render": result = {"status": "rendered", "output": str(render_math_scene(scene, Path(args.output_dir), args.timeout))}
         else:
-            report = verify_derivative_scene(scene, _read_claims(args.claims))
+            report = _verify_scene(scene, _read_claims(args.claims))
             if report["status"] != "verified": raise ValueError(f"Mathematical verification failed: {report['status']}")
             output = render_math_scene(scene, Path(args.output_dir), args.timeout)
             result = {"status": "rendered", "verification": report, "output": str(output)}

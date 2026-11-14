@@ -2,8 +2,25 @@ import { execFile } from 'node:child_process';
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
-import { NarrationAudioAssetSchema, type HybridTimelineScene, type NarrationAudioAsset, type NarrationScript } from '@luminalearn/scene-schema';
+import {
+  NarrationAudioAssetSchema,
+  type HybridTimelineScene,
+  type NarrationAudioAsset,
+  type NarrationScript,
+  type NarrationPlanV2,
+  type PronunciationHintV2,
+  type StoryboardV2
+} from '@luminalearn/scene-schema';
 import { assertPathInside } from './paths';
+
+export type AudioSignalClassification = 'audible_non_silent' | 'silent_fixture';
+
+export interface AudioSignalProbeResult {
+  meanVolumeDb: number;
+  maxVolumeDb: number;
+  isSilent: boolean;
+  audioClassification: AudioSignalClassification;
+}
 
 export interface AudioMetadata {
   codec: 'mp3' | 'pcm_s16le' | 'aac';
@@ -11,28 +28,66 @@ export interface AudioMetadata {
   sampleRate: number;
   channels: number;
   sizeBytes: number;
+  meanVolumeDb?: number;
+  maxVolumeDb?: number;
+  isSilent?: boolean;
+  audioClassification?: AudioSignalClassification;
 }
 
 export interface TtsProvider {
   readonly id: string;
-  synthesize(text: string, outputPath: string): Promise<void>;
+  readonly isSilentFixture?: boolean;
+  readonly requiresExternalConsent?: boolean;
+  synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void>;
+}
+
+export interface TtsSynthesisSettings {
+  voice: string;
+  languageCode: string;
+  speakingRate: number;
+  pitch: number;
+  model?: string;
+}
+
+const VIETNAMESE_MATH_PRONUNCIATION_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/∫₀¹\s*x²\s*dx/gu, 'tích phân từ không đến một của x bình phương theo x'],
+  [/f['′] ?\(x\)/gu, 'f phẩy của x'],
+  [/x²/gu, 'x bình phương'],
+  [/x³/gu, 'x lập phương'],
+  [/Δx/gu, 'đen-ta x'],
+  [/\blim\b/giu, 'giới hạn']
+];
+
+export function buildSpokenNarrationText(
+  narrationText: string,
+  pronunciationHints: PronunciationHintV2[] = []
+): string {
+  let spoken = narrationText;
+  for (const hint of pronunciationHints) {
+    spoken = spoken.split(hint.written).join(hint.spoken);
+  }
+  for (const [pattern, replacement] of VIETNAMESE_MATH_PRONUNCIATION_RULES) {
+    spoken = spoken.replace(pattern, replacement);
+  }
+  return spoken;
 }
 
 export class GoogleCloudTtsProvider implements TtsProvider {
   readonly id = 'google_cloud_tts';
+  readonly requiresExternalConsent = true;
   private readonly client: TextToSpeechClient;
   constructor(
     private readonly voiceName = process.env.GOOGLE_TTS_VOICE ?? 'vi-VN-Neural2-A',
     client?: TextToSpeechClient
   ) { this.client = client ?? new TextToSpeechClient(); }
 
-  async synthesize(text: string, outputPath: string): Promise<void> {
+  async synthesize(text: string, outputPath: string, settings?: TtsSynthesisSettings): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const [response] = await this.client.synthesizeSpeech({
-          input: { text }, voice: { languageCode: 'vi-VN', name: this.voiceName },
-          audioConfig: { audioEncoding: 'MP3', speakingRate: 1, pitch: 0 }
+          input: { text }, voice: { languageCode: settings?.languageCode ?? 'vi-VN', name: settings?.voice ?? this.voiceName },
+          audioConfig: { audioEncoding: 'MP3', speakingRate: settings?.speakingRate ?? 1, pitch: settings?.pitch ?? 0 }
         });
         if (!response.audioContent) throw new Error('Google Cloud TTS returned no audio content');
         const bytes = typeof response.audioContent === 'string'
@@ -48,6 +103,45 @@ export class GoogleCloudTtsProvider implements TtsProvider {
   }
 }
 
+export class MockTtsProvider implements TtsProvider {
+  readonly id = 'mock_tts';
+  readonly isSilentFixture = true;
+  readonly requiresExternalConsent = false;
+  constructor(private readonly defaultDurationSeconds?: number) {}
+
+  async synthesize(text: string, outputPath: string): Promise<void> {
+    const words = text.split(/\s+/).length;
+    const duration = this.defaultDurationSeconds ?? Math.max(1, Math.min(10, Math.round(words / 3.5)));
+    await new Promise<void>((resolvePromise, reject) => {
+      execFile('ffmpeg', [
+        '-y', '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
+        '-t', String(duration),
+        '-c:a', 'libmp3lame',
+        '-b:a', '64k',
+        outputPath
+      ], { windowsHide: true }, (err) => {
+        if (err) return reject(new Error(`mock_tts_failed: ${err.message}`));
+        resolvePromise();
+      });
+    });
+  }
+}
+
+/**
+ * Server-controlled allowlist for offline test fixtures (Checkpoint STEP 6).
+ * Custom / injected providers cannot bypass consent by merely setting self-declared flags.
+ * Only explicitly registered deterministic offline fixtures may bypass external API consent.
+ */
+export function isTrustedOfflineTtsFixture(provider?: TtsProvider | null): boolean {
+  if (!provider) return false;
+  return (
+    provider instanceof MockTtsProvider &&
+    provider.id === 'mock_tts' &&
+    provider.isSilentFixture === true &&
+    provider.requiresExternalConsent === false
+  );
+}
+
 function runFfprobeAudio(filePath: string, timeoutMs = 30_000): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     execFile('ffprobe', [
@@ -60,7 +154,7 @@ function runFfprobeAudio(filePath: string, timeoutMs = 30_000): Promise<unknown>
   });
 }
 
-export function validateAudioProbe(raw: unknown): AudioMetadata {
+export function validateAudioProbe(raw: unknown, maxDurationSeconds = 40.1): AudioMetadata {
   const value = raw as { streams?: Array<{ codec_name?: string; sample_rate?: string; channels?: number }>; format?: { duration?: string; size?: string } };
   const stream = value.streams?.[0];
   const codec = stream?.codec_name;
@@ -69,17 +163,44 @@ export function validateAudioProbe(raw: unknown): AudioMetadata {
   const sampleRate = Number(stream?.sample_rate);
   const channels = Number(stream?.channels);
   const sizeBytes = Number(value.format?.size);
-  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 40.1) throw new Error('audio_duration_invalid: expected duration between 0 and 40 seconds');
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > maxDurationSeconds) throw new Error('audio_duration_invalid: expected duration between 0 and 40 seconds');
   if (!Number.isInteger(sampleRate) || sampleRate < 8_000 || sampleRate > 96_000) throw new Error('audio_validation_failed: invalid sample rate');
   if (!Number.isInteger(channels) || channels < 1 || channels > 2) throw new Error('audio_validation_failed: invalid channel count');
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) throw new Error('audio_validation_failed: empty file');
   return { codec, durationSeconds, sampleRate, channels, sizeBytes };
 }
 
-export async function probeAudio(filePath: string): Promise<AudioMetadata> {
+export async function probeAudioSignal(filePath: string, timeoutMs = 30_000): Promise<AudioSignalProbeResult> {
+  const output = await new Promise<string>((resolvePromise, reject) => {
+    execFile(
+      'ffmpeg',
+      ['-hide_banner', '-i', filePath, '-af', 'volumedetect', '-vn', '-f', 'null', '-'],
+      { windowsHide: true, timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) return reject(new Error(`audio_signal_probe_failed: ${stderr || stdout || error.message}`));
+        resolvePromise(`${stdout}\n${stderr}`);
+      }
+    );
+  });
+
+  const meanMatch = /mean_volume:\s*(-?[\d.]+)\s*dB/i.exec(output);
+  const maxMatch = /max_volume:\s*(-?[\d.]+)\s*dB/i.exec(output);
+  const meanVolumeDb = meanMatch ? Number(meanMatch[1]) : -91.0;
+  const maxVolumeDb = maxMatch ? Number(maxMatch[1]) : -91.0;
+  const isSilent = !Number.isFinite(maxVolumeDb) || maxVolumeDb <= -55.0;
+
+  return {
+    meanVolumeDb,
+    maxVolumeDb,
+    isSilent,
+    audioClassification: isSilent ? 'silent_fixture' : 'audible_non_silent'
+  };
+}
+
+export async function probeAudio(filePath: string, maxDurationSeconds = 40.1): Promise<AudioMetadata> {
   const file = await stat(filePath);
   if (!file.isFile() || file.size <= 0) throw new Error('audio_validation_failed: file is missing or empty');
-  return validateAudioProbe(await runFfprobeAudio(filePath));
+  return validateAudioProbe(await runFfprobeAudio(filePath), maxDurationSeconds);
 }
 
 function asAsset(options: { jobId: string; fileName: string; startFrame: number; metadata: AudioMetadata; segmentId?: string; sceneId?: string }): NarrationAudioAsset {
@@ -128,7 +249,7 @@ export async function synthesizeNarration(options: {
     let metadata: AudioMetadata | undefined;
     try { metadata = await probeAudio(jobPath); } catch { /* invalid cache is replaced */ }
     if (!metadata) {
-      await options.provider.synthesize(segment.text, jobPath);
+      await options.provider.synthesize(buildSpokenNarrationText(segment.text, segment.pronunciationHints), jobPath);
       metadata = await probeAudio(jobPath);
     }
     const sceneSeconds = scene.durationFrames / 24;
@@ -139,5 +260,144 @@ export async function synthesizeNarration(options: {
     await writeFile(resolve(options.jobDirectory, `${fileName}.metadata.json`), JSON.stringify(metadata, null, 2), 'utf8');
     assets.push(asAsset({ jobId: options.jobId, fileName, startFrame: scene.startFrame, metadata, segmentId: segment.id, sceneId: scene.id }));
   }
+  return assets;
+}
+
+export interface V2AudioOutputAsset {
+  id: string;
+  path: string;
+  durationSeconds: number;
+  codec: 'mp3';
+  startFrame: number;
+  audioClassification?: AudioSignalClassification;
+  meanVolumeDb?: number;
+  maxVolumeDb?: number;
+}
+
+export async function synthesizeNarrationV2(options: {
+  provider: TtsProvider;
+  narrationPlan: NarrationPlanV2;
+  storyboard: StoryboardV2;
+  jobId: string;
+  jobDirectory: string;
+  stagedDirectory: string;
+  fps?: number;
+  alignmentPolicy?: 'adjust_timeline' | 'hold_last_frame' | 'strict';
+  lockedSceneIds?: ReadonlySet<string>;
+  rejectSilentAudio?: boolean;
+}): Promise<V2AudioOutputAsset[]> {
+  if (options.narrationPlan.segments.length > 5) {
+    throw new Error('tts_call_limit_exceeded: maximum five synthesis calls per job');
+  }
+  const fps = options.fps ?? 24;
+  const alignmentPolicy = options.alignmentPolicy ?? 'strict';
+  await mkdir(options.jobDirectory, { recursive: true });
+  await mkdir(options.stagedDirectory, { recursive: true });
+
+  const assets: V2AudioOutputAsset[] = [];
+
+  let currentStartFrame = 0;
+  for (const scene of options.storyboard.scenes) {
+    const segment = options.narrationPlan.segments.find((seg) => seg.sceneId === scene.sceneId);
+    if (!segment) {
+      currentStartFrame += scene.durationFrames;
+      continue;
+    }
+
+    const fileName = `${segment.segmentId}.mp3`;
+    const jobPath = resolve(options.jobDirectory, fileName);
+    let metadata: AudioMetadata | undefined;
+
+    try {
+      metadata = await probeAudio(jobPath, 300);
+    } catch {
+      // synthesize if not already probed
+    }
+
+    if (!metadata) {
+      await options.provider.synthesize(buildSpokenNarrationText(segment.text, segment.pronunciationHints), jobPath);
+      metadata = await probeAudio(jobPath, 300);
+    }
+
+    let signal: AudioSignalProbeResult;
+    try {
+      signal = await probeAudioSignal(jobPath);
+    } catch (probeErr) {
+      if (options.rejectSilentAudio || options.provider.id !== 'mock_tts') {
+        throw new Error(`audio_signal_probe_failed: ${probeErr instanceof Error ? probeErr.message : String(probeErr)}`);
+      }
+      signal = {
+        meanVolumeDb: -91.0,
+        maxVolumeDb: -91.0,
+        isSilent: true,
+        audioClassification: 'silent_fixture' as const
+      };
+    }
+    metadata.meanVolumeDb = signal.meanVolumeDb;
+    metadata.maxVolumeDb = signal.maxVolumeDb;
+    metadata.isSilent = signal.isSilent;
+    metadata.audioClassification =
+      options.provider.id === 'mock_tts' || options.provider.isSilentFixture || signal.isSilent
+        ? 'silent_fixture'
+        : 'audible_non_silent';
+
+    if (options.rejectSilentAudio && signal.isSilent) {
+      throw new Error(
+        `tts_silent_audio: Phân đoạn âm thanh ${segment.segmentId} không có tín hiệu tiếng nói (max_volume=${signal.maxVolumeDb} dB)`
+      );
+    }
+
+    const sceneDurationSeconds = scene.durationFrames / fps;
+    if (metadata.durationSeconds > sceneDurationSeconds) {
+      if (alignmentPolicy === 'strict' || options.lockedSceneIds?.has(scene.sceneId)) {
+        throw new Error(
+          `audio_duration_exceeds_scene: Phân đoạn lời dẫn ${segment.segmentId} (${metadata.durationSeconds.toFixed(2)}s) vượt quá thời lượng cảnh ${scene.sceneId} (${sceneDurationSeconds.toFixed(2)}s); không thể kéo dài clip hình ảnh đã được đo`
+        );
+      } else if (alignmentPolicy === 'adjust_timeline') {
+        // Expand scene frames to accommodate narration with small breathing room
+        const neededFrames = Math.ceil((metadata.durationSeconds + 0.25) * fps);
+        scene.durationFrames = Math.max(scene.durationFrames, neededFrames);
+      } else {
+        throw new Error(
+          `audio_hold_policy_unavailable: Phân đoạn ${segment.segmentId} cần giữ khung hình cuối, nhưng chưa có xác nhận cảnh ${scene.sceneId} an toàn để hold; hãy rút ngắn lời dẫn hoặc dùng adjust_timeline cho cảnh không khóa`
+        );
+      }
+    } else if (
+      alignmentPolicy === 'adjust_timeline' &&
+      !options.lockedSceneIds?.has(scene.sceneId) &&
+      metadata.durationSeconds + 0.15 > sceneDurationSeconds
+    ) {
+      // Ensure speech has at least 0.15s breathing room at scene boundary so it is not clipped
+      const neededFrames = Math.ceil((metadata.durationSeconds + 0.25) * fps);
+      scene.durationFrames = Math.max(scene.durationFrames, neededFrames);
+    }
+
+    await copyFile(jobPath, resolve(options.stagedDirectory, fileName));
+    await writeFile(
+      resolve(options.jobDirectory, `${fileName}.metadata.json`),
+      JSON.stringify(metadata, null, 2),
+      'utf8'
+    );
+
+    assets.push({
+      id: `audio_${segment.segmentId}`,
+      path: `generated/${options.jobId}/${fileName}`,
+      durationSeconds: metadata.durationSeconds,
+      codec: 'mp3',
+      startFrame: currentStartFrame,
+      audioClassification: metadata.audioClassification,
+      meanVolumeDb: metadata.meanVolumeDb,
+      maxVolumeDb: metadata.maxVolumeDb
+    });
+
+    currentStartFrame += scene.durationFrames;
+  }
+
+  // Keep storyboard estimatedDurationFrames synchronized
+  options.storyboard.estimatedDurationFrames = options.storyboard.scenes.reduce(
+    (sum, s) => sum + s.durationFrames,
+    0
+  );
+
   return assets;
 }

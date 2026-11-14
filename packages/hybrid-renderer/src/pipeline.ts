@@ -11,7 +11,9 @@ import { probeAndVerifyVideoAsset, probeFinalVideo, type VerifiedVideoMetadata }
 import { assertValidJobId, resolveInside } from './paths';
 import { HybridRenderRequestSchema, type HybridRenderRequest } from './request';
 import { GoogleCloudTtsProvider, prepareProvidedAudio, synthesizeNarration } from './audio';
+import { GeminiTtsProvider, isGeminiTtsConfigured } from './gemini-tts';
 import { buildSubtitleTrack, exportSrt } from './subtitles';
+import { loadEnvironmentConfig } from './config';
 
 export type HybridPipelineStage = 'planning' | 'validating' | 'rendering_manim' | 'narrating' | 'synthesizing_audio' | 'rendering_remotion' | 'completed';
 export interface HybridPipelineResult { jobId: string; jobDirectory: string; outputPath: string; manifest: HybridVideoManifest; metadata: VerifiedVideoMetadata; }
@@ -51,6 +53,7 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
   const request = HybridRenderRequestSchema.parse(input);
   if (request.renderMode === 'live' && !process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is required for live mode');
   if (request.voiceoverMode === 'google_cloud_tts' && !isGoogleTtsConfigured()) throw new Error('tts_unavailable: Google Cloud authentication is not configured');
+  if (request.voiceoverMode === 'gemini_tts' && !isGeminiTtsConfigured()) throw new Error('tts_api_key_missing: GEMINI_API_KEY is required for Gemini TTS');
   const jobId = options.jobId ?? createHybridJobId();
   assertValidJobId(jobId);
   const outputsRoot = resolve(repositoryRoot, 'outputs');
@@ -64,9 +67,10 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
 
   try {
     await writeJson(resolve(jobDirectory, 'request.json'), request);
-    const python = resolve(repositoryRoot, 'services/math-engine/.venv/Scripts/python.exe');
-    const remotionCli = resolve(repositoryRoot, 'apps/worker/node_modules/@remotion/cli/remotion-cli.js');
-    const chrome = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+    const envConfig = loadEnvironmentConfig(repositoryRoot);
+    const python = envConfig.pythonExecutable;
+    const remotionCli = envConfig.remotionCliExecutable;
+    const chrome = envConfig.chromeExecutable || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : '/usr/bin/google-chrome');
     await Promise.all([access(python), access(remotionCli), access(chrome)]);
     await run('ffprobe', ['-version'], { timeoutMs: 10_000 });
     await run(python, ['-m', 'manim', '--version'], { timeoutMs: 20_000 });
@@ -114,7 +118,7 @@ export async function runHybridPipeline(input: HybridRenderRequest, options: {
       narrationAudioAssets = request.voiceoverMode === 'provided_audio'
         ? await prepareProvidedAudio({ sourcePath: request.providedAudioPath!, jobId, jobDirectory, stagedDirectory })
         : await synthesizeNarration({
-            provider: new GoogleCloudTtsProvider(), narration, scenes: baseManifest.timelineScenes,
+            provider: request.voiceoverMode === 'gemini_tts' ? new GeminiTtsProvider() : new GoogleCloudTtsProvider(), narration, scenes: baseManifest.timelineScenes,
             jobId, jobDirectory, stagedDirectory
           });
     }

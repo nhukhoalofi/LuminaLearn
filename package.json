@@ -11,10 +11,13 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "test:math-engine": "services\\math-engine\\.venv\\Scripts\\python.exe -m pytest services\\math-engine",
+    "test:math-engine": "node scripts/test-math-engine.mjs",
     "phase3:mock": "pnpm --filter @luminalearn/agent generate",
     "phase3:render": "pnpm --filter @luminalearn/agent generate -- --render",
-    "hybrid:render": "pnpm --filter @luminalearn/hybrid-renderer render"
+    "hybrid:render": "pnpm --filter @luminalearn/hybrid-renderer render",
+    "acceptance": "pnpm --filter @luminalearn/hybrid-renderer acceptance",
+    "acceptance:offline": "pnpm --filter @luminalearn/hybrid-renderer acceptance:offline",
+    "acceptance:real-tts": "pnpm --filter @luminalearn/hybrid-renderer acceptance:real-tts"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

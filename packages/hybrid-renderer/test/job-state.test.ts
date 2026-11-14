@@ -13,6 +13,12 @@ describe('Job state transitions', () => {
     assert.throws(() => assertJobTransition('queued', 'completed'));
     assert.throws(() => assertJobTransition('completed', 'planning'));
   });
+  it('allows an authorized Remotion-only V3 job to skip the Manim stage', () => {
+    assert.doesNotThrow(() => assertJobTransition('validating', 'rendering_remotion'));
+    assert.doesNotThrow(() => assertJobTransition('validating', 'synthesizing_audio'));
+    assert.doesNotThrow(() => assertJobTransition('validating', 'narrating'));
+    assert.doesNotThrow(() => assertJobTransition('synthesizing_audio', 'rendering_remotion'));
+  });
 });
 
 describe('Hybrid render request', () => {

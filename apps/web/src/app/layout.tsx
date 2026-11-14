@@ -2,10 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'LuminaLearn — AI-Powered STEM Video Generator',
+  title: 'LuminaLearn — AI & Mathematics Video Studio',
   description:
-    'Nền tảng tạo video giáo dục STEM thông minh kết hợp Gemini AI và Remotion Motion Graphics.',
-  keywords: ['STEM', 'AI Video', 'Education', 'Remotion', 'Gemini AI', 'LuminaLearn']
+    'Nền tảng tạo video giáo dục Toán học và Trí tuệ nhân tạo (AI/ML) kết hợp Gemini AI, SymPy và Remotion Motion Graphics.',
+  keywords: ['Mathematics', 'AI Education', 'Machine Learning', 'Remotion', 'Gemini AI', 'LuminaLearn']
 };
 
 export const viewport: Viewport = {

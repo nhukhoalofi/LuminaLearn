@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { CURRENT_GEMINI_CONTENT_MODEL, normalizeGeminiContentModel } from './orchestration/ai-provider';
 
 export interface StructuredGenerationRequest { purpose: 'lesson_plan' | 'visual_storyboard'; prompt: string; jsonSchema: unknown; }
 export interface GeminiAdapter { generateStructured(request: StructuredGenerationRequest): Promise<unknown>; }
@@ -12,9 +13,10 @@ export class LiveGeminiAdapter implements GeminiAdapter {
   constructor(options: LiveGeminiAdapterOptions = {}) {
     const apiKey = options.apiKey ?? process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is required for live Gemini mode');
-    this.model = options.model ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+    const rawModel = options.model ?? process.env.GEMINI_MODEL ?? CURRENT_GEMINI_CONTENT_MODEL;
+    this.model = normalizeGeminiContentModel(rawModel);
     this.maxRetries = options.maxRetries ?? 2;
-    this.client = new GoogleGenAI({ apiKey, httpOptions: { timeout: options.timeoutMs ?? 30_000 } });
+    this.client = new GoogleGenAI({ apiKey, httpOptions: { timeout: options.timeoutMs ?? Number(process.env.GEMINI_TIMEOUT_MS || '60000') } });
   }
 
   async generateStructured(request: StructuredGenerationRequest): Promise<unknown> {
@@ -23,7 +25,11 @@ export class LiveGeminiAdapter implements GeminiAdapter {
       try {
         const response = await this.client.models.generateContent({
           model: this.model, contents: request.prompt,
-          config: { temperature: 0.2, responseMimeType: 'application/json', responseJsonSchema: request.jsonSchema }
+          config: {
+            ...(this.model === CURRENT_GEMINI_CONTENT_MODEL ? {} : { temperature: 0.2 }),
+            responseMimeType: 'application/json',
+            responseJsonSchema: request.jsonSchema
+          }
         });
         if (!response.text) throw new Error('Gemini returned an empty structured response');
         return JSON.parse(response.text);

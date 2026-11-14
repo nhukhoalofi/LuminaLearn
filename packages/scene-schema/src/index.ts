@@ -8,6 +8,8 @@ export * from './hybrid.schema';
 export * from './hybrid.types';
 export * from './hybrid.validation';
 export * from './narration.schema';
+export * from './v2';
+export * from './v3';
 
 import rawSimpsonFixture from './fixtures/simpson.json';
 import type { LessonStoryboard } from './types';

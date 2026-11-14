@@ -6,6 +6,7 @@ config.frame_width = config.frame_height * config.pixel_width / config.pixel_hei
 
 from luminalearn_math_engine.scenes.function_graph import FunctionGraphScene as _FunctionGraphScene
 from luminalearn_math_engine.scenes.secant_to_tangent import SecantToTangentScene as _SecantToTangentScene
+from luminalearn_math_engine.scenes.riemann_sum import RiemannSumScene as _RiemannSumScene
 
 
 class FunctionGraphScene(_FunctionGraphScene):
@@ -15,5 +16,9 @@ class FunctionGraphScene(_FunctionGraphScene):
 class SecantToTangentScene(_SecantToTangentScene):
     pass
 
-__all__ = ["FunctionGraphScene", "SecantToTangentScene"]
 
+class RiemannSumScene(_RiemannSumScene):
+    pass
+
+
+__all__ = ["FunctionGraphScene", "SecantToTangentScene", "RiemannSumScene"]

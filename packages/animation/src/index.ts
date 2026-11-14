@@ -9,3 +9,10 @@ export const defaultTransitions = {
   scaleSpring: 'scale-spring'
 };
 
+export * from './motion';
+export * from './ConceptTitleReveal';
+export * from './StepFormulaReveal';
+export * from './BeforeAfterComparison';
+export * from './educational';
+export * from './physics';
+

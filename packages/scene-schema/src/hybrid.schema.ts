@@ -77,7 +77,7 @@ export const HybridVideoManifestSchema = z.object({
   verifiedMathClaims: z.array(VerifiedMathClaimSchema).min(4).max(8),
   mathClipAssets: z.array(MathClipAssetSchema).min(1).max(4),
   timelineScenes: z.array(HybridTimelineSceneSchema).length(5),
-  voiceoverMode: z.enum(['none', 'provided_audio', 'google_cloud_tts']).default('none'),
+  voiceoverMode: z.enum(['none', 'provided_audio', 'google_cloud_tts', 'gemini_tts']).default('none'),
   narrationScript: NarrationScriptSchema.optional(),
   narrationAudioAssets: z.array(NarrationAudioAssetSchema).max(8).default([]),
   subtitles: SubtitleTrackSchema.optional(),
