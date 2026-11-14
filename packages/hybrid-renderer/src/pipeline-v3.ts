@@ -374,7 +374,7 @@ export async function runRenderPipelineV3(
   const chrome = process.env.REMOTION_BROWSER_EXECUTABLE || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : '/usr/bin/chromium');
   if (chrome) args.push('--browser-executable', chrome);
   if (process.platform === 'linux' || process.env.NODE_ENV === 'production') {
-    args.push('--chromium-options=--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu', '--gl=swangle');
+    args.push('--gl', 'angle');
   }
   await execute(command, args, workerDir);
 

@@ -385,7 +385,7 @@ export class SegmentRenderWorkerV3 implements ISegmentRenderWorkerV3 {
     const chrome = process.env.REMOTION_BROWSER_EXECUTABLE || (process.platform === 'win32' ? undefined : '/usr/bin/chromium');
     if (chrome) args.push('--browser-executable', chrome);
     if (process.platform === 'linux' || process.env.NODE_ENV === 'production') {
-      args.push('--chromium-options=--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu', '--gl=swangle');
+      args.push('--gl', 'angle');
     }
 
     await new Promise<void>((resolvePromise, reject) => {

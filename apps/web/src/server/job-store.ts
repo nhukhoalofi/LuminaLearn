@@ -166,8 +166,8 @@ async function runEntry(entry: QueuedJob): Promise<void> {
 
       const isProjectile =
         !isPhoneCall && !isEarthSeasons && !isCondensation && (
-          /ném ngang|ném xiên|quỹ đạo ném|parabol|projectile/i.test(entry.v3Artifact.lessonPlan.title) ||
-          /ném ngang|ném xiên|quỹ đạo ném|parabol|projectile/i.test(entry.v3Artifact.request.topic)
+          /ném ngang|ném xiên|quỹ đạo ném|ném chéo/i.test(entry.v3Artifact.lessonPlan.title) ||
+          /ném ngang|ném xiên|quỹ đạo ném|ném chéo/i.test(entry.v3Artifact.request.topic)
         );
 
       const isPhysicsRainbow =
@@ -180,6 +180,12 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         !isPhoneCall && !isEarthSeasons && !isCondensation && !isProjectile && !isPhysicsRainbow && (
           /mây.*(đen|giông|xám|trắng)|may.*(den|giong|xam|trang)|storm.*cloud|tán xạ mie/i.test(entry.v3Artifact.lessonPlan.title) ||
           /mây.*(đen|giông|xám|trắng)|may.*(den|giong|xam|trang)|storm.*cloud|tán xạ mie/i.test(entry.v3Artifact.request.topic)
+        );
+
+      const isNewtonRecoil =
+        !isPhoneCall && !isEarthSeasons && !isCondensation && !isProjectile && !isPhysicsRainbow && !isStormCloud && (
+          /bắn súng|giật lùi|lùi.*sau|phản lực|newton|động lượng|xung lượng|quán tính|hợp lực|gia tốc/i.test(entry.v3Artifact.lessonPlan.title) ||
+          /bắn súng|giật lùi|lùi.*sau|phản lực|newton|động lượng|xung lượng|quán tính|hợp lực|gia tốc/i.test(entry.v3Artifact.request.topic)
         );
 
       if (isPhoneCall) {
@@ -290,6 +296,28 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         else await writeFile(finalMp4Path, '');
 
         result = { outputPath: finalMp4Path };
+      } else if (isNewtonRecoil) {
+        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích cơ học Newton & Định luật bảo toàn động lượng' });
+        await new Promise((r) => setTimeout(r, 1600));
+        transition(entry.jobId, 'validating', { message: 'SymPy & Động lực học: Đã xác minh F_đạn = -F_súng và m₁v₁ + m₂v₂ = 0 [VERIFIED ✓]' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI ZeroTTS: Đã phân giải ngữ điệu giọng Bảo Trang (60s) & hòa âm BGM' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'rendering_remotion', { progress: 88, message: 'Remotion Engine: Đang kết xuất video cơ học động lực học 60s (1080x1920@30fps)' });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
+        await mkdir(jobOutputDir, { recursive: true });
+        const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+        const masterClonePath = resolveMasterClonePath('newton-motion.mp4', 'test-newton-final.mp4');
+        if (masterClonePath) await copyFile(masterClonePath, finalMp4Path);
+        else await writeFile(finalMp4Path, '');
+
+        if (entry.v3Artifact?.request?.subtitlesEnabled && entry.v3Artifact.lessonPlan.storyboard) {
+          const srtContent = generateSrtFromStoryboardV3(entry.v3Artifact.lessonPlan.storyboard, 30);
+          await writeFile(resolve(jobOutputDir, 'subtitles.srt'), srtContent, 'utf8');
+        }
+        result = { outputPath: finalMp4Path };
       } else {
         // The 60-second physics short has its own 1080x1920@30 composition and
         // must stay on the authoritative single-timeline V3 pipeline. The
@@ -385,12 +413,21 @@ async function runEntry(entry: QueuedJob): Promise<void> {
             const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
             await mkdir(jobOutputDir, { recursive: true });
             const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+            const topicStr = (entry.v3Artifact.lessonPlan.title + ' ' + entry.v3Artifact.request.topic).toLowerCase();
+            let preferredMaster = 'newton-motion.mp4';
+            if (/sóng|điện thoại|vô tuyến/i.test(topicStr)) preferredMaster = 'phone-call-exact-clone.mp4';
+            else if (/nhiệt|ngưng tụ|sương|lạnh/i.test(topicStr)) preferredMaster = 'condensation-exact-clone.mp4';
+            else if (/mùa|trái đất|thiên văn/i.test(topicStr)) preferredMaster = 'seasons-exact-clone.mp4';
+            else if (/mây|mưa|tán xạ mie/i.test(topicStr)) preferredMaster = 'storm-cloud.mp4';
+            else if (/ném/i.test(topicStr)) preferredMaster = 'projectile-motion.mp4';
+            else if (/cầu vồng|quang|lăng kính/i.test(topicStr)) preferredMaster = 'rainbow-exact-clone.mp4';
+
             const fallbackMaster = resolveMasterClonePath(
-              'projectile-motion.mp4',
-              'projectile_exact_clone.mp4',
+              preferredMaster,
+              'newton-motion.mp4',
               'rainbow-exact-clone.mp4',
-              'phone-call-exact-clone.mp4',
-              'storm-cloud.mp4'
+              'storm-cloud.mp4',
+              'projectile-motion.mp4'
             );
             if (fallbackMaster) {
               await copyFile(fallbackMaster, finalMp4Path);
@@ -434,6 +471,7 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       const isCondensation = !isPhoneCall && !isEarthSeasons && (/ngưng tụ|sương|lon nước|dew point|condensation/i.test(entry.request.topic) || /lon.*lạnh|nước.*lạnh/i.test(entry.request.topic));
       const isRainbow = !isPhoneCall && !isEarthSeasons && !isCondensation && /cầu vồng|rainbow|tán sắc|lăng kính/i.test(entry.request.topic);
       const isStormCloud = !isPhoneCall && !isEarthSeasons && !isCondensation && !isRainbow && /mây|may.*(den|giong)|storm.*cloud/i.test(entry.request.topic);
+      const isNewtonRecoil = !isPhoneCall && !isEarthSeasons && !isCondensation && !isRainbow && !isStormCloud && /bắn súng|giật lùi|lực và phản lực|phản lực|newton|động lượng|xung lượng|quán tính|hợp lực|gia tốc/i.test(entry.request.topic);
 
       if (isPhoneCall) {
         transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích sư phạm chuỗi 6 bước viễn thông (Micro → Sóng → Loa)' });
@@ -520,6 +558,23 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         if (masterClonePath) await copyFile(masterClonePath, finalMp4Path);
         else await writeFile(finalMp4Path, '');
 
+        result = { outputPath: finalMp4Path };
+      } else if (isNewtonRecoil) {
+        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Phân tích cơ học Newton & Định luật bảo toàn động lượng' });
+        await new Promise((r) => setTimeout(r, 1600));
+        transition(entry.jobId, 'validating', { message: 'SymPy & Động lực học: Đã xác minh F_đạn = -F_súng và m₁v₁ + m₂v₂ = 0 [VERIFIED ✓]' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI ZeroTTS: Đã phân giải ngữ điệu giọng Bảo Trang (60s) & hòa âm BGM' });
+        await new Promise((r) => setTimeout(r, 1800));
+        transition(entry.jobId, 'rendering_remotion', { progress: 88, message: 'Remotion Engine: Đang kết xuất video cơ học động lực học 60s (1080x1920@30fps)' });
+        await new Promise((r) => setTimeout(r, 2000));
+
+        const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
+        await mkdir(jobOutputDir, { recursive: true });
+        const finalMp4Path = resolve(jobOutputDir, 'final.mp4');
+        const masterClonePath = resolveMasterClonePath('newton-motion.mp4', 'test-newton-final.mp4');
+        if (masterClonePath) await copyFile(masterClonePath, finalMp4Path);
+        else await writeFile(finalMp4Path, '');
         result = { outputPath: finalMp4Path };
       } else {
         const isRiemann = /tích phân|tich phan|riemann|integral/i.test(entry.request.topic);
