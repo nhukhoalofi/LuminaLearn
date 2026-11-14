@@ -445,6 +445,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                 src="/demo/thumb-rainbow-frame.png"
                 alt="Cầu vồng"
                 fill
+                sizes="(max-width: 768px) 100vw, 33vw"
+                unoptimized
                 style={{ objectFit: 'cover' }}
               />
               <span
@@ -512,6 +514,8 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
                 src="/demo/thumb-seasons-frame.png"
                 alt="Vì sao mùa hè nóng, mùa đông lạnh"
                 fill
+                sizes="(max-width: 768px) 100vw, 33vw"
+                unoptimized
                 style={{ objectFit: 'cover' }}
               />
               <span
