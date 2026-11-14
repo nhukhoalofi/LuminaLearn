@@ -166,6 +166,27 @@ export function assertRequestAuthorized(req: Request): void {
     return;
   }
 
+  // Allow same-origin web application requests or public demo access
+  if (mode === 'public') {
+    let isSameOrigin = false;
+    try {
+      const urlOrigin = new URL(req.url).origin;
+      const origin = req.headers.get('origin');
+      const referer = req.headers.get('referer');
+      const expectedOrigin = process.env.LUMINA_PUBLIC_ORIGIN?.trim() || urlOrigin;
+      isSameOrigin =
+        (origin !== null && origin === expectedOrigin) ||
+        (referer !== null && referer.startsWith(expectedOrigin)) ||
+        req.headers.get('sec-fetch-site') === 'same-origin';
+    } catch {
+      isSameOrigin = false;
+    }
+
+    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true') {
+      return;
+    }
+  }
+
   if (mode === 'public') {
     throw new SecurityError(
       401,
@@ -200,7 +221,28 @@ export function resolveOwnerId(req: Request): string {
     return `tok_${createHash('sha256').update(providedToken).digest('hex').slice(0, 16)}`;
   }
 
-  // 3. Local single-user demo fallback
+  // 3. Public demo or same-origin web application session
+  if (mode === 'public') {
+    let isSameOrigin = false;
+    try {
+      const urlOrigin = new URL(req.url).origin;
+      const origin = req.headers.get('origin');
+      const referer = req.headers.get('referer');
+      const expectedOrigin = process.env.LUMINA_PUBLIC_ORIGIN?.trim() || urlOrigin;
+      isSameOrigin =
+        (origin !== null && origin === expectedOrigin) ||
+        (referer !== null && referer.startsWith(expectedOrigin)) ||
+        req.headers.get('sec-fetch-site') === 'same-origin';
+    } catch {
+      isSameOrigin = false;
+    }
+
+    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true') {
+      return 'public-demo-user';
+    }
+  }
+
+  // 4. Local single-user demo fallback
   if (mode === 'local_demo') {
     if (!isLoopbackRequest(req)) throw new SecurityError(403, 'local_demo_loopback_only', 'Local demo requests must originate from loopback.');
     return 'local-single-user';
