@@ -6,14 +6,17 @@ import {
 } from '../src/orchestration';
 import type { AIProvider, AIProviderResult, AIStructuredRequest } from '../src/orchestration/ai-provider';
 import type { EducationalClaimV3, GroundingEvidence } from '@luminalearn/scene-schema';
+import { EducationalClaimTypeSchema } from '@luminalearn/scene-schema';
 
 class FakeTransportAIProvider implements AIProvider {
   public readonly isMock = false;
   public callCount = 0;
+  public lastRequest?: AIStructuredRequest<unknown>;
   constructor(private readonly payload: unknown) {}
 
   async generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>> {
     this.callCount++;
+    this.lastRequest = request;
     return {
       data: request.validator(this.payload),
       mode: 'ai_generated_live',
@@ -279,6 +282,29 @@ test('CHECKPOINT B: Real Source Grounding - Claim with no source evidence requir
   assert.equal(verified.sourceReferenceId, undefined);
 });
 
+test('live planner advertises claim types and rejects unknown types before scientific verification', async () => {
+  const provider = new FakeTransportAIProvider({
+    educationalClaims: [
+      { id: 'claim_one', claimType: 'physical_law', statement: 'Một phát biểu vật lý.' },
+      { id: 'claim_two', claimType: 'scientific_fact', statement: 'Một phát biểu khác.' }
+    ]
+  });
+  const validationService = new KnowledgeValidationServiceV3();
+  validationService.validateClaims = async () => assert.fail('Invalid claims reached scientific verification');
+  const planner = new EducationalPlannerV3({ aiProvider: provider, validationService });
+
+  await assert.rejects(() => planner.planLesson({
+    lessonId: 'lesson_invalid_claim_types',
+    topic: 'Sự hình thành cầu vồng',
+    externalApiConsent: true
+  }), /claimType/);
+  assert.equal(provider.callCount, 1);
+  const jsonSchema = provider.lastRequest?.jsonSchema as {
+    properties: { educationalClaims: { items: { properties: { claimType: { enum: string[] } } } } }
+  };
+  assert.deepEqual(jsonSchema.properties.educationalClaims.items.properties.claimType.enum, EducationalClaimTypeSchema.options);
+});
+
 test('CHECKPOINT D: EducationalPlannerV3 with AIProvider sanitizes claims and enforces candidate status', async () => {
   const fakeAIResponse = {
     title: 'Bài học Thử nghiệm AI',
@@ -289,7 +315,7 @@ test('CHECKPOINT D: EducationalPlannerV3 with AIProvider sanitizes claims and en
     educationalClaims: [
       {
         id: 'claim_ai_untrusted',
-        claimType: 'formal_mathematics',
+        claimType: ' Formal-Mathematics ',
         statement: 'Đạo hàm x^2 là 2*x',
         formalExpression: '2*x',
         validatorKey: 'polynomial_derivative',
@@ -354,6 +380,8 @@ test('CHECKPOINT D: EducationalPlannerV3 with AIProvider sanitizes claims and en
   assert.equal(fakeProvider.callCount, 1);
   assert.equal(plan.educationalClaims.length, 1);
   const claim = plan.educationalClaims[0];
+  assert.equal(claim.claimType, 'formal_mathematics');
+  assert.equal(plan.validationReport?.claimReports[0]?.claimType, 'formal_mathematics');
   // Even though LLM returned 'LLM self-claimed proof', our independent SymPy verifier verified it!
   assert.equal(claim.verificationStatus, 'formally_verified');
   assert.ok(claim.formalProofSummary?.includes('SymPy verified'));

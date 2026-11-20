@@ -2,87 +2,27 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
+import {
+  getAgentStudioTopicsV3,
+  type AgentStudioTeachingGoalV3,
+  type AgentStudioVisualDirectionV3,
+  type EducationalDomain
+} from '@luminalearn/scene-schema';
 
 interface CreateVideoViewProps {
   onVideoCreated?: () => void;
   onGoToAlbum?: () => void;
 }
 
-type SubjectType = 'physics' | 'math' | 'chemistry' | 'biology';
-
-interface SubjectOption {
-  id: SubjectType;
-  label: string;
-  icon: string;
-  domain: 'physics' | 'mathematics';
-}
-
-const SUBJECTS: SubjectOption[] = [
-  { id: 'physics', label: 'Vật lý', icon: '', domain: 'physics' },
-  { id: 'math', label: 'Toán học', icon: '', domain: 'mathematics' },
-  { id: 'chemistry', label: 'Hóa học', icon: '', domain: 'physics' },
-  { id: 'biology', label: 'Sinh học', icon: '', domain: 'physics' },
-];
-
-const QUICK_SUGGESTIONS = [
-  {
-    topic: 'Vì sao sau cơn mưa xuất hiện cầu vồng?',
-    subject: 'physics' as SubjectType,
-    label: 'Vì sao có cầu vồng?',
-  },
-  {
-    topic: 'Vì sao mùa hè thì nóng, còn mùa đông lại lạnh?',
-    subject: 'physics' as SubjectType,
-    label: 'Vì sao mùa hè nóng, mùa đông lạnh?',
-  },
-  {
-    topic: 'Làm thế nào điện thoại thông minh kết nối cuộc gọi?',
-    subject: 'physics' as SubjectType,
-    label: 'Điện thoại kết nối cuộc gọi',
-  },
-  {
-    topic: 'Vì sao ngoài lon nước lạnh xuất hiện giọt sương?',
-    subject: 'physics' as SubjectType,
-    label: 'Đọng sương lon nước',
-  },
-  {
-    topic: 'Định lý Pythagoras và ứng dụng hình học trực quan',
-    subject: 'math' as SubjectType,
-    label: 'Định lý Pythagoras',
-  },
-  {
-    topic: 'Chuyển động ném ngang và phân tích quỹ đạo parabol',
-    subject: 'physics' as SubjectType,
-    label: 'Chuyển động ném ngang',
-  },
-  {
-    topic: 'Vì sao mây thường màu trắng nhưng mây giông lại xám đen?',
-    subject: 'physics' as SubjectType,
-    label: 'Vì sao mây giông đen?',
-  },
-  {
-    topic: 'Định luật II Newton và mối quan hệ F = m·a',
-    subject: 'physics' as SubjectType,
-    label: 'Định luật II Newton',
-  },
-  {
-    topic: 'Con lắc đơn và dao động điều hòa góc nhỏ',
-    subject: 'physics' as SubjectType,
-    label: 'Con lắc đơn',
-  },
-  {
-    topic: 'Sự truyền sóng cơ học và mối quan hệ v = λ·f',
-    subject: 'physics' as SubjectType,
-    label: 'Sóng cơ học',
-  },
-  {
-    topic: 'Định luật bảo toàn cơ năng trong trọng trường',
-    subject: 'physics' as SubjectType,
-    label: 'Bảo toàn cơ năng',
-  },
-];
-
 type PipelineStep = 1 | 2 | 3;
+
+const AGENT_DOMAINS: Array<{ id: EducationalDomain; label: string; icon: string }> = [
+  { id: 'physics', label: 'Vật lý', icon: '⚛' },
+  { id: 'mathematics', label: 'Toán học', icon: '∑' },
+  { id: 'artificial_intelligence', label: 'Trí tuệ nhân tạo', icon: '✦' },
+];
+
+const AGENT_TOPICS = getAgentStudioTopicsV3();
 
 interface SceneDraft {
   sceneId: string;
@@ -111,8 +51,15 @@ interface JobProgress {
 }
 
 export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoViewProps) {
-  const [topic, setTopic] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState<SubjectType>('physics');
+  const [selectedSubject, setSelectedSubject] = useState<EducationalDomain>('physics');
+  const [selectedTopicId, setSelectedTopicId] = useState('physics.optics.rainbow');
+  const [teachingGoal, setTeachingGoal] = useState<AgentStudioTeachingGoalV3>('build_intuition');
+  const [visualDirection, setVisualDirection] = useState<AgentStudioVisualDirectionV3>('cinematic_science');
+  const [targetAudience, setTargetAudience] = useState<'high_school' | 'undergraduate' | 'general_public'>('high_school');
+  const [targetDurationSeconds, setTargetDurationSeconds] = useState<60 | 90>(60);
+  const [narrationMode, setNarrationMode] = useState<'none' | 'dutai_tts' | 'gemini_tts'>('none');
+  const [agentExecutionMode, setAgentExecutionMode] = useState<'mock' | 'gemini' | 'codex'>('mock');
+  const [externalApiConfirmed, setExternalApiConfirmed] = useState(false);
   const [activeStep, setActiveStep] = useState<PipelineStep>(1);
   const [busy, setBusy] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -120,6 +67,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const visibleTopics = AGENT_TOPICS.filter((item) => item.domain === selectedSubject);
+  const selectedTopicLabel = AGENT_TOPICS.find((item) => item.topicId === selectedTopicId)?.label ?? '';
+  const requiresExternalApi = agentExecutionMode !== 'mock' || narrationMode !== 'none';
 
   // Poll job status until completion
   useEffect(() => {
@@ -153,16 +103,21 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
   // Step 1 -> Step 2: AI tạo kịch bản nội dung
   async function handleGenerateScript(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    const activeTopic = topic.trim() || 'Vì sao sau cơn mưa xuất hiện cầu vồng?';
+    const selectedTopic = AGENT_TOPICS.find((item) => item.topicId === selectedTopicId);
+    if (!selectedTopic) {
+      setError('Vui lòng chọn một chủ đề đã sẵn sàng để dựng video.');
+      return;
+    }
+    if (requiresExternalApi && !externalApiConfirmed) {
+      setError('Vui lòng xác nhận sử dụng API ngoài và quota trước khi khởi chạy agent live hoặc TTS.');
+      return;
+    }
 
     setBusy(true);
     setError(null);
     setStatusMessage('Hệ thống đang lập kế hoạch bài giảng và chuẩn bị nội dung khoa học...');
 
-    const chosenSubject = SUBJECTS.find((s) => s.id === selectedSubject) || SUBJECTS[0];
-    const isPhone = /điện thoại|phone|nghe gọi|viễn thông|bts/i.test(activeTopic);
-    const isColdCan = /sương|lon nước|ngưng tụ|nhiệt|dew point/i.test(activeTopic);
-    const chosenDuration = isPhone ? 90 : isColdCan ? 64 : 60;
+    const chosenDuration = targetDurationSeconds;
 
     try {
       const supervisorRes = await fetch('/api/v3/supervisor', {
@@ -170,17 +125,21 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           requestId: `req_v3_${Date.now()}`,
-          topic: activeTopic,
-          domain: chosenSubject.domain,
-          generationMode: 'mock',
-          targetAudience: 'high_school',
+          agentSelection: {
+            topicId: selectedTopic.topicId,
+            teachingGoal,
+            visualDirection,
+          },
+          generationMode: agentExecutionMode === 'mock' ? 'mock' : 'live',
+          agentProvider: agentExecutionMode === 'codex' ? 'codex' : 'gemini',
+          targetAudience,
           targetDurationSeconds: chosenDuration,
-          narrationMode: 'dutai_tts',
+          narrationMode,
           subtitlesEnabled: true,
           fps: 30,
           width: 1080,
           height: 1920,
-          confirmExternalApi: true,
+          confirmExternalApi: requiresExternalApi && externalApiConfirmed,
         }),
       });
 
@@ -204,7 +163,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
       setDraft({
         draftId: planData.draftId,
         version: 1,
-        title: plan?.title || activeTopic,
+        title: plan?.title || selectedTopic.label,
         learningObjectives: plan?.learningObjectives || [
           'Hiểu rõ bản chất hiện tượng từ góc nhìn trực quan',
           'Khám phá cơ chế khoa học và định luật vận hành',
@@ -339,8 +298,8 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           expectedVersion: approveExpectedVersion,
-          note: `Phê duyệt kịch bản giáo viên: ${draft.title} (${draft.totalDurationSeconds}s · DUTAI TTS Bảo Trang)`,
-          confirmExternalApi: true,
+          note: `Phê duyệt kịch bản giáo viên: ${draft.title} (${draft.totalDurationSeconds}s · ${narrationMode})`,
+          confirmExternalApi: narrationMode !== 'none',
         }),
       });
 
@@ -517,8 +476,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
           {/* ===================== BƯỚC 1: NHẬP CHỦ ĐỀ ===================== */}
           {activeStep === 1 && (
             <form onSubmit={handleGenerateScript} style={{ display: 'flex', flexDirection: 'column' }}>
-              <label
-                htmlFor="topic-input"
+              <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -528,17 +486,13 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   marginBottom: '0.75rem',
                 }}
               >
-                <span>Bạn muốn tạo video về chủ đề gì?</span>
-              </label>
+                <span>Agent Studio — chọn nhiệm vụ cho đội agent</span>
+              </div>
 
               <div style={{ position: 'relative', marginBottom: '0.65rem' }}>
-                <textarea
-                  id="topic-input"
-                  rows={3}
-                  maxLength={200}
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Ví dụ: Vì sao có cầu vồng?, Định lý Pythagoras, Chuyển động ném ngang, ..."
+                <div
+                  role="status"
+                  aria-label="Chủ đề đã chọn từ capability registry"
                   style={{
                     width: '100%',
                     padding: '0.9rem 1rem 1.8rem 1rem',
@@ -548,20 +502,16 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     fontSize: '0.95rem',
                     color: '#0F172A',
                     lineHeight: 1.5,
-                    resize: 'none',
-                    outline: 'none',
+                    minHeight: '82px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    fontWeight: 750,
                     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
                     transition: 'all 0.2s ease',
                   }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#8B5CF6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(139, 92, 246, 0.15)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#E2E8F0';
-                    e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.04)';
-                  }}
-                />
+                >
+                  {selectedTopicLabel}
+                </div>
                 <span
                   style={{
                     position: 'absolute',
@@ -571,7 +521,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     color: '#94A3B8',
                   }}
                 >
-                  {topic.length}/200
+                  Chủ đề đã đăng ký
                 </span>
               </div>
 
@@ -585,15 +535,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   marginBottom: '1.5rem',
                 }}
               >
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>Gợi ý nhanh:</span>
-                {QUICK_SUGGESTIONS.map((item, idx) => (
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>Chủ đề render-ready:</span>
+                {visibleTopics.map((item) => (
                   <button
-                    key={idx}
+                    key={item.topicId}
                     type="button"
-                    onClick={() => {
-                      setTopic(item.topic);
-                      setSelectedSubject(item.subject);
-                    }}
+                    onClick={() => setSelectedTopicId(item.topicId)}
                     style={{
                       fontSize: '0.8rem',
                       fontWeight: 600,
@@ -643,13 +590,17 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     gap: '0.65rem',
                   }}
                 >
-                  {SUBJECTS.map((subj) => {
+                  {AGENT_DOMAINS.map((subj) => {
                     const isSelected = selectedSubject === subj.id;
                     return (
                       <button
                         key={subj.id}
                         type="button"
-                        onClick={() => setSelectedSubject(subj.id)}
+                        onClick={() => {
+                          setSelectedSubject(subj.id);
+                          const firstTopic = AGENT_TOPICS.find((item) => item.domain === subj.id);
+                          if (firstTopic) setSelectedTopicId(firstTopic.topicId);
+                        }}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -668,17 +619,90 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                             : 'none',
                         }}
                       >
-                        <span>{subj.label}</span>
+                        <span>{subj.icon} {subj.label}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                  gap: '0.8rem',
+                  padding: '1rem',
+                  marginBottom: '1.5rem',
+                  borderRadius: '16px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                }}
+              >
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Agent lập kế hoạch
+                  <select value={agentExecutionMode} onChange={(e) => setAgentExecutionMode(e.target.value as typeof agentExecutionMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value="mock">Offline deterministic — không dùng quota</option>
+                    <option value="gemini">Gemini Live Agent — dùng Gemini API</option>
+                    <option value="codex">Codex Live Agent — dùng OpenAI API</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Mục tiêu sư phạm
+                  <select value={teachingGoal} onChange={(e) => setTeachingGoal(e.target.value as AgentStudioTeachingGoalV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value="build_intuition">Xây dựng trực giác</option>
+                    <option value="explain_mechanism">Giải thích cơ chế</option>
+                    <option value="real_world_application">Liên hệ ứng dụng thực tế</option>
+                    <option value="exam_review">Ôn tập và lỗi sai thường gặp</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Định hướng hình ảnh
+                  <select value={visualDirection} onChange={(e) => setVisualDirection(e.target.value as AgentStudioVisualDirectionV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value="cinematic_science">Khoa học điện ảnh</option>
+                    <option value="clean_infographic">Infographic giáo dục</option>
+                    <option value="mathematical_visualization">Trực quan hóa toán học</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Người học
+                  <select value={targetAudience} onChange={(e) => setTargetAudience(e.target.value as typeof targetAudience)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value="high_school">Học sinh THPT</option>
+                    <option value="undergraduate">Sinh viên</option>
+                    <option value="general_public">Người học phổ thông</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Thời lượng
+                  <select value={targetDurationSeconds} onChange={(e) => setTargetDurationSeconds(Number(e.target.value) as 60 | 90)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value={60}>60 giây — demo nhanh</option>
+                    <option value={90}>90 giây — giải thích sâu hơn</option>
+                  </select>
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                  Giọng đọc
+                  <select value={narrationMode} onChange={(e) => setNarrationMode(e.target.value as typeof narrationMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                    <option value="none">Không audio — offline</option>
+                    <option value="dutai_tts">DUTAI TTS — dùng API ngoài</option>
+                    <option value="gemini_tts">Gemini TTS — dùng quota</option>
+                  </select>
+                </label>
+              </div>
+
+              {requiresExternalApi && (
+                <label style={{ display: 'flex', gap: '0.55rem', alignItems: 'flex-start', marginBottom: '1.25rem', color: '#92400E', fontWeight: 650 }}>
+                  <input
+                    type="checkbox"
+                    checked={externalApiConfirmed}
+                    onChange={(event) => setExternalApiConfirmed(event.target.checked)}
+                  />
+                  Tôi xác nhận cho phép gọi API ngoài và sử dụng quota cho cấu hình agent/TTS đã chọn.
+                </label>
+              )}
+
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || (requiresExternalApi && !externalApiConfirmed)}
                 style={{
                   alignSelf: 'flex-end',
                   display: 'inline-flex',
@@ -691,12 +715,13 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   fontSize: '1rem',
                   fontWeight: 800,
                   border: 'none',
-                  cursor: busy ? 'not-allowed' : 'pointer',
+                  cursor: busy || (requiresExternalApi && !externalApiConfirmed) ? 'not-allowed' : 'pointer',
+                  opacity: busy || (requiresExternalApi && !externalApiConfirmed) ? 0.65 : 1,
                   boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.4)',
                   transition: 'all 0.2s ease',
                 }}
               >
-                <span>{busy ? 'Đang tạo kịch bản...' : 'Tiếp tục'}</span>
+                <span>{busy ? 'Đội agent đang lập kế hoạch...' : 'Khởi chạy đội Agent'}</span>
               </button>
             </form>
           )}

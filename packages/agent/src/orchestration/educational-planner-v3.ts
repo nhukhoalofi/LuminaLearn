@@ -1,5 +1,6 @@
 import {
   classifyEducationalTopic,
+  EducationalClaimTypeSchema,
   type EducationalClaimV3,
   type EducationalLessonPlanV3,
   type EducationalStoryboardV3,
@@ -11,6 +12,7 @@ import {
   verifyExternalApiConsentV3,
   type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
+import { z } from 'zod';
 import type { AIProvider } from './ai-provider';
 import type { DocumentAnalysisResult } from './types';
 import { KnowledgeValidationServiceV3, validateAlgebraSceneMath } from './knowledge-validation-v3';
@@ -18,6 +20,15 @@ import { normalizeStoryboardTimelineV3, buildChaptersForScenes } from './timelin
 import { directEducationalLessonV3 } from './universal-educational-director-v3';
 import { reviewPhysicsStoryboard } from './physics-storyboard-quality-loop';
 export { buildChaptersForScenes };
+
+const LiveLessonCandidateSchema = z.object({
+  educationalClaims: z.array(z.object({
+    claimType: z.preprocess(
+      (value) => typeof value === 'string' ? value.trim().toLowerCase().replace(/[\s-]+/g, '_') : value,
+      EducationalClaimTypeSchema
+    )
+  }).passthrough()).max(20).optional()
+}).passthrough();
 
 export interface EducationalPlannerV3Options {
   aiProvider?: AIProvider;
@@ -93,7 +104,7 @@ export class EducationalPlannerV3 {
     if (this.aiProvider && !this.aiProvider.isMock) {
       if (input.externalApiConsent !== true) {
         throw new EducationalGenerationError(
-          Object.assign(new Error('Explicit external API consent is required for live Gemini planning.'), {
+          Object.assign(new Error('Explicit external API consent is required for live agent planning.'), {
             code: 'external_api_consent_required'
           })
         );
@@ -206,18 +217,18 @@ export class EducationalPlannerV3 {
 
     if (!this.aiProvider.isMock) {
       if (!input.consentRecord && input.externalApiConsent !== true) {
-        throw new Error('external_api_consent_required: Live Gemini planning requires a valid signed consentRecord');
+        throw new Error('external_api_consent_required: Live agent planning requires a valid signed consentRecord');
       }
       if (input.consentRecord) {
         const check = verifyExternalApiConsentV3({
           consent: input.consentRecord,
           ownerId: input.ownerId ?? 'local-single-user',
-          expectedProvider: 'gemini',
+          expectedProvider: this.aiProvider.providerId === 'openai_codex' ? 'openai_codex' : 'gemini',
           expectedOperation: 'planning',
           isLiveOperation: true
         });
         if (!check.valid) {
-          throw new Error(`external_api_consent_rejected: ${check.reason || 'Live Gemini planning requires valid planning consent'}`);
+          throw new Error(`external_api_consent_rejected: ${check.reason || 'Live agent planning requires valid planning consent'}`);
         }
       }
     }
@@ -239,6 +250,7 @@ Quy tắc toàn vẹn tri thức & Thời lượng bắt buộc:
 - QUY TẮC BẮT BUỘC VỀ THỜI LƯỢNG MỖI CẢNH: ${sceneDurationRule} TUYỆT ĐỐI KHÔNG vượt quá 120 giây.
 - Tổng durationSeconds của tất cả phân cảnh phải đúng bằng ${targetDuration} giây.
 - KHÔNG tự nhận định bất kỳ mệnh đề nào là "formally_verified".
+- Mỗi educationalClaims[].claimType phải dùng đúng một mã: ${EducationalClaimTypeSchema.options.join(', ')}. Dùng empirical_observation cho quan sát vật lý hoặc thực nghiệm, formal_mathematics cho mệnh đề toán hình thức, algorithmic_property cho tính chất thuật toán và ai_concept cho khái niệm AI. Không dịch hoặc tự đặt mã mới.
 - Mọi mệnh đề toán học phải nêu rõ biểu thức formalExpression và validatorKey thích hợp nếu có.
 - Trả về JSON theo đúng định dạng cấu trúc bài học sư phạm V3.`;
 
@@ -249,14 +261,51 @@ Thời lượng mục tiêu: ${targetDuration} giây (gồm ${targetScenes} phâ
       purpose: 'curriculum_planning',
       systemPrompt,
       userPrompt,
+      jsonSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          summary: { type: 'string' },
+          learningObjectives: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+          prerequisites: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+          keyConcepts: { type: 'array', items: { type: 'string' }, maxItems: 12 },
+          educationalClaims: {
+            type: 'array',
+            maxItems: 20,
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                claimType: { type: 'string', enum: EducationalClaimTypeSchema.options },
+                statement: { type: 'string' },
+                formalExpression: { type: 'string' },
+                validatorKey: { type: 'string' },
+                humanReviewComment: { type: 'string' }
+              },
+              required: ['id', 'claimType', 'statement'],
+              additionalProperties: true
+            }
+          },
+          storyboard: {
+            type: 'object',
+            properties: {
+              scenes: { type: 'array', items: { type: 'object', additionalProperties: true } }
+            },
+            required: ['scenes'],
+            additionalProperties: true
+          }
+        },
+        required: ['title', 'summary', 'learningObjectives', 'keyConcepts', 'educationalClaims', 'storyboard'],
+        additionalProperties: true
+      },
       requestBudget: budget,
       validator: (raw: unknown) => {
-        const obj = raw as Record<string, unknown>;
+        const obj = LiveLessonCandidateSchema.parse(raw);
         // Ép buộc các mệnh đề từ AI luôn là unverified ứng cử viên
-        const rawClaims = Array.isArray(obj.educationalClaims) ? obj.educationalClaims : [];
-        const candidateClaims: EducationalClaimV3[] = rawClaims.map((c: any, idx: number) => ({
+        const rawClaims = obj.educationalClaims ?? [];
+        const candidateClaims: EducationalClaimV3[] = rawClaims.map((c, idx) => ({
           id: typeof c.id === 'string' && c.id.trim() ? c.id.trim() : `claim_ai_${idx + 1}`,
-          claimType: c.claimType ?? (capability.domain === 'mathematics' ? 'formal_mathematics' : 'ai_concept'),
+          claimType: c.claimType,
           statement: String(c.statement ?? 'Mệnh đề sư phạm'),
           formalExpression: typeof c.formalExpression === 'string' ? c.formalExpression : undefined,
           validatorKey: typeof c.validatorKey === 'string' ? c.validatorKey : undefined,

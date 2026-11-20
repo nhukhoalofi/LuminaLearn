@@ -340,7 +340,7 @@ export function assertExternalApiConfirmed(options: {
     throw new SecurityError(
       400,
       'external_api_confirmation_required',
-      'Explicit confirmation (confirmExternalApi: true) is required before making live Gemini or TTS API calls.'
+      'Explicit confirmation (confirmExternalApi: true) is required before making live AI or TTS API calls.'
     );
   }
 }

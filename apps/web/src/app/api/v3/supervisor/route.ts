@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import {
   SupervisorRequestV3Schema,
+  AgentStudioSelectionV3Schema,
+  resolveAgentStudioSelectionV3,
   issueExternalApiConsentV3,
   type ExternalApiConsentRecordV3
 } from '@luminalearn/scene-schema';
@@ -19,10 +21,17 @@ export async function POST(request: Request): Promise<Response> {
     assertRequestAuthorized(request);
     const ownerId = resolveOwnerId(request);
     const raw = await readBoundedJson<Record<string, unknown>>(request);
-    const { confirmExternalApi, ...requestFields } = raw;
+    const { confirmExternalApi, agentSelection, ...requestFields } = raw;
+
+    const resolvedSelection = agentSelection === undefined
+      ? undefined
+      : resolveAgentStudioSelectionV3(AgentStudioSelectionV3Schema.parse(agentSelection));
 
     const parsed = SupervisorRequestV3Schema.parse({
       ...requestFields,
+      ...(resolvedSelection
+        ? { topic: resolvedSelection.topic, domain: resolvedSelection.domain }
+        : {}),
       ownerId
     });
 
@@ -40,14 +49,14 @@ export async function POST(request: Request): Promise<Response> {
     if (isConfirmed && parsed.generationMode === 'live') {
       consentRecord = issueExternalApiConsentV3({
         ownerId,
-        provider: 'gemini',
+        provider: parsed.agentProvider === 'codex' ? 'openai_codex' : 'gemini',
         operation: 'planning',
         requestId: parsed.requestId,
         isLiveOperation: true
       });
     }
 
-    const supervisor = createSupervisorV3(parsed.generationMode);
+    const supervisor = createSupervisorV3(parsed.generationMode, parsed.agentProvider ?? 'gemini');
     const finalDraft = await supervisor.coordinate({
       ...parsed,
       consentRecord

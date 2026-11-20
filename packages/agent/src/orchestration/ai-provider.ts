@@ -32,6 +32,7 @@ export interface AIProviderResult<T> {
 
 export interface AIProvider {
   readonly isMock: boolean;
+  readonly providerId?: 'mock' | 'gemini' | 'openai_codex';
   generateStructured<T>(request: AIStructuredRequest<T>): Promise<AIProviderResult<T>>;
 }
 
@@ -72,6 +73,7 @@ export function normalizeGeminiContentModel(model: string): string {
 
 export class LiveGeminiAIProvider implements AIProvider {
   public readonly isMock = false;
+  public readonly providerId = 'gemini' as const;
   private readonly apiKey: string;
   private readonly client?: GoogleGenAI;
   private readonly model: string;
@@ -234,6 +236,7 @@ export class LiveGeminiAIProvider implements AIProvider {
 
 export class MockAIProvider implements AIProvider {
   public readonly isMock = true;
+  public readonly providerId = 'mock' as const;
   private readonly overrides: Map<string, unknown> = new Map();
 
   constructor(overrides?: Record<string, unknown>) {

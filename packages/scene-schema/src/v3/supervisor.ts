@@ -40,6 +40,7 @@ export const SupervisorRequestV3Schema = z.object({
   targetAudience: TargetAudienceSchema.default('undergraduate'),
   targetDurationSeconds: z.number().int().min(20).max(600).default(40),
   generationMode: z.enum(['mock', 'live']).default('mock'),
+  agentProvider: z.enum(['gemini', 'codex']).optional(),
   narrationMode: z.enum(['none', 'provided_audio', 'gemini_tts', 'google_cloud_tts', 'dutai_tts']).default('none'),
   subtitlesEnabled: z.boolean().default(true),
   fps: z.union([z.literal(24), z.literal(30), z.literal(60)]).default(24),
@@ -183,6 +184,8 @@ export const SupervisorTraceV3Schema = z.object({
   retryCount: z.number().int().nonnegative().default(0),
   budgetUsage: z.object({
     geminiApiCalls: z.number().int().nonnegative().default(0),
+    openaiApiCalls: z.number().int().nonnegative().default(0),
+    agentProvider: z.enum(['mock', 'gemini', 'codex']).default('mock'),
     maxApiCalls: z.number().int().positive().default(4)
   }).strict(),
   status: SupervisorTraceStatusV3Schema,

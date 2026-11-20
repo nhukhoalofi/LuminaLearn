@@ -663,10 +663,12 @@ export class EducationalSupervisorV3 {
   public async coordinate(rawRequest: unknown): Promise<SupervisorFinalDraftV3> {
     const startTime = Date.now();
     const request = SupervisorRequestV3Schema.parse(rawRequest);
+    const agentProvider = request.agentProvider ?? 'gemini';
     const supervisorRunId = `run_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const tasks: AgentTaskV3[] = [];
     let currentTaskIndex = 0;
     let geminiApiCalls = 0;
+    let openaiApiCalls = 0;
 
     // Helper: Tạo và cập nhật task trong trace thông qua Antigravity Agent Runtime
     const recordTask = (
@@ -749,7 +751,12 @@ export class EducationalSupervisorV3 {
         currentTaskIndex,
         elapsedMs: Date.now() - startTime,
         retryCount: 0,
-        budgetUsage: { geminiApiCalls, maxApiCalls: this.maxApiCalls },
+        budgetUsage: {
+          geminiApiCalls,
+          openaiApiCalls,
+          agentProvider: request.generationMode === 'mock' ? 'mock' : agentProvider,
+          maxApiCalls: this.maxApiCalls
+        },
         status: 'unsupported_topic',
         humanReadableSummary: `Từ chối chủ đề: ${errorMsg}`
       };
@@ -764,9 +771,10 @@ export class EducationalSupervisorV3 {
     let chapters: EducationalChapterPlanV3[];
     try {
       if (request.generationMode === 'live') {
-        geminiApiCalls++;
-        if (geminiApiCalls > this.maxApiCalls) {
-          throw new Error(`budget_exceeded: Exceeded maximum allowed Gemini API calls (${this.maxApiCalls})`);
+        if (agentProvider === 'codex') openaiApiCalls++;
+        else geminiApiCalls++;
+        if (geminiApiCalls + openaiApiCalls > this.maxApiCalls) {
+          throw new Error(`budget_exceeded: Exceeded maximum allowed live agent API calls (${this.maxApiCalls})`);
         }
       }
       const curriculumResult = await this.curriculumAgent.planCurriculum(request, capability);
@@ -774,7 +782,9 @@ export class EducationalSupervisorV3 {
       chapters = curriculumResult.chapters;
       finishTask(t2, 'completed', 'passed', request.generationMode === 'live' ? 'ai_generated' : 'deterministic_fixture', {
         chaptersCount: chapters.length,
-        totalScenes: lessonPlan.storyboard?.scenes.length ?? 0
+        totalScenes: lessonPlan.storyboard?.scenes.length ?? 0,
+        agentProvider: request.generationMode === 'mock' ? 'mock' : agentProvider,
+        liveApiCalls: geminiApiCalls + openaiApiCalls
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -991,9 +1001,14 @@ export class EducationalSupervisorV3 {
       currentTaskIndex: tasks.length - 1,
       elapsedMs,
       retryCount: 0,
-      budgetUsage: { geminiApiCalls, maxApiCalls: this.maxApiCalls },
+      budgetUsage: {
+        geminiApiCalls,
+        openaiApiCalls,
+        agentProvider: request.generationMode === 'mock' ? 'mock' : agentProvider,
+        maxApiCalls: this.maxApiCalls
+      },
       status: 'needs_teacher_review',
-      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được 6 Antigravity Agents chuyên trách xử lý trong ${elapsedMs}ms. ${verificationSummary} Kịch bản Remotion và lời giảng tiếng Việt đang chờ Giáo viên rà soát và phê duyệt. Bản thảo đã được lưu trữ an toàn.`
+      humanReadableSummary: `Bài học V3 "${capability.displayName}" đã được đội agent xử lý trong ${elapsedMs}ms (provider lập kế hoạch: ${request.generationMode === 'mock' ? 'deterministic mock' : agentProvider}). ${verificationSummary} Kịch bản Remotion và lời giảng tiếng Việt đang chờ Giáo viên rà soát và phê duyệt. Bản thảo đã được lưu trữ an toàn.`
     };
 
     return {
