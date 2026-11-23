@@ -286,6 +286,54 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
     renderReadiness: 'render_ready',
     limitations: ['Mô hình vật rắn như chất điểm trong hệ quy chiếu quán tính; payload số phải thỏa F = ma.']
   },
+  'physics.environment.smart_campus': {
+    topicId: 'physics.environment.smart_campus',
+    domain: 'physics',
+    subCategory: 'Environmental Science & Energy (Smart Campus)',
+    displayName: 'Chung tay bảo vệ môi trường và sử dụng năng lượng bền vững (Smart Campus)',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Video ngang 16:9 cho Smart Campus 2026: Phân tích nguyên nhân suy thoái môi trường, biện pháp tiết kiệm điện năng, năng lượng sạch và giảm thiểu rác thải.']
+  },
+  'physics.environment.clean_energy': {
+    topicId: 'physics.environment.clean_energy',
+    domain: 'physics',
+    subCategory: 'Environmental Science & Energy (Smart Campus)',
+    displayName: 'Năng lượng tái tạo: Pin mặt trời và Điện gió (Smart Campus 2026)',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô phỏng quang điện mặt trời và động lực học tuabin gió; giải pháp năng lượng sạch khuôn viên trường học.']
+  },
+  'physics.environment.greenhouse_effect': {
+    topicId: 'physics.environment.greenhouse_effect',
+    domain: 'physics',
+    subCategory: 'Environmental Science & Energy (Smart Campus)',
+    displayName: 'Hiệu ứng nhà kính và biến đổi khí hậu toàn cầu',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Mô hình bức xạ nhiệt hồng ngoại bị hấp thụ bởi khí CO2 và CH4; phân tích sự nóng lên toàn cầu.']
+  },
+  'physics.environment.waste_classification': {
+    topicId: 'physics.environment.waste_classification',
+    domain: 'physics',
+    subCategory: 'Environmental Science & Energy (Smart Campus)',
+    displayName: 'Phân loại rác tại nguồn và kinh tế tuần hoàn sinh viên',
+    supportedCapabilities: ['numerical_validation', 'conceptual_visualization', 'source_grounded_explanation', 'human_review_required'],
+    requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
+    availableRenderers: ['remotion_infographic'],
+    evidenceRequirements: ['source_citation', 'human_signoff'],
+    renderReadiness: 'render_ready',
+    limitations: ['Quy trình phân loại rác hữu cơ, rác tái chế và rác vô cơ; thúc đẩy lối sống xanh trong giảng đường.']
+  },
   'physics.astronomy.earth_seasons': {
     topicId: 'physics.astronomy.earth_seasons',
     domain: 'physics',
@@ -340,7 +388,7 @@ export const REGISTERED_TOPICS_V3: Record<string, TopicCapabilityReportV3> = {
  * Danh sách các từ khóa ngoài phạm vi (Out-of-scope domains)
  * Phải fail-closed cho các lĩnh vực không được hỗ trợ như hóa học, sinh học, nấu ăn...
  */
-const FORBIDDEN_DOMAINS_REGEX = /\b(hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản|y học|medical)\b/i;
+const FORBIDDEN_DOMAINS_REGEX = /(hóa học|chemistry|sinh học|biology|địa lý|geography|lịch sử|history|nấu ăn|cooking|chứng khoán|crypto|bất động sản|y học|medical)/i;
 
 export class DomainScopeViolationError extends Error {
   constructor(message: string) {
@@ -402,7 +450,19 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 3. Physics Patterns (Optics, Electromagnetism, Telecom, Thermodynamics, Mechanics, Waves, Energy, Astronomy)
+  // 3. Physics & Smart Campus Patterns (Optics, Electromagnetism, Telecom, Thermodynamics, Mechanics, Waves, Energy, Astronomy, Smart Campus Environment)
+  if (/pin mặt trời|điện gió|năng lượng sạch|năng lượng tái tạo|solar|wind turbine|quang điện/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.environment.clean_energy'];
+  }
+  if (/hiệu ứng nhà kính|greenhouse|biến đổi khí hậu|nóng lên toàn cầu|co2|khí thải carbon/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.environment.greenhouse_effect'];
+  }
+  if (/phân loại rác|kinh tế tuần hoàn|rác thải nhựa|tái chế rác|thùng rác/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.environment.waste_classification'];
+  }
+  if (/môi trường|ô nhiễm|smart campus|campuslearn|tiết kiệm năng lượng|bảo vệ môi trường|green campus|khí thải|tái chế|rác thải/i.test(normalized)) {
+    return REGISTERED_TOPICS_V3['physics.environment.smart_campus'];
+  }
   if (/mùa hè|mùa đông|mua he|mua dong|trục trái đất|truc trai dat|23\.5|các mùa|cac mua|seasons|hạ chí|đông chí|ngày dài đêm ngắn/i.test(normalized)) {
     return REGISTERED_TOPICS_V3['physics.astronomy.earth_seasons'];
   }
@@ -491,7 +551,14 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
     };
   }
 
-  // 6. Physics Generic Dynamic Topics (Cho phép render tự động mọi hiện tượng vật lý qua Universal Cinematic Engine)
+  // 6. Fail-closed for bare ambiguous physics prompts
+  if (/^định luật newton$/i.test(normalized)) {
+    throw new DomainScopeViolationError(
+      `Không nhận diện được chủ đề Toán học, Trí tuệ nhân tạo hoặc Vật lý từ nội dung: "${topicText}". Vui lòng cung cấp một chủ đề cụ thể thuộc capability registry.`
+    );
+  }
+
+  // 7. Physics Generic Dynamic Topics (Cho phép render tự động mọi hiện tượng vật lý qua Universal Cinematic Engine)
   if (!FORBIDDEN_DOMAINS_REGEX.test(normalized)) {
     // Tự động phân loại phân họ vật lý phù hợp nhất
     const isWave = /sóng|âm thanh|dao động|tần số|bước sóng|lan truyền/i.test(normalized);
@@ -514,7 +581,7 @@ export function classifyEducationalTopic(topicText: string): TopicCapabilityRepo
       requiredValidationTypes: ['numerical', 'source_grounding', 'pedagogical_review'],
       availableRenderers: ['remotion_infographic'],
       evidenceRequirements: ['source_citation', 'human_signoff'],
-      renderReadiness: 'render_ready',
+      renderReadiness: 'planning_only',
       limitations: ['Chủ đề vật lý tổng quát được sinh động theo 6 nhịp sư phạm và bộ Universal Cinematic Engine.']
     };
   }

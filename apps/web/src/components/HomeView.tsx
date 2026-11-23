@@ -352,6 +352,75 @@ export function HomeView({ onGoToCreate, onGoToAlbum, albumCount = 6 }: HomeView
             gap: '1.5rem',
           }}
         >
+          {/* Featured Smart Campus 2026 Masterpiece Card */}
+          <div
+            onClick={onGoToAlbum}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '20px',
+              overflow: 'hidden',
+              border: '2px solid #10B981',
+              boxShadow: '0 4px 18px rgba(16, 185, 129, 0.18)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-3px)';
+              e.currentTarget.style.boxShadow = '0 12px 28px -6px rgba(16, 185, 129, 0.28)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0px)';
+              e.currentTarget.style.boxShadow = '0 4px 18px rgba(16, 185, 129, 0.18)';
+            }}
+          >
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', backgroundColor: '#0F172A' }}>
+              <Image
+                src="/demo/thumb-smart-campus.png"
+                alt="Smart Campus Môi trường Năng lượng"
+                fill
+                sizes="(max-width: 768px) 100vw, 33vw"
+                unoptimized
+                style={{ objectFit: 'cover' }}
+              />
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.9)',
+                  backdropFilter: 'blur(6px)',
+                  color: '#FFFFFF',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '9999px',
+                }}
+              >
+                Smart Campus 2026
+              </span>
+              <span
+                style={{
+                  position: 'absolute',
+                  bottom: '8px',
+                  right: '8px',
+                  backgroundColor: 'rgba(0,0,0,0.85)',
+                  color: '#FFFFFF',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '0.2rem 0.55rem',
+                  borderRadius: '6px',
+                }}
+              >
+                ▶ 01:24 (16:9)
+              </span>
+            </div>
+            <div style={{ padding: '1rem 1.15rem' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 850, color: '#0F172A', margin: 0, lineHeight: 1.4 }}>
+                Chung tay bảo vệ môi trường và sử dụng năng lượng bền vững
+              </h3>
+            </div>
+          </div>
+
           {/* Card 1: Earth Seasons Clone */}
           <div
             onClick={onGoToAlbum}

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
 import { ChapterNavigatorV3 } from './ChapterNavigatorV3';
@@ -592,6 +592,27 @@ export function V3TeacherStudio({ liveEnabled }: { liveEnabled: boolean }) {
           🌟 DEVFEST 2026 DEMO PRESETS
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button
+            type="button"
+            className="quick-chip"
+            style={{
+              borderColor: '#10B981',
+              backgroundColor: topic.includes('môi trường') || topic.includes('Smart Campus') ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.1)',
+              color: '#6EE7B7',
+              fontWeight: 700,
+              boxShadow: '0 0 12px rgba(16, 185, 129, 0.3)'
+            }}
+            onClick={() => {
+              setDomain('physics');
+              setNarrationMode('dutai_tts');
+              setConfirmExternalApi(true);
+              setDurationPreset('60s');
+              setCuratedPresetLabel('Smart Campus 2026: Môi trường & Năng lượng bền vững');
+              setTopic('Chung tay bảo vệ môi trường và sử dụng năng lượng bền vững (Smart Campus 2026)');
+            }}
+          >
+            🌿 ★ SMART CAMPUS 2026: Môi trường & Năng lượng · 84s (16:9)
+          </button>
           <button
             type="button"
             className="quick-chip"

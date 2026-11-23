@@ -17,7 +17,7 @@ interface CreateVideoViewProps {
 type PipelineStep = 1 | 2 | 3;
 
 const AGENT_DOMAINS: Array<{ id: EducationalDomain; label: string; icon: string }> = [
-  { id: 'physics', label: 'Vật lý', icon: '⚛' },
+  { id: 'physics', label: 'Vật lý & Smart Campus', icon: '🌿' },
   { id: 'mathematics', label: 'Toán học', icon: '∑' },
   { id: 'artificial_intelligence', label: 'Trí tuệ nhân tạo', icon: '✦' },
 ];

@@ -97,8 +97,23 @@ export async function GET(request: Request): Promise<Response> {
     const savedIds = loadSavedVideoIds();
     const videos: AlbumVideoItem[] = [];
 
-    // 1. Curated Top-Quality Masterpiece Videos (6 Video Vật lý Trình chiếu chất lượng cao nhất)
+    // 1. Curated Top-Quality Masterpiece Videos (Video Môi trường Năng lượng Smart Campus & Video Khoa học)
     const curatedDemos: AlbumVideoItem[] = [
+      {
+        id: 'demo-smart-campus',
+        title: 'Chung tay bảo vệ môi trường và sử dụng năng lượng bền vững (Smart Campus 2026)',
+        subject: 'Môi trường & Năng lượng',
+        duration: '01:24',
+        durationSeconds: 84,
+        createdAt: '2026-11-23T09:00:00.000Z',
+        formattedDate: '23/11/2026',
+        thumbnailUrl: '/demo/thumb-smart-campus.png',
+        videoUrl: '/demo/smart-campus-exact-clone.mp4',
+        downloadUrl: '/demo/smart-campus-exact-clone.mp4',
+        isSaved: true,
+        description: 'Đầu ra chuẩn ngang (16:9) phục vụ Smart Campus 2026: Phân tích toàn diện nguyên nhân ô nhiễm và chuỗi hành động bảo vệ môi trường, tiết kiệm năng lượng, giao thông xanh và tuyên truyền học đường.',
+        isDemo: true,
+      },
       {
         id: 'demo-rainbow',
         title: 'Vì sao sau cơn mưa xuất hiện cầu vồng?',

@@ -34,7 +34,7 @@ describe('V3 Educational Contracts & Capability Registry', () => {
 
   it('registers the benchmark topics plus Phase 4 algebra with honest renderReadiness', () => {
     const keys = Object.keys(REGISTERED_TOPICS_V3);
-    assert.equal(keys.length, 19);
+    assert.equal(keys.length, 26);
 
     const mathTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'mathematics');
     const aiTopics = Object.values(REGISTERED_TOPICS_V3).filter((t) => t.domain === 'artificial_intelligence');
@@ -42,7 +42,7 @@ describe('V3 Educational Contracts & Capability Registry', () => {
 
     assert.equal(mathTopics.length, 6);
     assert.equal(aiTopics.length, 5);
-    assert.equal(physicsTopics.length, 8);
+    assert.equal(physicsTopics.length, 15);
 
     // Only topics with real renderers are marked render_ready
     assert.equal(REGISTERED_TOPICS_V3['calculus.derivative.intuition'].renderReadiness, 'render_ready');
@@ -59,6 +59,10 @@ describe('V3 Educational Contracts & Capability Registry', () => {
     assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.projectile'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.pendulum'].renderReadiness, 'render_ready');
     assert.equal(REGISTERED_TOPICS_V3['physics.mechanics.energy_conservation'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.environment.smart_campus'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.environment.clean_energy'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.environment.greenhouse_effect'].renderReadiness, 'render_ready');
+    assert.equal(REGISTERED_TOPICS_V3['physics.environment.waste_classification'].renderReadiness, 'render_ready');
   });
 
   it('deterministic classifier routes math and AI topics appropriately', () => {

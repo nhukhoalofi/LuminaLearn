@@ -10,7 +10,7 @@ import {
   VisualSceneDefinitionV3Schema,
   VerifiedFormulaStepsDataV1Schema
 } from '@luminalearn/scene-schema';
-import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene, ExactRainbowIdenticalScene, ExactPhoneCallIdenticalScene, ExactCondensationIdenticalScene, ExactProjectileIdenticalScene, ExactEarthSeasonsIdenticalScene, ExactCloudIdenticalScene, UniversalPhysicsExplainerScene } from '@luminalearn/animation';
+import { AnimatedVisualDslSceneV3, FormulaSequenceSceneV3, RainbowFullScene, ExactRainbowIdenticalScene, ExactPhoneCallIdenticalScene, ExactCondensationIdenticalScene, ExactProjectileIdenticalScene, ExactEarthSeasonsIdenticalScene, ExactCloudIdenticalScene, ExactSmartCampusEnvironmentScene, UniversalPhysicsExplainerScene, UniversalMultiDomainExplainerScene } from '@luminalearn/animation';
 import { z } from 'zod';
 import { LuminaVideo, type LuminaVideoProps } from './compositions/LuminaVideo';
 import { LuminaMathHybrid, type LuminaMathHybridProps } from './compositions/LuminaMathHybrid';
@@ -66,6 +66,14 @@ const LuminaScenePreviewV3Schema = z.object({
 });
 const VisualDslCompositionV3Schema = z.object({ definition: VisualSceneDefinitionV3Schema });
 const FormulaSequenceCompositionV3Schema = z.object({ data: VerifiedFormulaStepsDataV1Schema, subtitleText: z.string().optional() });
+const LuminaUniversalExplainerSchema = z.object({
+  topic: z.string().optional(),
+  domain: z.string().optional(),
+  subCategory: z.string().optional(),
+  aspectRatio: z.enum(['16:9', '9:16']).optional(),
+  subtitlesEnabled: z.boolean().optional(),
+  audioSrc: z.string().optional(),
+});
 
 export const Root: React.FC = () => {
   return (
@@ -405,6 +413,32 @@ export const Root: React.FC = () => {
         fps={30}
         width={1080}
         height={1920}
+      />
+      {/* Smart Campus 2026 Environment & Energy Procedural Animation (Horizontal 16:9, 2515 frames, 30 FPS, 83.83s, 1280x720) */}
+      <Composition
+        id="LuminaSmartCampusEnvironmentDemo"
+        component={ExactSmartCampusEnvironmentScene}
+        durationInFrames={2515}
+        fps={30}
+        width={1280}
+        height={720}
+      />
+      {/* LuminaLearn Universal Multi-Domain Explainer Composition (16:9 & 9:16) */}
+      <Composition
+        id="LuminaUniversalExplainer"
+        component={UniversalMultiDomainExplainerScene}
+        durationInFrames={2515}
+        fps={30}
+        width={1280}
+        height={720}
+        schema={LuminaUniversalExplainerSchema}
+        defaultProps={{
+          topic: 'Chung tay bảo vệ môi trường và sử dụng năng lượng bền vững (Smart Campus 2026)',
+          domain: 'physics',
+          aspectRatio: '16:9',
+          subtitlesEnabled: true,
+          audioSrc: 'audio/smart_campus_full_master_audio.wav'
+        }}
       />
       <Composition<typeof LuminaSceneV3Schema, LuminaSceneV3Props>
         id="LuminaPhysicsSceneV3"
