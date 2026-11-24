@@ -256,6 +256,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         narrationTexts[sc.sceneId] = sc.narrationText;
       }
 
+      let currentVer = draft.version;
       const patchRes = await fetch(`/api/v3/lessons/${draft.draftId}/draft`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -267,10 +268,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         }),
       });
 
-      let currentVer = draft.version;
       if (patchRes.ok) {
         const patchData = await patchRes.json();
         currentVer = patchData.version ?? currentVer + 1;
+      } else {
+        const errPatch = await patchRes.json().catch(() => ({}));
+        throw new Error(errPatch.message || errPatch.error || 'Lỗi khi cập nhật kịch bản.');
       }
 
       // 2. Giáo viên xác nhận rà soát ngữ nghĩa
@@ -288,6 +291,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
       if (reviewRes.ok) {
         const revData = await reviewRes.json();
         approveExpectedVersion = revData.version ?? approveExpectedVersion;
+      } else {
+        const errRev = await reviewRes.json().catch(() => ({}));
+        throw new Error(errRev.message || errRev.error || 'Lỗi khi rà soát sư phạm.');
       }
 
       // 3. Phê duyệt & xếp hàng xuất video
@@ -306,7 +312,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
 
       if (!approveRes.ok) {
         const errApprove = await approveRes.json().catch(() => ({}));
-        throw new Error(errApprove.message || 'Lỗi khi phê duyệt và xuất video.');
+        throw new Error(errApprove.message || errApprove.error || 'Lỗi khi phê duyệt và xuất video.');
       }
 
       const approveData = await approveRes.json();
