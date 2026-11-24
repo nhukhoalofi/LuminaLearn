@@ -59,6 +59,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
   const [targetDurationSeconds, setTargetDurationSeconds] = useState<60 | 90>(60);
   const [narrationMode, setNarrationMode] = useState<'none' | 'dutai_tts' | 'gemini_tts'>('dutai_tts');
   const [agentExecutionMode, setAgentExecutionMode] = useState<'mock' | 'gemini' | 'codex'>('mock');
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [externalApiConfirmed, setExternalApiConfirmed] = useState(true);
   const [activeStep, setActiveStep] = useState<PipelineStep>(1);
   const [busy, setBusy] = useState(false);
@@ -620,67 +621,91 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                 </div>
               </div>
 
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-                  gap: '0.8rem',
-                  padding: '1rem',
-                  marginBottom: '1.5rem',
-                  borderRadius: '16px',
-                  backgroundColor: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                }}
-              >
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Agent lập kế hoạch
-                  <select value={agentExecutionMode} onChange={(e) => setAgentExecutionMode(e.target.value as typeof agentExecutionMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value="mock">Offline deterministic — không dùng quota</option>
-                    <option value="gemini">Gemini Live Agent — dùng Gemini API</option>
-                    <option value="codex">Codex Live Agent — dùng OpenAI API</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Mục tiêu sư phạm
-                  <select value={teachingGoal} onChange={(e) => setTeachingGoal(e.target.value as AgentStudioTeachingGoalV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value="build_intuition">Xây dựng trực giác</option>
-                    <option value="explain_mechanism">Giải thích cơ chế</option>
-                    <option value="real_world_application">Liên hệ ứng dụng thực tế</option>
-                    <option value="exam_review">Ôn tập và lỗi sai thường gặp</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Định hướng hình ảnh
-                  <select value={visualDirection} onChange={(e) => setVisualDirection(e.target.value as AgentStudioVisualDirectionV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value="cinematic_science">Khoa học điện ảnh</option>
-                    <option value="clean_infographic">Infographic giáo dục</option>
-                    <option value="mathematical_visualization">Trực quan hóa toán học</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Người học
-                  <select value={targetAudience} onChange={(e) => setTargetAudience(e.target.value as typeof targetAudience)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value="high_school">Học sinh THPT</option>
-                    <option value="undergraduate">Sinh viên</option>
-                    <option value="general_public">Người học phổ thông</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Thời lượng
-                  <select value={targetDurationSeconds} onChange={(e) => setTargetDurationSeconds(Number(e.target.value) as 60 | 90)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value={60}>60 giây — demo nhanh</option>
-                    <option value={90}>90 giây — giải thích sâu hơn</option>
-                  </select>
-                </label>
-                <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
-                  Giọng đọc
-                  <select value={narrationMode} onChange={(e) => setNarrationMode(e.target.value as typeof narrationMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
-                    <option value="none">Không audio — offline</option>
-                    <option value="dutai_tts">DUTAI TTS — dùng API ngoài</option>
-                    <option value="gemini_tts">Gemini TTS — dùng quota</option>
-                  </select>
-                </label>
+              {/* Toggle Cấu hình nâng cao - Ẩn mặc định để giao diện gọn gàng cho Smart Campus */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    background: 'none',
+                    border: 'none',
+                    color: '#6366F1',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    padding: '0.2rem 0',
+                  }}
+                >
+                  <span>{showAdvancedSettings ? '▼ Thu gọn cấu hình chi tiết' : '► Mở rộng cấu hình chuyên sâu (Agent, Đối tượng, Giọng đọc)'}</span>
+                </button>
               </div>
+
+              {showAdvancedSettings && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                    gap: '0.8rem',
+                    padding: '1rem',
+                    marginBottom: '1.5rem',
+                    borderRadius: '16px',
+                    backgroundColor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                  }}
+                >
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Agent lập kế hoạch
+                    <select value={agentExecutionMode} onChange={(e) => setAgentExecutionMode(e.target.value as typeof agentExecutionMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value="mock">Offline deterministic — không dùng quota</option>
+                      <option value="gemini">Gemini Live Agent — dùng Gemini API</option>
+                      <option value="codex">Codex Live Agent — dùng OpenAI API</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Mục tiêu sư phạm
+                    <select value={teachingGoal} onChange={(e) => setTeachingGoal(e.target.value as AgentStudioTeachingGoalV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value="build_intuition">Xây dựng trực giác</option>
+                      <option value="explain_mechanism">Giải thích cơ chế</option>
+                      <option value="real_world_application">Liên hệ ứng dụng thực tế</option>
+                      <option value="exam_review">Ôn tập và lỗi sai thường gặp</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Định hướng hình ảnh
+                    <select value={visualDirection} onChange={(e) => setVisualDirection(e.target.value as AgentStudioVisualDirectionV3)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value="cinematic_science">Khoa học điện ảnh</option>
+                      <option value="clean_infographic">Infographic giáo dục</option>
+                      <option value="mathematical_visualization">Trực quan hóa toán học</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Người học
+                    <select value={targetAudience} onChange={(e) => setTargetAudience(e.target.value as typeof targetAudience)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value="high_school">Học sinh THPT</option>
+                      <option value="undergraduate">Sinh viên</option>
+                      <option value="general_public">Người học phổ thông</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Thời lượng
+                    <select value={targetDurationSeconds} onChange={(e) => setTargetDurationSeconds(Number(e.target.value) as 60 | 90)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value={60}>60 giây — demo nhanh</option>
+                      <option value={90}>90 giây — giải thích sâu hơn</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'grid', gap: '0.35rem', color: '#334155', fontWeight: 700 }}>
+                    Giọng đọc
+                    <select value={narrationMode} onChange={(e) => setNarrationMode(e.target.value as typeof narrationMode)} style={{ padding: '0.65rem', borderRadius: '10px', border: '1px solid #CBD5E1' }}>
+                      <option value="dutai_tts">DUTAI TTS — giọng chuẩn tự nhiên</option>
+                      <option value="none">Không audio — offline</option>
+                      <option value="gemini_tts">Gemini TTS — dùng quota</option>
+                    </select>
+                  </label>
+                </div>
+              )}
 
               {requiresExternalApi && (
                 <label style={{ display: 'flex', gap: '0.55rem', alignItems: 'flex-start', marginBottom: '1.25rem', color: '#92400E', fontWeight: 650 }}>

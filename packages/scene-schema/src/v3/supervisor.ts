@@ -35,7 +35,7 @@ export type TargetAudience = z.infer<typeof TargetAudienceSchema>;
 
 export const SupervisorRequestV3Schema = z.object({
   requestId: SafeIdString,
-  topic: z.string().min(3).max(200).pipe(NoExecutableString),
+  topic: z.string().min(3).max(500).pipe(NoExecutableString),
   domain: EducationalDomainSchema,
   targetAudience: TargetAudienceSchema.default('undergraduate'),
   targetDurationSeconds: z.number().int().min(20).max(600).default(40),
