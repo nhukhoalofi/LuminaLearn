@@ -2,20 +2,11 @@ import { readdirSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertRequestAuthorized, resolveOwnerId, SecurityError } from '@/server/security';
+import { getStorageRoot } from '@/server/storage-root';
 
 export const runtime = 'nodejs';
 
-function getRepositoryRoot(): string {
-  const c1 = resolve(process.cwd(), 'outputs/.jobs');
-  if (existsSync(c1)) return process.cwd();
-  const c2 = resolve(process.cwd(), '..', 'outputs/.jobs');
-  if (existsSync(c2)) return resolve(process.cwd(), '..');
-  const c3 = resolve(process.cwd(), '../..', 'outputs/.jobs');
-  if (existsSync(c3)) return resolve(process.cwd(), '../..');
-  return resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../');
-}
-
-const repositoryRoot = getRepositoryRoot();
+const repositoryRoot = getStorageRoot();
 const jobsDir = resolve(repositoryRoot, 'outputs/.jobs');
 const draftsDir = resolve(repositoryRoot, 'outputs/.drafts-v3');
 const savedStoreFile = resolve(repositoryRoot, 'outputs/.saved-videos.json');

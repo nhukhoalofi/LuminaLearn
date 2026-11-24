@@ -53,7 +53,9 @@ export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 export const MAX_LOGIN_FAILURES = 5;
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+import { getStorageRoot } from './storage-root';
+
+const repositoryRoot = getStorageRoot();
 const defaultStorePath = resolve(repositoryRoot, 'outputs', '.auth', 'pilot-auth-state.json');
 let testUsers: CredentialUser[] | undefined;
 let operationQueue: Promise<void> = Promise.resolve();

@@ -29,6 +29,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { documentStore } from './v2-services';
 import { assertOwnerMatch, getMaxPendingJobs, SecurityError } from './security';
+import { getStorageRoot } from './storage-root';
 
 export interface JobRecord {
   jobId: string;
@@ -76,7 +77,7 @@ interface QueuedJob {
 }
 interface Store { jobs: Map<string, JobRecord>; queue: QueuedJob[]; active: number; }
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const repositoryRoot = getStorageRoot();
 
 function resolveMasterClonePath(...candidateNames: string[]): string | undefined {
   for (const name of candidateNames) {

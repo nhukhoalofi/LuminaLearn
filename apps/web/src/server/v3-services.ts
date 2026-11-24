@@ -1,6 +1,5 @@
 import 'server-only';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import {
   EducationalPlannerV3,
   LessonDraftManagerV3,
@@ -8,8 +7,9 @@ import {
   OpenAICodexAIProvider,
   EducationalSupervisorV3
 } from '@luminalearn/agent';
+import { getStorageRoot } from './storage-root';
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const repositoryRoot = getStorageRoot();
 const globals = globalThis as typeof globalThis & { __luminaDraftManagerV3?: LessonDraftManagerV3 };
 
 export const draftManagerV3 = globals.__luminaDraftManagerV3 ?? new LessonDraftManagerV3({
