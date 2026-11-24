@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Script deploy LuminaLearn lên Google Cloud Run bằng Google Cloud SDK.
 .DESCRIPTION
@@ -77,6 +77,7 @@ $envVars = @(
     "LUMINA_CONSENT_SIGNING_KEY=$signingKey",
     "REMOTION_BROWSER_EXECUTABLE=/usr/bin/chromium",
     "TTS_PROVIDER=gemini",
+    "DUTAI_TTS_ENDPOINT=https://tts.dutai.io.vn/v1/audio/speech",
     "NODE_ENV=production"
 )
 
