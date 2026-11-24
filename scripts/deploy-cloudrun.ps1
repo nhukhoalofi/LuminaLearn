@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Script deploy LuminaLearn lên Google Cloud Run bằng Google Cloud SDK.
 .DESCRIPTION
