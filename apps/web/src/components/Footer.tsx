@@ -31,19 +31,6 @@ export function Footer() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span
-              style={{
-                backgroundColor: '#EEF2FF',
-                color: '#4F46E5',
-                padding: '0.2rem 0.6rem',
-                borderRadius: '9999px',
-                fontWeight: 600,
-                fontSize: '0.75rem',
-              }}
-            >
-              Demo Hackathon
-            </span>
-            <span>•</span>
             <span>Video bài giảng trực quan</span>
           </div>
         </div>
