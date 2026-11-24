@@ -248,7 +248,17 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
     setStatusMessage('Đang lưu thay đổi kịch bản và xác nhận sư phạm...');
 
     try {
-      // 1. Lưu các chỉnh sửa mới nhất nếu có
+      // 1. Luôn đồng bộ lấy phiên bản mới nhất từ server trước khi thao tác
+      const fetchDraftRes = await fetch(`/api/v3/lessons/${draft.draftId}/draft`);
+      let currentVer = draft.version;
+      if (fetchDraftRes.ok) {
+        const latestRemoteDraft = await fetchDraftRes.json();
+        if (typeof latestRemoteDraft.version === 'number') {
+          currentVer = latestRemoteDraft.version;
+        }
+      }
+
+      // 2. Lưu các chỉnh sửa mới nhất nếu có
       const sceneTitles: Record<string, string> = {};
       const narrationTexts: Record<string, string> = {};
       for (const sc of draft.scenes) {
@@ -256,12 +266,11 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         narrationTexts[sc.sceneId] = sc.narrationText;
       }
 
-      let currentVer = draft.version;
       const patchRes = await fetch(`/api/v3/lessons/${draft.draftId}/draft`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          expectedVersion: draft.version,
+          expectedVersion: currentVer,
           title: draft.title,
           sceneTitles,
           narrationTexts,
@@ -273,10 +282,14 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         currentVer = patchData.version ?? currentVer + 1;
       } else {
         const errPatch = await patchRes.json().catch(() => ({}));
-        throw new Error(errPatch.message || errPatch.error || 'Lỗi khi cập nhật kịch bản.');
+        if (errPatch.currentVersion) {
+          currentVer = errPatch.currentVersion;
+        } else {
+          throw new Error(errPatch.message || errPatch.error || 'Lỗi khi cập nhật kịch bản.');
+        }
       }
 
-      // 2. Giáo viên xác nhận rà soát ngữ nghĩa
+      // 3. Giáo viên xác nhận rà soát ngữ nghĩa
       setStatusMessage('Xác nhận rà soát sư phạm & ký duyệt kịch bản...');
       const reviewRes = await fetch(`/api/v3/lessons/${draft.draftId}/review`, {
         method: 'POST',
@@ -293,10 +306,14 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
         approveExpectedVersion = revData.version ?? approveExpectedVersion;
       } else {
         const errRev = await reviewRes.json().catch(() => ({}));
-        throw new Error(errRev.message || errRev.error || 'Lỗi khi rà soát sư phạm.');
+        if (errRev.currentVersion) {
+          approveExpectedVersion = errRev.currentVersion;
+        } else {
+          throw new Error(errRev.message || errRev.error || 'Lỗi khi rà soát sư phạm.');
+        }
       }
 
-      // 3. Phê duyệt & xếp hàng xuất video
+      // 4. Phê duyệt & xếp hàng xuất video
       setStatusMessage('Bắt đầu tạo video với thuyết minh giọng đọc...');
       setActiveStep(3);
 
