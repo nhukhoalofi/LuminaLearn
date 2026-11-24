@@ -52,7 +52,7 @@ interface JobProgress {
 
 export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoViewProps) {
   const [selectedSubject, setSelectedSubject] = useState<EducationalDomain>('physics');
-  const [selectedTopicId, setSelectedTopicId] = useState('physics.environment.smart_campus');
+  const [selectedTopicId, setSelectedTopicId] = useState<string>('');
   const [teachingGoal, setTeachingGoal] = useState<AgentStudioTeachingGoalV3>('build_intuition');
   const [visualDirection, setVisualDirection] = useState<AgentStudioVisualDirectionV3>('cinematic_science');
   const [targetAudience, setTargetAudience] = useState<'high_school' | 'undergraduate' | 'general_public'>('high_school');
@@ -529,20 +529,20 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     width: '100%',
                     padding: '0.9rem 1rem 1.8rem 1rem',
                     borderRadius: '16px',
-                    border: '1.5px solid #E2E8F0',
-                    backgroundColor: '#FFFFFF',
+                    border: selectedTopicId ? '1.5px solid #8B5CF6' : '1.5px dashed #CBD5E1',
+                    backgroundColor: selectedTopicId ? '#FFFFFF' : '#F8FAFC',
                     fontSize: '0.95rem',
-                    color: '#0F172A',
+                    color: selectedTopicId ? '#0F172A' : '#94A3B8',
                     lineHeight: 1.5,
                     minHeight: '82px',
                     display: 'flex',
                     alignItems: 'center',
-                    fontWeight: 750,
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                    fontWeight: selectedTopicId ? 750 : 500,
+                    boxShadow: selectedTopicId ? '0 1px 2px rgba(0, 0, 0, 0.04)' : 'none',
                     transition: 'all 0.2s ease',
                   }}
                 >
-                  {selectedTopicLabel}
+                  {selectedTopicId ? selectedTopicLabel : '👉 Vui lòng nhấp chọn một chủ đề bên dưới để bắt đầu...'}
                 </div>
                 <span
                   style={{
@@ -553,7 +553,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     color: '#94A3B8',
                   }}
                 >
-                  Chủ đề đã đăng ký
+                  {selectedTopicId ? 'Chủ đề đã chọn' : 'Chưa chọn chủ đề'}
                 </span>
               </div>
 
@@ -623,8 +623,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                         type="button"
                         onClick={() => {
                           setSelectedSubject(subj.id);
-                          const firstTopic = AGENT_TOPICS.find((item) => item.domain === subj.id);
-                          if (firstTopic) setSelectedTopicId(firstTopic.topicId);
+                          setSelectedTopicId('');
                         }}
                         style={{
                           display: 'flex',
@@ -740,7 +739,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || !selectedTopicId}
                 style={{
                   alignSelf: 'flex-end',
                   display: 'inline-flex',
@@ -753,8 +752,8 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   fontSize: '1rem',
                   fontWeight: 800,
                   border: 'none',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.65 : 1,
+                  cursor: busy || !selectedTopicId ? 'not-allowed' : 'pointer',
+                  opacity: busy || !selectedTopicId ? 0.65 : 1,
                   boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.4)',
                   transition: 'all 0.2s ease',
                   marginTop: '0.5rem',
