@@ -763,7 +763,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   marginTop: '0.5rem',
                 }}
               >
-                <span>{busy ? 'Đội agent đang lập kế hoạch...' : 'Khởi chạy đội Agent'}</span>
+                <span>{busy ? 'Đang tạo nội dung bài giảng...' : 'Bắt đầu tạo bài giảng'}</span>
               </button>
             </form>
           )}
