@@ -20,6 +20,9 @@
     "acceptance:real-tts": "pnpm --filter @luminalearn/hybrid-renderer acceptance:real-tts"
   },
   "devDependencies": {
+    "next": "^16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^5.7.0"
   },
   "pnpm": {
