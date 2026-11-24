@@ -52,14 +52,14 @@ interface JobProgress {
 
 export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoViewProps) {
   const [selectedSubject, setSelectedSubject] = useState<EducationalDomain>('physics');
-  const [selectedTopicId, setSelectedTopicId] = useState('physics.optics.rainbow');
+  const [selectedTopicId, setSelectedTopicId] = useState('physics.smart_campus.environment_procedural');
   const [teachingGoal, setTeachingGoal] = useState<AgentStudioTeachingGoalV3>('build_intuition');
   const [visualDirection, setVisualDirection] = useState<AgentStudioVisualDirectionV3>('cinematic_science');
   const [targetAudience, setTargetAudience] = useState<'high_school' | 'undergraduate' | 'general_public'>('high_school');
   const [targetDurationSeconds, setTargetDurationSeconds] = useState<60 | 90>(60);
-  const [narrationMode, setNarrationMode] = useState<'none' | 'dutai_tts' | 'gemini_tts'>('none');
+  const [narrationMode, setNarrationMode] = useState<'none' | 'dutai_tts' | 'gemini_tts'>('dutai_tts');
   const [agentExecutionMode, setAgentExecutionMode] = useState<'mock' | 'gemini' | 'codex'>('mock');
-  const [externalApiConfirmed, setExternalApiConfirmed] = useState(false);
+  const [externalApiConfirmed, setExternalApiConfirmed] = useState(true);
   const [activeStep, setActiveStep] = useState<PipelineStep>(1);
   const [busy, setBusy] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -525,47 +525,41 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                 </span>
               </div>
 
-              {/* Quick suggestions */}
+              {/* Quick suggestions - Clean, focused for Smart Campus */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.4rem',
+                  gap: '0.45rem',
                   flexWrap: 'wrap',
-                  marginBottom: '1.5rem',
+                  marginBottom: '1.25rem',
                 }}
               >
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94A3B8' }}>Chủ đề render-ready:</span>
-                {visibleTopics.map((item) => (
-                  <button
-                    key={item.topicId}
-                    type="button"
-                    onClick={() => setSelectedTopicId(item.topicId)}
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      padding: '0.3rem 0.75rem',
-                      borderRadius: '9999px',
-                      backgroundColor: '#F8FAFC',
-                      border: '1px solid #E2E8F0',
-                      color: '#475569',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#EEF2FF';
-                      e.currentTarget.style.borderColor = '#C7D2FE';
-                      e.currentTarget.style.color = '#4F46E5';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#F8FAFC';
-                      e.currentTarget.style.borderColor = '#E2E8F0';
-                      e.currentTarget.style.color = '#475569';
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#6366F1' }}>Gợi ý chủ đề:</span>
+                {visibleTopics.slice(0, 8).map((item) => {
+                  const isCurSelected = item.topicId === selectedTopicId;
+                  const isSmartCampus = item.label.includes('Smart Campus') || item.label.includes('môi trường');
+                  return (
+                    <button
+                      key={item.topicId}
+                      type="button"
+                      onClick={() => setSelectedTopicId(item.topicId)}
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: isCurSelected ? 700 : 500,
+                        padding: '0.35rem 0.85rem',
+                        borderRadius: '9999px',
+                        backgroundColor: isCurSelected ? '#EEF2FF' : isSmartCampus ? '#F0FDF4' : '#F8FAFC',
+                        border: isCurSelected ? '1.5px solid #6366F1' : isSmartCampus ? '1.5px solid #86EFAC' : '1px solid #E2E8F0',
+                        color: isCurSelected ? '#4F46E5' : isSmartCampus ? '#15803D' : '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Subject Selection */}

@@ -128,6 +128,8 @@ export function resolveDeploymentMode(): DeploymentMode {
     );
   }
   if (publicDeployment) return 'public';
+  // If running on Vercel or cloud preview, enable public demo mode by default
+  if (process.env.VERCEL || process.env.VERCEL_ENV) return 'public';
   if (explicitLocalDemo || process.env.NODE_ENV !== 'production') return 'local_demo';
   return 'disabled';
 }
@@ -182,7 +184,7 @@ export function assertRequestAuthorized(req: Request): void {
       isSameOrigin = false;
     }
 
-    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true') {
+    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true' || process.env.VERCEL || process.env.VERCEL_ENV) {
       return;
     }
   }
