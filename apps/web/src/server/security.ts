@@ -239,7 +239,7 @@ export function resolveOwnerId(req: Request): string {
       isSameOrigin = false;
     }
 
-    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true') {
+    if (isSameOrigin || process.env.LUMINA_PUBLIC_DEMO === 'true' || process.env.VERCEL || process.env.VERCEL_ENV) {
       return 'public-demo-user';
     }
   }
@@ -262,7 +262,7 @@ export function assertOwnerMatch(
   callerOwnerId: string,
   resourceLabel = 'resource'
 ): void {
-  if (process.env.LUMINA_PUBLIC_DEMO === 'true') {
+  if (process.env.LUMINA_PUBLIC_DEMO === 'true' || process.env.VERCEL || process.env.VERCEL_ENV) {
     return;
   }
   if (!resourceOwnerId) {
