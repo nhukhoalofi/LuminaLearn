@@ -22,9 +22,9 @@ echo "-> Sử dụng GCP Project: $PROJECT_ID"
 echo "-> Region: $REGION"
 echo "-> Service: $SERVICE_NAME"
 
-# 1. Kích hoạt APIs
+# 1. Kích hoạt APIs (Bỏ qua nếu đã kích hoạt hoặc gặp rate limit 429)
 echo -e "\n[1/3] Kích hoạt các dịch vụ GCP..."
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project "$PROJECT_ID"
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project "$PROJECT_ID" 2>/dev/null || true
 
 # 2. Xử lý Secrets
 AUTH_TOKEN="${LUMINA_API_AUTH_TOKEN:-$(openssl rand -base64 24 2>/dev/null || echo "lumina_secret_$(date +%s)")}"

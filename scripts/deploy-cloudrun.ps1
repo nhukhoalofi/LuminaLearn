@@ -46,9 +46,11 @@ Write-Host "-> Sử dụng GCP Project: $ProjectId" -ForegroundColor Green
 Write-Host "-> Region: $Region" -ForegroundColor Green
 Write-Host "-> Service Name: $ServiceName" -ForegroundColor Green
 
-# 3. Kích hoạt các GCP APIs cần thiết
+# 3. Kích hoạt các GCP APIs cần thiết (Bỏ qua nếu đã kích hoạt hoặc gặp rate limit 429)
 Write-Host "`n[1/3] Đang kiểm tra & kích hoạt các dịch vụ GCP (Cloud Run, Cloud Build, Artifact Registry)..." -ForegroundColor Yellow
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project $ProjectId
+try {
+    gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project $ProjectId 2>$null
+} catch {}
 
 # 4. Kiểm tra Gemini API Key
 if ([string]::IsNullOrWhiteSpace($GeminiApiKey)) {
