@@ -51,7 +51,7 @@ interface JobProgress {
 }
 
 export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoViewProps) {
-  const [selectedSubject, setSelectedSubject] = useState<EducationalDomain>('physics');
+  const [selectedSubject, setSelectedSubject] = useState<EducationalDomain | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
   const [teachingGoal, setTeachingGoal] = useState<AgentStudioTeachingGoalV3>('build_intuition');
   const [visualDirection, setVisualDirection] = useState<AgentStudioVisualDirectionV3>('cinematic_science');
@@ -69,10 +69,12 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Ưu tiên hiển thị các chủ đề Smart Campus & Môi trường lên hàng đầu trong danh sách gợi ý
-  const visibleTopics = [
-    ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && (item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường'))),
-    ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && !(item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường')))
-  ];
+  const visibleTopics = selectedSubject
+    ? [
+        ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && (item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường'))),
+        ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && !(item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường')))
+      ]
+    : [];
   const selectedTopicLabel = AGENT_TOPICS.find((item) => item.topicId === selectedTopicId)?.label ?? '';
   const requiresExternalApi = agentExecutionMode !== 'mock' || narrationMode !== 'none';
 
@@ -542,7 +544,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                     transition: 'all 0.2s ease',
                   }}
                 >
-                  {selectedTopicId ? selectedTopicLabel : '👉 Vui lòng nhấp chọn một chủ đề bên dưới để bắt đầu...'}
+                  {selectedTopicId ? selectedTopicLabel : selectedSubject ? '👉 Vui lòng chọn một chủ đề bên dưới...' : '👉 Hãy chọn Môn học bên dưới trước để xem các chủ đề...'}
                 </div>
                 <span
                   style={{
@@ -558,40 +560,42 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
               </div>
 
               {/* Quick suggestions - Tối giản 4-5 chủ đề, màu sắc đồng nhất nhẹ nhàng */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  flexWrap: 'wrap',
-                  marginBottom: '1.25rem',
-                }}
-              >
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748B' }}>Gợi ý chủ đề:</span>
-                {visibleTopics.slice(0, 4).map((item) => {
-                  const isCurSelected = item.topicId === selectedTopicId;
-                  return (
-                    <button
-                      key={item.topicId}
-                      type="button"
-                      onClick={() => setSelectedTopicId(item.topicId)}
-                      style={{
-                        fontSize: '0.8rem',
-                        fontWeight: isCurSelected ? 700 : 500,
-                        padding: '0.35rem 0.85rem',
-                        borderRadius: '9999px',
-                        backgroundColor: isCurSelected ? '#EEF2FF' : '#F8FAFC',
-                        border: isCurSelected ? '1.5px solid #6366F1' : '1px solid #E2E8F0',
-                        color: isCurSelected ? '#4F46E5' : '#475569',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
+              {selectedSubject && visibleTopics.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    flexWrap: 'wrap',
+                    marginBottom: '1.25rem',
+                  }}
+                >
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748B' }}>Gợi ý chủ đề:</span>
+                  {visibleTopics.slice(0, 4).map((item) => {
+                    const isCurSelected = item.topicId === selectedTopicId;
+                    return (
+                      <button
+                        key={item.topicId}
+                        type="button"
+                        onClick={() => setSelectedTopicId(item.topicId)}
+                        style={{
+                          fontSize: '0.8rem',
+                          fontWeight: isCurSelected ? 700 : 500,
+                          padding: '0.35rem 0.85rem',
+                          borderRadius: '9999px',
+                          backgroundColor: isCurSelected ? '#EEF2FF' : '#F8FAFC',
+                          border: isCurSelected ? '1.5px solid #6366F1' : '1px solid #E2E8F0',
+                          color: isCurSelected ? '#4F46E5' : '#475569',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Subject Selection */}
               <div style={{ marginBottom: '1.75rem' }}>
