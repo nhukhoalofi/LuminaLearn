@@ -17,7 +17,7 @@ interface CreateVideoViewProps {
 type PipelineStep = 1 | 2 | 3;
 
 const AGENT_DOMAINS: Array<{ id: EducationalDomain; label: string; icon: string }> = [
-  { id: 'physics', label: 'Vật lý & Smart Campus', icon: '🌿' },
+  { id: 'physics', label: 'Khoa học Môi trường & Bền vững', icon: '🌿' },
   { id: 'mathematics', label: 'Toán học', icon: '∑' },
   { id: 'artificial_intelligence', label: 'Trí tuệ nhân tạo', icon: '✦' },
 ];
@@ -737,21 +737,10 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                 </div>
               )}
 
-              {requiresExternalApi && (
-                <label style={{ display: 'flex', gap: '0.55rem', alignItems: 'flex-start', marginBottom: '1.25rem', color: '#92400E', fontWeight: 650 }}>
-                  <input
-                    type="checkbox"
-                    checked={externalApiConfirmed}
-                    onChange={(event) => setExternalApiConfirmed(event.target.checked)}
-                  />
-                  Tôi xác nhận cho phép gọi API ngoài và sử dụng quota cho cấu hình agent/TTS đã chọn.
-                </label>
-              )}
-
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={busy || (requiresExternalApi && !externalApiConfirmed)}
+                disabled={busy}
                 style={{
                   alignSelf: 'flex-end',
                   display: 'inline-flex',
@@ -764,10 +753,11 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   fontSize: '1rem',
                   fontWeight: 800,
                   border: 'none',
-                  cursor: busy || (requiresExternalApi && !externalApiConfirmed) ? 'not-allowed' : 'pointer',
-                  opacity: busy || (requiresExternalApi && !externalApiConfirmed) ? 0.65 : 1,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  opacity: busy ? 0.65 : 1,
                   boxShadow: '0 8px 20px -4px rgba(124, 58, 237, 0.4)',
                   transition: 'all 0.2s ease',
+                  marginTop: '0.5rem',
                 }}
               >
                 <span>{busy ? 'Đội agent đang lập kế hoạch...' : 'Khởi chạy đội Agent'}</span>
