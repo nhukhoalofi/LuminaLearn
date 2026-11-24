@@ -87,6 +87,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
           if (updated.status === 'completed') {
             setActiveStep(3);
             setBusy(false);
+            if (!updated.videoUrl && updated.jobId) {
+              setJob({ ...updated, videoUrl: `/api/jobs/${updated.jobId}/video` });
+            }
             if (onVideoCreated) onVideoCreated();
           } else if (updated.status === 'failed') {
             setError(updated.error || 'Quá trình xuất video gặp sự cố.');
@@ -550,7 +553,7 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                 </span>
               </div>
 
-              {/* Quick suggestions - Clean, focused for Smart Campus */}
+              {/* Quick suggestions - Tối giản 4-5 chủ đề, màu sắc đồng nhất nhẹ nhàng */}
               <div
                 style={{
                   display: 'flex',
@@ -560,10 +563,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                   marginBottom: '1.25rem',
                 }}
               >
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#6366F1' }}>Gợi ý chủ đề:</span>
-                {visibleTopics.slice(0, 8).map((item) => {
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748B' }}>Gợi ý chủ đề:</span>
+                {visibleTopics.slice(0, 4).map((item) => {
                   const isCurSelected = item.topicId === selectedTopicId;
-                  const isSmartCampus = item.label.includes('Smart Campus') || item.label.includes('môi trường');
                   return (
                     <button
                       key={item.topicId}
@@ -574,9 +576,9 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
                         fontWeight: isCurSelected ? 700 : 500,
                         padding: '0.35rem 0.85rem',
                         borderRadius: '9999px',
-                        backgroundColor: isCurSelected ? '#EEF2FF' : isSmartCampus ? '#F0FDF4' : '#F8FAFC',
-                        border: isCurSelected ? '1.5px solid #6366F1' : isSmartCampus ? '1.5px solid #86EFAC' : '1px solid #E2E8F0',
-                        color: isCurSelected ? '#4F46E5' : isSmartCampus ? '#15803D' : '#475569',
+                        backgroundColor: isCurSelected ? '#EEF2FF' : '#F8FAFC',
+                        border: isCurSelected ? '1.5px solid #6366F1' : '1px solid #E2E8F0',
+                        color: isCurSelected ? '#4F46E5' : '#475569',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                       }}
