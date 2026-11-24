@@ -52,7 +52,7 @@ interface JobProgress {
 
 export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoViewProps) {
   const [selectedSubject, setSelectedSubject] = useState<EducationalDomain>('physics');
-  const [selectedTopicId, setSelectedTopicId] = useState('physics.smart_campus.environment_procedural');
+  const [selectedTopicId, setSelectedTopicId] = useState('physics.environment.smart_campus');
   const [teachingGoal, setTeachingGoal] = useState<AgentStudioTeachingGoalV3>('build_intuition');
   const [visualDirection, setVisualDirection] = useState<AgentStudioVisualDirectionV3>('cinematic_science');
   const [targetAudience, setTargetAudience] = useState<'high_school' | 'undergraduate' | 'general_public'>('high_school');
@@ -68,7 +68,11 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const visibleTopics = AGENT_TOPICS.filter((item) => item.domain === selectedSubject);
+  // Ưu tiên hiển thị các chủ đề Smart Campus & Môi trường lên hàng đầu trong danh sách gợi ý
+  const visibleTopics = [
+    ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && (item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường'))),
+    ...AGENT_TOPICS.filter((item) => item.domain === selectedSubject && !(item.topicId.includes('environment') || item.label.includes('Smart Campus') || item.label.includes('môi trường')))
+  ];
   const selectedTopicLabel = AGENT_TOPICS.find((item) => item.topicId === selectedTopicId)?.label ?? '';
   const requiresExternalApi = agentExecutionMode !== 'mock' || narrationMode !== 'none';
 
