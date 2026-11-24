@@ -312,7 +312,8 @@ export function CreateVideoView({ onVideoCreated, onGoToAlbum }: CreateVideoView
 
       if (!approveRes.ok) {
         const errApprove = await approveRes.json().catch(() => ({}));
-        throw new Error(errApprove.message || errApprove.error || 'Lỗi khi phê duyệt và xuất video.');
+        const detailMsg = errApprove.message || errApprove.error;
+        throw new Error(detailMsg ? `Lỗi phê duyệt: ${detailMsg}` : 'Lỗi khi phê duyệt và xuất video.');
       }
 
       const approveData = await approveRes.json();

@@ -58,9 +58,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     );
     return NextResponse.json({ draft, artifactId: draft.approvedArtifact.artifactId, job }, { status: 202 });
   } catch (error) {
+    console.error('[API /approve error]:', error);
     if (error instanceof DraftVersionConflictV3Error) return NextResponse.json({ error: error.code, currentVersion: error.actualVersion }, { status: 409 });
     if (error instanceof SecurityError) return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
-    return NextResponse.json({ error: 'v3_approval_failed', message: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    return NextResponse.json({
+      error: 'v3_approval_failed',
+      message: error instanceof Error ? error.message : String(error),
+      stack: process.env.NODE_ENV !== 'production' ? (error instanceof Error ? error.stack : undefined) : undefined
+    }, { status: 400 });
   }
 }
 
