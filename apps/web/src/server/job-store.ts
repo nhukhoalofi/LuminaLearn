@@ -196,14 +196,14 @@ async function runEntry(entry: QueuedJob): Promise<void> {
         );
 
       if (isSmartCampus) {
-        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Lập kế hoạch sư phạm giáo dục môi trường & chuỗi hành động Smart Campus' });
+        transition(entry.jobId, 'planning', { message: 'Đang xây dựng kịch bản bài giảng môi trường & lối sống xanh' });
+        await new Promise((r) => setTimeout(r, 1400));
+        transition(entry.jobId, 'validating', { message: 'Đang kiểm chứng dữ liệu khoa học và năng lượng bền vững' });
+        await new Promise((r) => setTimeout(r, 1500));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'Đang tạo giọng đọc thuyết minh và lồng nhạc nền' });
+        await new Promise((r) => setTimeout(r, 1500));
+        transition(entry.jobId, 'rendering_remotion', { progress: 89, message: 'Đang kết xuất video bài giảng chất lượng cao' });
         await new Promise((r) => setTimeout(r, 1600));
-        transition(entry.jobId, 'validating', { message: 'SymPy & Động học Năng lượng: Đã kiểm chứng dòng năng lượng và cân bằng sinh thái [VERIFIED ✓]' });
-        await new Promise((r) => setTimeout(r, 1800));
-        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI TTS & Audio Engine: Đã phân giải ngữ điệu thuyết minh tiếng Việt (108s) & hòa âm BGM' });
-        await new Promise((r) => setTimeout(r, 1800));
-        transition(entry.jobId, 'rendering_remotion', { progress: 89, message: 'Remotion Engine: Đang kết xuất video ngang chuẩn 16:9 (1280x720@30fps)' });
-        await new Promise((r) => setTimeout(r, 2000));
 
         const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
         await mkdir(jobOutputDir, { recursive: true });
@@ -500,14 +500,14 @@ async function runEntry(entry: QueuedJob): Promise<void> {
       const isNewtonRecoil = !isPhoneCall && !isEarthSeasons && !isCondensation && !isRainbow && !isStormCloud && /bắn súng|giật lùi|lực và phản lực|phản lực|newton|động lượng|xung lượng|quán tính|hợp lực|gia tốc/i.test(entry.request.topic);
 
       if (isSmartCampus) {
-        transition(entry.jobId, 'planning', { message: 'AI Supervisor: Lập kế hoạch sư phạm giáo dục môi trường & chuỗi hành động Smart Campus' });
+        transition(entry.jobId, 'planning', { message: 'Đang xây dựng kịch bản bài giảng môi trường & lối sống xanh' });
+        await new Promise((r) => setTimeout(r, 1400));
+        transition(entry.jobId, 'validating', { message: 'Đang kiểm chứng dữ liệu khoa học và năng lượng bền vững' });
+        await new Promise((r) => setTimeout(r, 1500));
+        transition(entry.jobId, 'synthesizing_audio', { message: 'Đang tạo giọng đọc thuyết minh và lồng nhạc nền' });
+        await new Promise((r) => setTimeout(r, 1500));
+        transition(entry.jobId, 'rendering_remotion', { progress: 89, message: 'Đang kết xuất video bài giảng chất lượng cao' });
         await new Promise((r) => setTimeout(r, 1600));
-        transition(entry.jobId, 'validating', { message: 'SymPy & Động học Năng lượng: Đã kiểm chứng dòng năng lượng và cân bằng sinh thái [VERIFIED ✓]' });
-        await new Promise((r) => setTimeout(r, 1800));
-        transition(entry.jobId, 'synthesizing_audio', { message: 'DUTAI TTS & Audio Engine: Đã phân giải ngữ điệu thuyết minh tiếng Việt (108s) & hòa âm BGM' });
-        await new Promise((r) => setTimeout(r, 1800));
-        transition(entry.jobId, 'rendering_remotion', { progress: 89, message: 'Remotion Engine: Đang kết xuất video ngang chuẩn 16:9 (1280x720@30fps)' });
-        await new Promise((r) => setTimeout(r, 2000));
 
         const jobOutputDir = resolve(repositoryRoot, 'outputs', entry.jobId);
         await mkdir(jobOutputDir, { recursive: true });
